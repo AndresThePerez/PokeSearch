@@ -39,21 +39,40 @@ func run(esURL, ref string, force bool) error {
 		return err
 	}
 
-	// Guard: leave a populated index alone unless -force.
-	if res, err := es.Count(es.Count.WithIndex(esindex.IndexName)); err == nil {
-		defer res.Body.Close()
-		if res.StatusCode == 200 {
-			body, _ := io.ReadAll(res.Body)
-			if !force {
-				fmt.Printf("index %q already populated (%s) — nothing to do (use -force to reseed)\n",
-					esindex.IndexName, strings.TrimSpace(string(body)))
-				return nil
-			}
-			if _, err := es.Indices.Delete([]string{esindex.IndexName}); err != nil {
-				return fmt.Errorf("delete index: %w", err)
-			}
+	// Guard: leave a populated index alone unless -force. An existing empty
+	// index is an interrupted seed, so recreate it instead of treating it as
+	// complete. Count transport and HTTP errors are surfaced immediately.
+	res, err := es.Count(es.Count.WithIndex(esindex.IndexName))
+	if err != nil {
+		return fmt.Errorf("inspect index: %w", err)
+	}
+	body, readErr := io.ReadAll(res.Body)
+	res.Body.Close()
+	if readErr != nil {
+		return fmt.Errorf("inspect index body: %w", readErr)
+	}
+	if res.StatusCode == http.StatusOK {
+		var existing struct {
+			Count int `json:"count"`
+		}
+		if err := unmarshal(body, &existing); err != nil {
+			return fmt.Errorf("inspect index: %w", err)
+		}
+		if existing.Count > 0 && !force {
+			fmt.Printf("index %q already populated (count %d) — nothing to do (use -force to reseed)\n",
+				esindex.IndexName, existing.Count)
+			return nil
+		}
+		if err := do(es.Indices.Delete([]string{esindex.IndexName})); err != nil {
+			return fmt.Errorf("delete index: %w", err)
+		}
+		if existing.Count == 0 {
+			fmt.Printf("deleted empty index %q before seeding\n", esindex.IndexName)
+		} else {
 			fmt.Printf("deleted existing index %q (-force)\n", esindex.IndexName)
 		}
+	} else if res.StatusCode != http.StatusNotFound {
+		return fmt.Errorf("inspect index: ES %s: %s", res.Status(), truncate(string(body), 500))
 	}
 
 	url := "https://codeload.github.com/AndresThePerez/pokemon-tcg-data/tar.gz/" + ref
@@ -115,7 +134,7 @@ func run(esURL, ref string, force bool) error {
 		return fmt.Errorf("forcemerge: %w", err)
 	}
 
-	res, err := es.Count(es.Count.WithIndex(esindex.IndexName))
+	res, err = es.Count(es.Count.WithIndex(esindex.IndexName))
 	if err != nil {
 		return fmt.Errorf("count: %w", err)
 	}

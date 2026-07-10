@@ -1,1 +1,158 @@
-<!doctype html><meta charset="utf-8"><title>Pokesearch</title><p>Pokesearch - frontend lands in Phase 3.</p>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#151817">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23d8ff67'/%3E%3Cpath d='M2 16h28' stroke='%23151817' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%23d8ff67' stroke='%23151817' stroke-width='3'/%3E%3C/svg%3E">
+  <title>Pokesearch — Pokémon TCG card search</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="Pokesearch home">
+      <span class="brand-mark" aria-hidden="true"><span></span></span>
+      <span>
+        <strong>Pokesearch</strong>
+        <small>TCG archive</small>
+      </span>
+    </a>
+
+    <div class="search-combobox" role="combobox" aria-expanded="false" aria-haspopup="listbox">
+      <span class="search-icon" aria-hidden="true"></span>
+      <input id="search-input" type="search" placeholder="Search 20,324 cards…"
+             aria-label="Search cards" aria-autocomplete="list" aria-controls="suggest-list"
+             autocomplete="off">
+      <span class="search-key" aria-hidden="true">/</span>
+      <ul id="suggest-list" role="listbox" hidden></ul>
+    </div>
+
+    <p class="archive-note">20,324 English cards<br><span>173 sets · 1999—today</span></p>
+  </header>
+
+  <div class="app-layout">
+    <aside id="filter-rail" aria-label="Filters">
+      <button id="filter-toggle" aria-expanded="false" aria-controls="filter-rail">
+        <span>Filters</span><span aria-hidden="true">⌄</span>
+      </button>
+
+      <div class="filter-content">
+        <div class="rail-heading">
+          <p>Refine archive</p>
+          <span>Live facets</span>
+        </div>
+
+        <fieldset id="supertype-toggle">
+          <legend>Card class</legend>
+          <div class="segmented-control">
+            <button type="button" data-supertype="" aria-pressed="true">All <span class="facet-count">—</span></button>
+            <button type="button" data-supertype="pokemon" aria-pressed="false">Pokémon <span class="facet-count">—</span></button>
+            <button type="button" data-supertype="trainer" aria-pressed="false">Trainer <span class="facet-count">—</span></button>
+            <button type="button" data-supertype="energy" aria-pressed="false">Energy <span class="facet-count">—</span></button>
+          </div>
+        </fieldset>
+
+        <section class="filter-group" aria-labelledby="energy-heading">
+          <h2 id="energy-heading">Energy type</h2>
+          <div id="type-chips">
+            <button type="button" class="type-chip type-fire" data-type="Fire" aria-pressed="false"><span class="type-dot"></span>Fire <span class="facet-count">—</span></button>
+            <button type="button" class="type-chip type-water" data-type="Water" aria-pressed="false"><span class="type-dot"></span>Water <span class="facet-count">—</span></button>
+            <button type="button" class="type-chip type-lightning" data-type="Lightning" aria-pressed="false"><span class="type-dot"></span>Lightning <span class="facet-count">—</span></button>
+            <button type="button" class="type-chip type-psychic" data-type="Psychic" aria-pressed="false"><span class="type-dot"></span>Psychic <span class="facet-count">—</span></button>
+            <button type="button" class="type-chip type-fighting" data-type="Fighting" aria-pressed="false"><span class="type-dot"></span>Fighting <span class="facet-count">—</span></button>
+            <button type="button" class="type-chip type-darkness" data-type="Darkness" aria-pressed="false"><span class="type-dot"></span>Darkness <span class="facet-count">—</span></button>
+            <button type="button" class="type-chip type-metal" data-type="Metal" aria-pressed="false"><span class="type-dot"></span>Metal <span class="facet-count">—</span></button>
+            <button type="button" class="type-chip type-grass" data-type="Grass" aria-pressed="false"><span class="type-dot"></span>Grass <span class="facet-count">—</span></button>
+            <button type="button" class="type-chip type-fairy" data-type="Fairy" aria-pressed="false"><span class="type-dot"></span>Fairy <span class="facet-count">—</span></button>
+            <button type="button" class="type-chip type-dragon" data-type="Dragon" aria-pressed="false"><span class="type-dot"></span>Dragon <span class="facet-count">—</span></button>
+            <button type="button" class="type-chip type-colorless" data-type="Colorless" aria-pressed="false"><span class="type-dot"></span>Colorless <span class="facet-count">—</span></button>
+          </div>
+        </section>
+
+        <div class="select-stack">
+          <label>Rarity
+            <select id="rarity-select"><option value="">All rarities</option></select>
+          </label>
+          <label>Series
+            <select id="series-select"><option value="">All series</option></select>
+          </label>
+        </div>
+
+        <div id="active-filters" aria-label="Active filters"></div>
+        <button id="clear-filters" type="button" hidden>Clear all filters</button>
+      </div>
+    </aside>
+
+    <main>
+      <div class="results-toolbar">
+        <div>
+          <p class="eyebrow">Card archive</p>
+          <p id="total-count" aria-live="polite">Preparing the collection…</p>
+        </div>
+        <div class="sort-controls">
+          <label>Sort
+            <select id="sort-select">
+              <option value="relevance">Relevance</option>
+              <option value="newest">Newest</option>
+              <option value="oldest">Oldest</option>
+              <option value="hp">HP</option>
+              <option value="name">Name</option>
+            </select>
+          </label>
+          <button id="order-toggle" type="button" aria-label="Toggle sort order" hidden>↓</button>
+        </div>
+      </div>
+
+      <div id="degraded-banner" role="alert" hidden>
+        <strong>The archive is taking a breather.</strong>
+        <span>Search is temporarily unavailable. Check the connection and try again.</span>
+      </div>
+
+      <ul id="results-grid" aria-label="Card search results" aria-busy="true">
+        <li class="card-cell skeleton-card" aria-hidden="true"><span></span><i></i></li>
+        <li class="card-cell skeleton-card" aria-hidden="true"><span></span><i></i></li>
+        <li class="card-cell skeleton-card" aria-hidden="true"><span></span><i></i></li>
+        <li class="card-cell skeleton-card" aria-hidden="true"><span></span><i></i></li>
+        <li class="card-cell skeleton-card" aria-hidden="true"><span></span><i></i></li>
+        <li class="card-cell skeleton-card" aria-hidden="true"><span></span><i></i></li>
+        <li class="card-cell skeleton-card" aria-hidden="true"><span></span><i></i></li>
+        <li class="card-cell skeleton-card" aria-hidden="true"><span></span><i></i></li>
+        <li class="card-cell skeleton-card" aria-hidden="true"><span></span><i></i></li>
+        <li class="card-cell skeleton-card" aria-hidden="true"><span></span><i></i></li>
+      </ul>
+
+      <p id="empty-state" hidden>No cards match your search and filters.</p>
+      <button id="load-more" type="button" hidden>Load more cards</button>
+
+      <details id="query-inspector">
+        <summary>
+          <span><small>Under the hood</small>View the Elasticsearch query</span>
+          <span aria-hidden="true">+</span>
+        </summary>
+        <div class="inspector-body">
+          <button id="copy-dsl" type="button">Copy DSL</button>
+          <pre id="dsl-json">The generated query will appear here.</pre>
+        </div>
+      </details>
+    </main>
+  </div>
+
+  <dialog id="card-modal" aria-labelledby="modal-card-name">
+    <div class="modal-shell">
+      <button id="modal-close" type="button" aria-label="Close">×</button>
+      <div class="modal-art"><img id="modal-image" alt=""></div>
+      <div class="modal-details">
+        <p class="eyebrow">Archive specimen</p>
+        <h2 id="modal-card-name"></h2>
+        <p id="modal-set-line"></p>
+        <p id="modal-meta-line"></p>
+        <div id="modal-attacks"></div>
+        <div id="modal-battle-line"></div>
+        <p id="modal-flavor"></p>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>

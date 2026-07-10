@@ -1,0 +1,10 @@
+# Server topology: restart policy + memory caps. Port comes from .env
+# (APP_PORT=8083). ES stays internal — this file must never map 9200.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build
+services:
+  es:
+    restart: unless-stopped
+    mem_limit: 1g
+  app:
+    restart: unless-stopped
+    mem_limit: 256m

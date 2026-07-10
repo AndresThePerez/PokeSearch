@@ -105,7 +105,35 @@ Never edit the server clone in place.
 
 ### Backup and restore
 
-Verified in Milestone 2 Phase 8 — see the ops runbook section below (filled in once the commands have been exercised against the live volume).
+The index is write-once: one verified backup after seeding is sufficient (no cron). All commands run on the server in `~/apps/pokesearch`; each was exercised against the live volume on 2026-07-10.
+
+Backup (≈30s downtime; the tarball is ~7MB):
+
+```bash
+mkdir -p ~/backups
+docker compose -f docker-compose.yml -f docker-compose.server.yml stop es
+docker run --rm -v pokesearch_es-data:/data -v ~/backups:/out alpine \
+  tar czf /out/pokesearch-es-data-$(date +%F).tgz -C /data .
+docker compose -f docker-compose.yml -f docker-compose.server.yml start es
+```
+
+Restore (into the live volume — stop the stack first):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.server.yml stop es app
+docker run --rm -v pokesearch_es-data:/data -v ~/backups:/in alpine \
+  sh -c 'rm -rf /data/* && tar xzf /in/pokesearch-es-data-<DATE>.tgz -C /data'
+docker compose -f docker-compose.yml -f docker-compose.server.yml start es app
+```
+
+Recovery ladder, cheapest first:
+
+1. **Container restart** — the `es-data` volume persists the index.
+2. **Reseed** with the pinned ref (see Seeding above) — deterministic, takes seconds.
+3. **Restore** the backup tarball into `pokesearch_es-data` (commands above).
+4. **Full rebuild** — re-clone from the bundle, `up -d --build`, reseed.
+
+Rollback for public exposure: restore `/etc/cloudflared/config.yml.bak-<DATE>` over the live config, `sudo systemctl restart cloudflared`, then re-verify `daybook.andrestheperez.com`, the apex, and `www` all return 200.
 
 ### Public exposure
 

@@ -91,13 +91,13 @@ docker compose -f docker-compose.yml -f docker-compose.server.yml --profile seed
 
 ### Updating the server
 
-The server has no git remote. Changes are committed on the workstation, then shipped as a bundle:
+The server clone tracks `origin` at `git@github.com:AndresThePerez/PokeSearch.git`. Changes are committed on the workstation, pushed, then pulled on the server:
 
 ```bash
 # workstation
-git bundle create ~/pokesearch.bundle --all && scp ~/pokesearch.bundle server:~/apps/
+git push
 # server
-cd ~/apps/pokesearch && git pull ../pokesearch.bundle master
+cd ~/apps/pokesearch && git pull
 docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build
 ```
 
@@ -131,7 +131,7 @@ Recovery ladder, cheapest first:
 1. **Container restart** — the `es-data` volume persists the index.
 2. **Reseed** with the pinned ref (see Seeding above) — deterministic, takes seconds.
 3. **Restore** the backup tarball into `pokesearch_es-data` (commands above).
-4. **Full rebuild** — re-clone from the bundle, `up -d --build`, reseed.
+4. **Full rebuild** — re-clone from GitHub, `up -d --build`, reseed.
 
 Rollback for public exposure: restore `/etc/cloudflared/config.yml.bak-<DATE>` over the live config, `sudo systemctl restart cloudflared`, then re-verify `daybook.andrestheperez.com`, the apex, and `www` all return 200.
 

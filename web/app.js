@@ -11,6 +11,7 @@ let suggestTimer = null;
 let suggestions = [];
 let activeSuggestion = -1;
 const cardsByID = new Map();
+let modalOpener = null;
 
 function readStateFromURL() {
   const sp = new URLSearchParams(location.search);
@@ -113,11 +114,14 @@ function setLoading(loading, { append = false } = {}) {
   grid.setAttribute("aria-busy", String(loading));
   if (loading) {
     $("load-more").disabled = true;
-    if (!append) {
+    if (!append && !grid.querySelector(".card-open")) {
+      grid.hidden = false;
       grid.replaceChildren(...Array.from({ length: 10 }, makeSkeleton));
     }
+    grid.classList.add("is-loading");
     return;
   }
+  grid.classList.remove("is-loading");
   $("load-more").disabled = false;
 }
 
@@ -336,6 +340,116 @@ function setDegraded(isDegraded) {
   $("degraded-banner").hidden = !isDegraded;
 }
 
+function element(tag, className, textValue) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (textValue !== undefined) node.textContent = textValue;
+  return node;
+}
+
+function renderModal(card) {
+  $("modal-image").src = imageURL(card, "large");
+  $("modal-image").alt = card.name;
+  $("modal-card-name").textContent = card.name;
+  $("modal-set-line").textContent = `${card.set_name} · ${card.number}/${card.set_total} · ${card.release_date}`;
+
+  const meta = [card.rarity, card.hp ? `${card.hp} HP` : "", ...(card.types ?? []), card.artist ? `Art by ${card.artist}` : ""].filter(Boolean);
+  $("modal-meta-line").textContent = meta.join(" · ");
+  $("modal-meta-line").hidden = meta.length === 0;
+
+  const moveSections = [];
+  if (card.attacks?.length) {
+    const section = element("section", "modal-section");
+    section.append(element("h3", "modal-section-title", "Attacks"));
+    for (const attack of card.attacks) section.append(renderAttack(attack));
+    moveSections.push(section);
+  }
+  if (card.abilities?.length) {
+    const section = element("section", "modal-section");
+    section.append(element("h3", "modal-section-title", "Abilities"));
+    for (const ability of card.abilities) section.append(renderAbility(ability));
+    moveSections.push(section);
+  }
+  $("modal-attacks").replaceChildren(...moveSections);
+  $("modal-attacks").hidden = moveSections.length === 0;
+
+  const battle = [];
+  if (card.weaknesses?.length) battle.push(`Weakness ${card.weaknesses.map((value) => `${value.type} ${value.value}`).join(", ")}`);
+  if (card.resistances?.length) battle.push(`Resistance ${card.resistances.map((value) => `${value.type} ${value.value}`).join(", ")}`);
+  if (card.retreat_cost) battle.push(`Retreat ${card.retreat_cost}`);
+  $("modal-battle-line").replaceChildren(...battle.map((value) => element("span", "battle-chip", value)));
+  $("modal-battle-line").hidden = battle.length === 0;
+
+  $("modal-flavor").textContent = card.flavor_text ?? "";
+  $("modal-flavor").hidden = !card.flavor_text;
+}
+
+function renderAttack(attack) {
+  const row = element("article", "move-row");
+  const heading = element("div", "move-heading");
+  const name = element("h4", "", attack.name);
+  const damage = element("strong", "move-damage", attack.damage || "—");
+  heading.append(name, damage);
+
+  const costs = element("div", "energy-cost");
+  for (const type of attack.cost ?? []) {
+    const icon = element("span", `energy-icon energy-${type.toLowerCase()}`, type === "Colorless" ? "◇" : type[0]);
+    icon.title = type;
+    icon.setAttribute("aria-label", type);
+    costs.append(icon);
+  }
+  row.append(heading);
+  if (costs.childElementCount) row.append(costs);
+  if (attack.text) row.append(element("p", "", attack.text));
+  return row;
+}
+
+function renderAbility(ability) {
+  const row = element("article", "move-row ability-row");
+  const heading = element("div", "move-heading");
+  heading.append(element("h4", "", ability.name), element("span", "ability-kind", ability.type));
+  row.append(heading);
+  if (ability.text) row.append(element("p", "", ability.text));
+  return row;
+}
+
+function openModal(card, { updateHash = true, opener = null } = {}) {
+  modalOpener = opener;
+  renderModal(card);
+  if (updateHash) location.hash = `card=${encodeURIComponent(card.id)}`;
+  if (!$("card-modal").open) $("card-modal").showModal();
+}
+
+function closeModal() {
+  if ($("card-modal").open) $("card-modal").close();
+}
+
+function clearCardHash() {
+  if (location.hash.startsWith("#card=")) {
+    history.replaceState(null, "", `${location.pathname}${location.search}`);
+  }
+}
+
+async function openDeepLink() {
+  if (!location.hash.startsWith("#card=")) return;
+  const id = decodeURIComponent(location.hash.slice("#card=".length));
+  if (!id) return;
+  let card = cardsByID.get(id);
+  if (!card) {
+    try {
+      const sp = new URLSearchParams({ id, debug: "1" });
+      const res = await fetch(`/api/search?${sp}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      card = data.results[0];
+      if (card) cardsByID.set(card.id, card);
+    } catch {
+      return;
+    }
+  }
+  if (card) openModal(card, { updateHash: false });
+}
+
 function bindCoreEvents() {
   $("search-input").addEventListener("input", (event) => {
     state.q = event.target.value.trim();
@@ -441,13 +555,34 @@ function bindFilterEvents() {
   });
 }
 
+function bindModalEvents() {
+  $("results-grid").addEventListener("click", (event) => {
+    const button = event.target.closest(".card-open");
+    if (!button) return;
+    const card = cardsByID.get(button.dataset.id);
+    if (card) openModal(card, { opener: button });
+  });
+
+  $("modal-close").addEventListener("click", closeModal);
+  $("card-modal").addEventListener("click", (event) => {
+    if (event.target === $("card-modal")) closeModal();
+  });
+  $("card-modal").addEventListener("close", () => {
+    clearCardHash();
+    const opener = modalOpener;
+    modalOpener = null;
+    opener?.focus();
+  });
+}
+
 function init() {
   readStateFromURL();
   syncControls();
   syncFilterControls();
   bindCoreEvents();
   bindFilterEvents();
-  runSearch();
+  bindModalEvents();
+  runSearch().then(openDeepLink);
 }
 
 init();

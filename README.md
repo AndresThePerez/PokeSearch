@@ -1,6 +1,6 @@
 # Pokesearch
 
-Pokesearch is a fast, local search engine over 20,324 English Pokémon TCG cards. It combines a Go API, Elasticsearch relevance and facets, and an embedded vanilla-JavaScript gallery in one containerized application. Its signature feature is the query inspector: every UI search exposes the exact Elasticsearch DSL and writes the same query as structured JSON to the application log.
+Pokesearch is a fast, local search engine over 20,324 English Pokémon TCG cards. It combines a Go API, Elasticsearch relevance and facets, and an embedded vanilla-JavaScript gallery in one containerized application. Its signature feature is the right-side observability rail: every UI search exposes the exact Elasticsearch DSL, Elasticsearch latency, browser round-trip time, result and filter stats, and visible SLA targets while writing the same query as structured JSON to the application log.
 
 ## Quick start
 
@@ -45,7 +45,9 @@ go vet ./...
 | `GET /api/search` | Fuzzy multi-field card search, filters, facets, sorting, and pagination | `q`, `id`, `supertype`, `types`, `rarity`, `series`, `hp_min`, `hp_max`, `sort`, `order`, `page`, `debug=1` |
 | `GET /api/suggest` | Deduplicated card-name completion with a fuzzy retry | `q` |
 
-Search responses contain 24 results per page plus live `supertype`, `types`, `rarity`, and `set_series` facets. Add `debug=1` to receive the generated DSL in the response. Every search and suggestion reaching Elasticsearch is also logged as one replayable JSON line.
+Search responses contain 24 results per page, Elasticsearch's `took_ms`, and live `supertype`, `types`, `rarity`, and `set_series` facets. Add `debug=1` to receive the generated DSL in the response. Every search and suggestion reaching Elasticsearch is also logged as one replayable JSON line.
+
+The API and index retain the source dataset's canonical TCG type values. The interface presents `Metal` as **Steel** and `Colorless` as **Normal**, including filter labels, active-filter chips, attack costs, and card details.
 
 ## Architecture
 

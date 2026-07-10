@@ -99,6 +99,7 @@ func TestSearchHandler(t *testing.T) {
 		Total   int                         `json:"total"`
 		Page    int                         `json:"page"`
 		Pages   int                         `json:"pages"`
+		TookMs  int                         `json:"took_ms"`
 		Results []map[string]any            `json:"results"`
 		Facets  map[string][]map[string]any `json:"facets"`
 		DSL     map[string]any              `json:"dsl"`
@@ -108,6 +109,9 @@ func TestSearchHandler(t *testing.T) {
 	}
 	if resp.Total != 61 || resp.Page != 1 || resp.Pages != 3 {
 		t.Errorf("total/page/pages = %d/%d/%d", resp.Total, resp.Page, resp.Pages)
+	}
+	if resp.TookMs != 4 {
+		t.Errorf("took_ms = %d, want 4", resp.TookMs)
 	}
 	if len(resp.Results) != 2 || resp.Results[0]["name"] != "Alakazam" || resp.Results[1]["name"] != "Mewtwo δ" {
 		t.Errorf("results: %v", resp.Results)

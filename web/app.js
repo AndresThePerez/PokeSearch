@@ -25,9 +25,13 @@ function readStateFromURL() {
   state.order = sp.get("order") ?? "";
 }
 
+function queryText() {
+  return state.q.trim();
+}
+
 function writeStateToURL() {
   const sp = new URLSearchParams();
-  if (state.q) sp.set("q", state.q);
+  if (queryText()) sp.set("q", queryText());
   if (state.supertype) sp.set("supertype", state.supertype);
   if (state.types.length) sp.set("types", state.types.join(","));
   if (state.rarity) sp.set("rarity", state.rarity);
@@ -40,7 +44,7 @@ function writeStateToURL() {
 
 function searchParams() {
   const sp = new URLSearchParams();
-  if (state.q) sp.set("q", state.q);
+  if (queryText()) sp.set("q", queryText());
   if (state.supertype) sp.set("supertype", state.supertype);
   if (state.types.length) sp.set("types", state.types.join(","));
   if (state.rarity) sp.set("rarity", state.rarity);
@@ -57,13 +61,14 @@ async function runSearch({ append = false } = {}) {
   writeStateToURL();
   searchController?.abort();
   const controller = new AbortController();
+  const startedAt = performance.now();
   searchController = controller;
   setLoading(true, { append });
   try {
     const res = await fetch(`/api/search?${searchParams()}`, { signal: controller.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    renderResults(data, { append });
+    renderResults(data, { append, roundTripMs: performance.now() - startedAt });
     renderInspector(data.dsl);
     setDegraded(false);
   } catch (err) {
@@ -82,7 +87,7 @@ function scheduleSearch() {
 }
 
 function effectiveSort() {
-  return state.sort || (state.q ? "relevance" : "newest");
+  return state.sort || (queryText() ? "relevance" : "newest");
 }
 
 function effectiveOrder() {
@@ -125,7 +130,7 @@ function setLoading(loading, { append = false } = {}) {
   $("load-more").disabled = false;
 }
 
-function renderResults(data, { append = false } = {}) {
+function renderResults(data, { append = false, roundTripMs = 0 } = {}) {
   state.page = data.page;
   renderGrid(data.results, { append });
   renderFacets(data.facets, data.total);
@@ -133,6 +138,7 @@ function renderResults(data, { append = false } = {}) {
   $("load-more").hidden = data.pages === 0 || data.page >= data.pages;
   $("empty-state").hidden = data.total !== 0;
   $("results-grid").hidden = data.total === 0;
+  renderStats(data, roundTripMs);
   syncControls();
 }
 
@@ -224,7 +230,7 @@ function renderActiveFilters() {
   const container = $("active-filters");
   const active = [];
   if (state.supertype) active.push({ label: state.supertype === "pokemon" ? "Pokémon" : titleCase(state.supertype), remove: () => { state.supertype = ""; } });
-  for (const type of state.types) active.push({ label: type, remove: () => { state.types = state.types.filter((item) => item !== type); } });
+  for (const type of state.types) active.push({ label: displayType(type), remove: () => { state.types = state.types.filter((item) => item !== type); } });
   if (state.rarity) active.push({ label: state.rarity, remove: () => { state.rarity = ""; } });
   if (state.series) active.push({ label: state.series, remove: () => { state.series = ""; } });
 
@@ -247,16 +253,23 @@ function renderActiveFilters() {
   });
   container.replaceChildren(...chips);
   $("clear-filters").hidden = active.length === 0;
+  $("stat-filters").textContent = String(active.length);
 }
 
 function titleCase(value) {
   return value ? value[0].toUpperCase() + value.slice(1) : "";
 }
 
+function displayType(value) {
+  if (value === "Metal") return "Steel";
+  if (value === "Colorless") return "Normal";
+  return value;
+}
+
 function scheduleSuggest() {
   clearTimeout(suggestTimer);
   suggestController?.abort();
-  if (!state.q) {
+  if (!queryText()) {
     closeSuggestions();
     return;
   }
@@ -267,7 +280,7 @@ async function fetchSuggestions() {
   const controller = new AbortController();
   suggestController = controller;
   try {
-    const sp = new URLSearchParams({ q: state.q, debug: "1" });
+    const sp = new URLSearchParams({ q: queryText(), debug: "1" });
     const res = await fetch(`/api/suggest?${sp}`, { signal: controller.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
@@ -338,6 +351,34 @@ function renderInspector(dsl) {
 
 function setDegraded(isDegraded) {
   $("degraded-banner").hidden = !isDegraded;
+  setServiceStatus(isDegraded ? "Degraded" : "Online", isDegraded);
+}
+
+function setServiceStatus(label, degraded = false) {
+  $("service-status").lastChild.textContent = label;
+  $("service-status").classList.toggle("is-degraded", degraded);
+}
+
+function renderStats(data, roundTripMs) {
+  $("stat-results").textContent = Number(data.total).toLocaleString();
+  $("stat-engine").textContent = `${data.took_ms ?? "—"} ms`;
+  $("stat-roundtrip").textContent = `${Math.round(roundTripMs)} ms`;
+  $("stat-page").textContent = `${data.page} / ${data.pages || 0}`;
+  $("sla-engine-state").textContent = data.took_ms < 100 ? "within target" : "above target";
+  $("sla-roundtrip-state").textContent = roundTripMs < 250 ? "within target" : "above target";
+}
+
+async function refreshHealth() {
+  try {
+    const res = await fetch("/healthz");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    $("stat-indexed").textContent = Number(data.docs).toLocaleString();
+    setServiceStatus("Online");
+  } catch {
+    $("stat-indexed").textContent = "Unavailable";
+    setServiceStatus("Degraded", true);
+  }
 }
 
 function element(tag, className, textValue) {
@@ -353,7 +394,7 @@ function renderModal(card) {
   $("modal-card-name").textContent = card.name;
   $("modal-set-line").textContent = `${card.set_name} · ${card.number}/${card.set_total} · ${card.release_date}`;
 
-  const meta = [card.rarity, card.hp ? `${card.hp} HP` : "", ...(card.types ?? []), card.artist ? `Art by ${card.artist}` : ""].filter(Boolean);
+  const meta = [card.rarity, card.hp ? `${card.hp} HP` : "", ...(card.types ?? []).map(displayType), card.artist ? `Art by ${card.artist}` : ""].filter(Boolean);
   $("modal-meta-line").textContent = meta.join(" · ");
   $("modal-meta-line").hidden = meta.length === 0;
 
@@ -374,8 +415,8 @@ function renderModal(card) {
   $("modal-attacks").hidden = moveSections.length === 0;
 
   const battle = [];
-  if (card.weaknesses?.length) battle.push(`Weakness ${card.weaknesses.map((value) => `${value.type} ${value.value}`).join(", ")}`);
-  if (card.resistances?.length) battle.push(`Resistance ${card.resistances.map((value) => `${value.type} ${value.value}`).join(", ")}`);
+  if (card.weaknesses?.length) battle.push(`Weakness ${card.weaknesses.map((value) => `${displayType(value.type)} ${value.value}`).join(", ")}`);
+  if (card.resistances?.length) battle.push(`Resistance ${card.resistances.map((value) => `${displayType(value.type)} ${value.value}`).join(", ")}`);
   if (card.retreat_cost) battle.push(`Retreat ${card.retreat_cost}`);
   $("modal-battle-line").replaceChildren(...battle.map((value) => element("span", "battle-chip", value)));
   $("modal-battle-line").hidden = battle.length === 0;
@@ -393,9 +434,10 @@ function renderAttack(attack) {
 
   const costs = element("div", "energy-cost");
   for (const type of attack.cost ?? []) {
-    const icon = element("span", `energy-icon energy-${type.toLowerCase()}`, type === "Colorless" ? "◇" : type[0]);
-    icon.title = type;
-    icon.setAttribute("aria-label", type);
+    const label = displayType(type);
+    const icon = element("span", `energy-icon energy-${type.toLowerCase()}`, label[0]);
+    icon.title = label;
+    icon.setAttribute("aria-label", label);
     costs.append(icon);
   }
   row.append(heading);
@@ -452,7 +494,7 @@ async function openDeepLink() {
 
 function bindCoreEvents() {
   $("search-input").addEventListener("input", (event) => {
-    state.q = event.target.value.trim();
+    state.q = event.target.value;
     state.sort = "";
     state.order = "";
     syncControls();
@@ -582,6 +624,7 @@ function init() {
   bindCoreEvents();
   bindFilterEvents();
   bindModalEvents();
+  refreshHealth();
   runSearch().then(openDeepLink);
 }
 

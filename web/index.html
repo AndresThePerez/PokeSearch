@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#151817">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23d8ff67'/%3E%3Cpath d='M2 16h28' stroke='%23151817' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%23d8ff67' stroke='%23151817' stroke-width='3'/%3E%3C/svg%3E">
+  <meta name="theme-color" content="#a6192e">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23fffaf6' stroke='%23a6192e' stroke-width='2'/%3E%3Cpath d='M2 16h28' stroke='%23a6192e' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%23fffaf6' stroke='%23a6192e' stroke-width='3'/%3E%3C/svg%3E">
   <title>Pokesearch — Pokémon TCG card search</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
@@ -61,11 +61,11 @@
             <button type="button" class="type-chip type-psychic" data-type="Psychic" aria-pressed="false"><span class="type-dot"></span>Psychic <span class="facet-count">—</span></button>
             <button type="button" class="type-chip type-fighting" data-type="Fighting" aria-pressed="false"><span class="type-dot"></span>Fighting <span class="facet-count">—</span></button>
             <button type="button" class="type-chip type-darkness" data-type="Darkness" aria-pressed="false"><span class="type-dot"></span>Darkness <span class="facet-count">—</span></button>
-            <button type="button" class="type-chip type-metal" data-type="Metal" aria-pressed="false"><span class="type-dot"></span>Metal <span class="facet-count">—</span></button>
+            <button type="button" class="type-chip type-metal" data-type="Metal" aria-pressed="false"><span class="type-dot"></span>Steel <span class="facet-count">—</span></button>
             <button type="button" class="type-chip type-grass" data-type="Grass" aria-pressed="false"><span class="type-dot"></span>Grass <span class="facet-count">—</span></button>
             <button type="button" class="type-chip type-fairy" data-type="Fairy" aria-pressed="false"><span class="type-dot"></span>Fairy <span class="facet-count">—</span></button>
             <button type="button" class="type-chip type-dragon" data-type="Dragon" aria-pressed="false"><span class="type-dot"></span>Dragon <span class="facet-count">—</span></button>
-            <button type="button" class="type-chip type-colorless" data-type="Colorless" aria-pressed="false"><span class="type-dot"></span>Colorless <span class="facet-count">—</span></button>
+            <button type="button" class="type-chip type-colorless" data-type="Colorless" aria-pressed="false"><span class="type-dot"></span>Normal <span class="facet-count">—</span></button>
           </div>
         </section>
 
@@ -113,9 +113,40 @@
       <p id="empty-state" hidden>No cards match your search and filters.</p>
       <button id="load-more" type="button" hidden>Load more cards</button>
 
-      <details id="query-inspector">
+    </main>
+
+    <aside class="observability-rail" aria-label="Search observability">
+      <section class="telemetry-panel" aria-labelledby="telemetry-heading">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Live telemetry</p>
+            <h2 id="telemetry-heading">Search health</h2>
+          </div>
+          <p id="service-status" class="service-status" aria-live="polite"><span></span>Connecting</p>
+        </div>
+
+        <dl class="stats-grid">
+          <div><dt>Cards indexed</dt><dd id="stat-indexed">—</dd></div>
+          <div><dt>Matching results</dt><dd id="stat-results">—</dd></div>
+          <div><dt>ES query</dt><dd id="stat-engine">—</dd></div>
+          <div><dt>Round trip</dt><dd id="stat-roundtrip">—</dd></div>
+          <div><dt>Result page</dt><dd id="stat-page">—</dd></div>
+          <div><dt>Active filters</dt><dd id="stat-filters">0</dd></div>
+        </dl>
+
+        <div class="sla-block">
+          <p class="panel-label">SLA targets</p>
+          <ul>
+            <li><span>Availability</span><strong>99.9%</strong><small>monthly target</small></li>
+            <li><span>ES query</span><strong>&lt; 100 ms</strong><small id="sla-engine-state">awaiting query</small></li>
+            <li><span>UI response</span><strong>&lt; 250 ms</strong><small id="sla-roundtrip-state">awaiting query</small></li>
+          </ul>
+        </div>
+      </section>
+
+      <details id="query-inspector" open>
         <summary>
-          <span><small>Under the hood</small>View the Elasticsearch query</span>
+          <span><small>Under the hood</small>Elasticsearch query</span>
           <span aria-hidden="true">+</span>
         </summary>
         <div class="inspector-body">
@@ -123,7 +154,7 @@
           <pre id="dsl-json">The generated query will appear here.</pre>
         </div>
       </details>
-    </main>
+    </aside>
   </div>
 
   <dialog id="card-modal" aria-labelledby="modal-card-name">

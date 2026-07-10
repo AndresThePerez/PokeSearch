@@ -85,6 +85,7 @@ type searchResponse struct {
 	Total   int                      `json:"total"`
 	Page    int                      `json:"page"`
 	Pages   int                      `json:"pages"`
+	TookMs  int                      `json:"took_ms"`
 	Results []json.RawMessage        `json:"results"`
 	Facets  map[string][]facetBucket `json:"facets"`
 	DSL     map[string]any           `json:"dsl,omitempty"`
@@ -130,6 +131,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		Total:   esr.Hits.Total.Value,
 		Page:    p.Page,
 		Pages:   pagesFor(esr.Hits.Total.Value),
+		TookMs:  esr.Took,
 		Results: make([]json.RawMessage, 0, len(esr.Hits.Hits)),
 		Facets: map[string][]facetBucket{
 			"supertype":  {},

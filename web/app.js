@@ -259,8 +259,12 @@ function renderActiveFilters() {
     button.type = "button";
     button.className = "active-filter";
     button.setAttribute("aria-label", `Remove ${label} filter`);
-    button.append(document.createTextNode(label));
+    const text = document.createElement("span");
+    text.className = "active-filter-label";
+    text.textContent = label;
+    button.append(text);
     const mark = document.createElement("span");
+    mark.className = "remove-mark";
     mark.textContent = "×";
     mark.setAttribute("aria-hidden", "true");
     button.append(mark);
@@ -274,6 +278,8 @@ function renderActiveFilters() {
   container.replaceChildren(...chips);
   $("clear-filters").hidden = active.length === 0;
   $("stat-filters").textContent = String(active.length);
+  $("filter-count").textContent = String(active.length);
+  $("filter-count").hidden = active.length === 0;
 }
 
 function titleCase(value) {
@@ -629,6 +635,12 @@ function bindFilterEvents() {
     const expanded = $("filter-toggle").getAttribute("aria-expanded") === "true";
     $("filter-toggle").setAttribute("aria-expanded", String(!expanded));
   });
+
+  $("filter-done").addEventListener("click", () => {
+    $("filter-toggle").setAttribute("aria-expanded", "false");
+    $("filter-toggle").scrollIntoView({ block: "nearest" });
+    $("filter-toggle").focus({ preventScroll: true });
+  });
 }
 
 function bindModalEvents() {
@@ -653,6 +665,10 @@ function bindModalEvents() {
 
 function init() {
   readStateFromURL();
+  if (window.matchMedia("(max-width: 768px)").matches) {
+    $("query-inspector").open = false;
+    $("response-inspector").open = false;
+  }
   syncControls();
   syncFilterControls();
   bindCoreEvents();

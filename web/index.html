@@ -33,7 +33,9 @@
   <div class="app-layout">
     <aside id="filter-rail" aria-label="Filters">
       <button id="filter-toggle" aria-expanded="false" aria-controls="filter-rail">
-        <span>Filters</span><span aria-hidden="true">⌄</span>
+        <span>Filters</span>
+        <span id="filter-count" class="filter-count" hidden>0</span>
+        <span class="filter-chevron" aria-hidden="true">⌄</span>
       </button>
 
       <div class="filter-content">
@@ -45,10 +47,10 @@
         <fieldset id="supertype-toggle">
           <legend>Card class</legend>
           <div class="segmented-control">
-            <button type="button" data-supertype="" aria-pressed="true">All <span class="facet-count">—</span></button>
-            <button type="button" data-supertype="pokemon" aria-pressed="false">Pokémon <span class="facet-count">—</span></button>
-            <button type="button" data-supertype="trainer" aria-pressed="false">Trainer <span class="facet-count">—</span></button>
-            <button type="button" data-supertype="energy" aria-pressed="false">Energy <span class="facet-count">—</span></button>
+            <button type="button" data-supertype="" aria-pressed="true"><span class="seg-label">All</span> <span class="facet-count">—</span></button>
+            <button type="button" data-supertype="pokemon" aria-pressed="false"><span class="seg-label">Pokémon</span> <span class="facet-count">—</span></button>
+            <button type="button" data-supertype="trainer" aria-pressed="false"><span class="seg-label">Trainer</span> <span class="facet-count">—</span></button>
+            <button type="button" data-supertype="energy" aria-pressed="false"><span class="seg-label">Energy</span> <span class="facet-count">—</span></button>
           </div>
         </fieldset>
 
@@ -83,6 +85,7 @@
 
         <div id="active-filters" aria-label="Active filters"></div>
         <button id="clear-filters" type="button" hidden>Clear all filters</button>
+        <button id="filter-done" type="button">Close filters</button>
       </div>
     </aside>
 

@@ -1,0 +1,6 @@
+# Dev only: publish ES for `go run ./cmd/server` / `go run ./cmd/seed`.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+services:
+  es:
+    ports:
+      - "127.0.0.1:9200:9200"

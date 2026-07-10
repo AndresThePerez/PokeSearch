@@ -1,0 +1,42 @@
+services:
+  es:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - ES_URL=http://es:9200
+    depends_on:
+      es:
+        condition: service_healthy
+    networks: [internal]
+
+  seed:
+    build: .
+    profiles: ["seed"]
+    entrypoint: ["/seed"]
+    command: ["-es", "http://es:9200"]
+    depends_on:
+      es:
+        condition: service_healthy
+    networks: [internal]
+
+volumes:
+  es-data:
+
+networks:
+  internal: {}

@@ -67,6 +67,46 @@ pokemon-tcg-data tarball (streamed from GitHub)
 
 The production Compose topology publishes only the Go application. `docker-compose.dev.yml` is deliberately opt-in so a plain `docker compose up` never exposes Elasticsearch on the host.
 
-## Milestone 2: deployment
+## Deployment (home server)
 
-Milestone 1 is intentionally local. Deployment, DNS/tunneling, Elasticsearch-volume backup and restore, and any remote Git workflow will be planned separately after local acceptance.
+The production instance runs on the home server (`altof@server`) in `~/apps/pokesearch`, published on host port **8083** (8080–8082 are taken by other services). The published port comes from a git-ignored `.env` file next to the compose files:
+
+```bash
+printf 'APP_PORT=8083\n' > .env
+docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build
+```
+
+`docker-compose.server.yml` adds `restart: unless-stopped` and memory caps (`es` 1g — twice the 512m JVM heap, per Elastic's container guidance; `app` 256m) so the stack coexists with the host's other tenants. Elasticsearch remains on the Compose-internal network with no host port in any topology.
+
+### Seeding
+
+Seed once per environment, pinned for reproducibility:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.server.yml --profile seed run --rm seed \
+  -es http://es:9200 -ref 0af6250a22495e4a3e9f60ff45fc3fedc2e0563d
+```
+
+`0af6250a22495e4a3e9f60ff45fc3fedc2e0563d` is the `pokemon-tcg-data` `master` commit as of 2026-07-10 and yields exactly **20,324** documents (`/healthz` → `{"docs":20324,"status":"ok"}`). A populated index makes reseeding a no-op unless `-force` is passed.
+
+### Updating the server
+
+The server has no git remote. Changes are committed on the workstation, then shipped as a bundle:
+
+```bash
+# workstation
+git bundle create ~/pokesearch.bundle --all && scp ~/pokesearch.bundle server:~/apps/
+# server
+cd ~/apps/pokesearch && git pull ../pokesearch.bundle master
+docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build
+```
+
+Never edit the server clone in place.
+
+### Backup and restore
+
+Verified in Milestone 2 Phase 8 — see the ops runbook section below (filled in once the commands have been exercised against the live volume).
+
+### Public exposure
+
+`https://pokesearch.andrestheperez.com` is served by the host's existing Cloudflare Tunnel: one ingress rule (`hostname: pokesearch.andrestheperez.com` → `http://localhost:8083`) above the 404 catch-all in `/etc/cloudflared/config.yml`. The wildcard DNS record already routes the subdomain to the tunnel; no DNS changes are involved. The same tunnel serves other production sites — after any config change, regression-check them all.

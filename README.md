@@ -42,10 +42,10 @@ go vet ./...
 | Endpoint | Purpose | Parameters |
 |---|---|---|
 | `GET /healthz` | Elasticsearch reachability and indexed document count | — |
-| `GET /api/search` | Fuzzy multi-field card search, filters, facets, sorting, and pagination | `q`, `id`, `supertype`, `types`, `rarity`, `series`, `hp_min`, `hp_max`, `sort`, `order`, `page`, `debug=1` |
+| `GET /api/search` | Fuzzy multi-field card search, filters, facets, sorting, and pagination | `q`, `id`, `supertype`, `types`, `set`, `rarity`, `series`, `hp_min`, `hp_max`, `sort`, `order`, `page`, `debug=1` |
 | `GET /api/suggest` | Deduplicated card-name completion with a fuzzy retry | `q` |
 
-Search responses contain 24 results per page, Elasticsearch's `took_ms`, and live `supertype`, `types`, `rarity`, and `set_series` facets. Add `debug=1` to receive the generated DSL in the response. Every search and suggestion reaching Elasticsearch is also logged as one replayable JSON line.
+Search responses contain 24 results per page, Elasticsearch's `took_ms`, and live `supertype`, `types`, `rarity`, `set_series`, and readable `sets` facets. The `set` parameter takes an exact set ID; combine it with `q` to search within that set. Add `debug=1` to receive the generated DSL in the response. Every search and suggestion reaching Elasticsearch is also logged as one replayable JSON line.
 
 The API and index retain the source dataset's canonical TCG type values. The interface presents `Metal` as **Steel** and `Colorless` as **Normal**, including filter labels, active-filter chips, attack costs, and card details.
 

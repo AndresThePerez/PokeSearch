@@ -2,7 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 
-const defaults = { q: "", supertype: "", types: [], rarity: "", series: "", sort: "", order: "", page: 1 };
+const defaults = { q: "", supertype: "", types: [], set: "", rarity: "", series: "", sort: "", order: "", page: 1 };
 let state = { ...defaults };
 let searchController = null;
 let debounceTimer = null;
@@ -12,6 +12,7 @@ let suggestions = [];
 let activeSuggestion = -1;
 const cardsByID = new Map();
 let modalOpener = null;
+const setLabels = new Map();
 
 function readStateFromURL() {
   const sp = new URLSearchParams(location.search);
@@ -19,6 +20,7 @@ function readStateFromURL() {
   state.q = sp.get("q") ?? "";
   state.supertype = sp.get("supertype") ?? "";
   state.types = (sp.get("types") ?? "").split(",").filter(Boolean);
+  state.set = sp.get("set") ?? "";
   state.rarity = sp.get("rarity") ?? "";
   state.series = sp.get("series") ?? "";
   state.sort = sp.get("sort") ?? "";
@@ -34,6 +36,7 @@ function writeStateToURL() {
   if (queryText()) sp.set("q", queryText());
   if (state.supertype) sp.set("supertype", state.supertype);
   if (state.types.length) sp.set("types", state.types.join(","));
+  if (state.set) sp.set("set", state.set);
   if (state.rarity) sp.set("rarity", state.rarity);
   if (state.series) sp.set("series", state.series);
   if (state.sort) sp.set("sort", state.sort);
@@ -47,6 +50,7 @@ function searchParams() {
   if (queryText()) sp.set("q", queryText());
   if (state.supertype) sp.set("supertype", state.supertype);
   if (state.types.length) sp.set("types", state.types.join(","));
+  if (state.set) sp.set("set", state.set);
   if (state.rarity) sp.set("rarity", state.rarity);
   if (state.series) sp.set("series", state.series);
   if (state.sort) sp.set("sort", state.sort);
@@ -69,7 +73,7 @@ async function runSearch({ append = false } = {}) {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     renderResults(data, { append, roundTripMs: performance.now() - startedAt });
-    renderInspector(data.dsl);
+    renderInspector(data.dsl, data);
     setDegraded(false);
   } catch (err) {
     if (err.name === "AbortError") return;
@@ -195,9 +199,23 @@ function renderFacets(facets = {}, total = 0) {
     button.querySelector(".facet-count").textContent = Number(typeCounts.get(button.dataset.type) ?? 0).toLocaleString();
   });
 
+  populateSetSelect(facets.sets, state.set);
   populateFacetSelect($("rarity-select"), "All rarities", facets.rarity, state.rarity, (value) => { state.rarity = value; });
   populateFacetSelect($("series-select"), "All series", facets.set_series, state.series, (value) => { state.series = value; });
   syncFilterControls();
+}
+
+function populateSetSelect(buckets = [], selected) {
+  const sorted = [...buckets].sort((a, b) => (a.label || a.value).localeCompare(b.label || b.value));
+  setLabels.clear();
+  const options = [new Option("All sets", "")];
+  for (const bucket of sorted) {
+    const label = bucket.label || bucket.value;
+    setLabels.set(bucket.value, label);
+    options.push(new Option(`${label} (${Number(bucket.count).toLocaleString()})`, bucket.value));
+  }
+  $("set-select").replaceChildren(...options);
+  $("set-select").value = selected;
 }
 
 function populateFacetSelect(select, emptyLabel, buckets = [], selected, onMissing) {
@@ -221,6 +239,7 @@ function syncFilterControls() {
   document.querySelectorAll(".type-chip").forEach((button) => {
     button.setAttribute("aria-pressed", String(state.types.includes(button.dataset.type)));
   });
+  $("set-select").value = state.set;
   $("rarity-select").value = state.rarity;
   $("series-select").value = state.series;
   renderActiveFilters();
@@ -231,6 +250,7 @@ function renderActiveFilters() {
   const active = [];
   if (state.supertype) active.push({ label: state.supertype === "pokemon" ? "Pokémon" : titleCase(state.supertype), remove: () => { state.supertype = ""; } });
   for (const type of state.types) active.push({ label: displayType(type), remove: () => { state.types = state.types.filter((item) => item !== type); } });
+  if (state.set) active.push({ label: setLabels.get(state.set) ?? state.set, remove: () => { state.set = ""; } });
   if (state.rarity) active.push({ label: state.rarity, remove: () => { state.rarity = ""; } });
   if (state.series) active.push({ label: state.series, remove: () => { state.series = ""; } });
 
@@ -345,8 +365,9 @@ function closeSuggestions() {
   $("search-input").removeAttribute("aria-activedescendant");
 }
 
-function renderInspector(dsl) {
+function renderInspector(dsl, response) {
   $("dsl-json").textContent = dsl ? JSON.stringify(dsl, null, 2) : "No query available.";
+  $("response-json").textContent = response ? JSON.stringify(response, null, 2) : "No response available.";
 }
 
 function setDegraded(isDegraded) {
@@ -544,6 +565,12 @@ function bindCoreEvents() {
     setTimeout(() => { $("copy-dsl").textContent = "Copy DSL"; }, 1200);
   });
 
+  $("copy-response").addEventListener("click", async () => {
+    await navigator.clipboard.writeText($("response-json").textContent);
+    $("copy-response").textContent = "Copied";
+    setTimeout(() => { $("copy-response").textContent = "Copy response"; }, 1200);
+  });
+
   document.addEventListener("keydown", (event) => {
     if (event.key === "/" && document.activeElement !== $("search-input")) {
       event.preventDefault();
@@ -576,6 +603,12 @@ function bindFilterEvents() {
     runSearch();
   });
 
+  $("set-select").addEventListener("change", (event) => {
+    state.set = event.target.value;
+    syncFilterControls();
+    runSearch();
+  });
+
   $("series-select").addEventListener("change", (event) => {
     state.series = event.target.value;
     syncFilterControls();
@@ -585,6 +618,7 @@ function bindFilterEvents() {
   $("clear-filters").addEventListener("click", () => {
     state.supertype = "";
     state.types = [];
+    state.set = "";
     state.rarity = "";
     state.series = "";
     syncFilterControls();

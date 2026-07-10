@@ -30,6 +30,7 @@ type Params struct {
 	Types     []string
 	Rarity    []string
 	Series    []string
+	SetID     string
 	HPMin     *int
 	HPMax     *int
 	Sort      string
@@ -46,6 +47,7 @@ func ParseParams(v url.Values) Params {
 		ID:     strings.TrimSpace(v.Get("id")),
 		Rarity: splitList(v.Get("rarity")),
 		Series: splitList(v.Get("series")),
+		SetID:  strings.TrimSpace(v.Get("set")),
 		HPMin:  atoiPtr(v.Get("hp_min")),
 		HPMax:  atoiPtr(v.Get("hp_max")),
 		Page:   1,

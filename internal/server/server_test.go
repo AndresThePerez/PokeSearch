@@ -79,7 +79,12 @@ const searchESBody = `{
     "supertype":  {"buckets": [{"key": "Pokémon", "doc_count": 61}]},
     "types":      {"buckets": [{"key": "Lightning", "doc_count": 61}]},
     "rarity":     {"buckets": [{"key": "Common", "doc_count": 30}]},
-    "set_series": {"buckets": [{"key": "Base", "doc_count": 16}]}
+    "set_series": {"buckets": [{"key": "Base", "doc_count": 16}]},
+    "sets": {"doc_count": 20324, "items": {"buckets": [
+      {"key": "base1", "doc_count": 102, "identity": {"hits": {"hits": [
+        {"_source": {"set_name": "Base", "release_date": "1999-01-09"}}
+      ]}}}
+    ]}}
   }
 }`
 
@@ -90,7 +95,7 @@ func TestSearchHandler(t *testing.T) {
 		return esResponse(200, searchESBody), nil
 	})
 	s, logBuf := newTestServer(t, rt)
-	rec := get(t, s, "/api/search?q=pikuchu&types=Lightning&debug=1")
+	rec := get(t, s, "/api/search?q=pikuchu&types=Lightning&set=base1&debug=1")
 	if rec.Code != 200 {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
 	}
@@ -116,8 +121,11 @@ func TestSearchHandler(t *testing.T) {
 	if len(resp.Results) != 2 || resp.Results[0]["name"] != "Alakazam" || resp.Results[1]["name"] != "Mewtwo δ" {
 		t.Errorf("results: %v", resp.Results)
 	}
-	if len(resp.Facets) != 4 || resp.Facets["types"][0]["value"] != "Lightning" || resp.Facets["types"][0]["count"] != float64(61) {
+	if len(resp.Facets) != 5 || resp.Facets["types"][0]["value"] != "Lightning" || resp.Facets["types"][0]["count"] != float64(61) {
 		t.Errorf("facets: %v", resp.Facets)
+	}
+	if sets := resp.Facets["sets"]; len(sets) != 1 || sets[0]["value"] != "base1" || sets[0]["label"] != "Base" || sets[0]["count"] != float64(102) {
+		t.Errorf("set facets: %v", sets)
 	}
 	if resp.DSL == nil || resp.DSL["track_total_hits"] != true {
 		t.Errorf("debug=1 must echo the DSL, got %v", resp.DSL)
@@ -139,7 +147,7 @@ func TestSearchHandler(t *testing.T) {
 		t.Errorf("log line: %v", lg)
 	}
 	p := lg["params"].(map[string]any)
-	if p["q"] != "pikuchu" || p["sort"] != "relevance" {
+	if p["q"] != "pikuchu" || p["sort"] != "relevance" || p["set"] != "base1" {
 		t.Errorf("log params: %v", p)
 	}
 	if types := p["types"].([]any); len(types) != 1 || types[0] != "Lightning" {
@@ -153,7 +161,7 @@ func TestSearchHandler(t *testing.T) {
 func TestSearchHandlerEmptyResults(t *testing.T) {
 	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
 		return esResponse(200, `{"took":1,"hits":{"total":{"value":0},"hits":[]},
-		  "aggregations":{"supertype":{"buckets":[]},"types":{"buckets":[]},"rarity":{"buckets":[]},"set_series":{"buckets":[]}}}`), nil
+		  "aggregations":{"supertype":{"buckets":[]},"types":{"buckets":[]},"rarity":{"buckets":[]},"set_series":{"buckets":[]},"sets":{"items":{"buckets":[]}}}}`), nil
 	})
 	s, _ := newTestServer(t, rt)
 	rec := get(t, s, "/api/search?q=zzzzzz")

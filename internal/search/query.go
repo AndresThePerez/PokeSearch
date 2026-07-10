@@ -16,6 +16,16 @@ func BuildQuery(p Params) map[string]any {
 			"types":      map[string]any{"terms": map[string]any{"field": "types", "size": 11}},
 			"rarity":     map[string]any{"terms": map[string]any{"field": "rarity", "size": 30}},
 			"set_series": map[string]any{"terms": map[string]any{"field": "set_series", "size": 20}},
+			"sets": map[string]any{
+				"global": map[string]any{},
+				"aggs": map[string]any{"items": map[string]any{
+					"terms": map[string]any{"field": "set_id", "size": 200},
+					"aggs": map[string]any{"identity": map[string]any{"top_hits": map[string]any{
+						"size":    1,
+						"_source": map[string]any{"includes": []string{"set_name", "release_date"}},
+					}}},
+				}},
+			},
 		},
 	}
 }
@@ -85,6 +95,9 @@ func buildFilters(p Params) []any {
 	}
 	if len(p.Series) > 0 {
 		filter = append(filter, map[string]any{"terms": map[string]any{"set_series": p.Series}})
+	}
+	if p.SetID != "" {
+		filter = append(filter, map[string]any{"term": map[string]any{"set_id": p.SetID}})
 	}
 	if p.HPMin != nil || p.HPMax != nil {
 		r := map[string]any{}

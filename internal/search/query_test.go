@@ -38,7 +38,12 @@ const aggsJSON = `{
   "supertype":  {"terms": {"field": "supertype",  "size": 3}},
   "types":      {"terms": {"field": "types",      "size": 11}},
   "rarity":     {"terms": {"field": "rarity",     "size": 30}},
-  "set_series": {"terms": {"field": "set_series", "size": 20}}
+  "set_series": {"terms": {"field": "set_series", "size": 20}},
+  "sets": {"global": {}, "aggs": {"items": {
+    "terms": {"field": "set_id", "size": 200},
+    "aggs": {"identity": {"top_hits": {"size": 1,
+      "_source": {"includes": ["set_name", "release_date"]}}}}
+  }}}
 }`
 
 func TestBuildQueryBrowseMode(t *testing.T) {
@@ -77,7 +82,7 @@ func TestBuildQueryFullText(t *testing.T) {
 }
 
 func TestBuildQueryFiltersAndPaging(t *testing.T) {
-	p := params(t, "q=surge&supertype=pokemon&types=Lightning,Water&rarity=Rare&series=Base&hp_min=50&hp_max=120&page=3")
+	p := params(t, "q=surge&supertype=pokemon&types=Lightning,Water&rarity=Rare&series=Base&set=base1&hp_min=50&hp_max=120&page=3")
 	body := BuildQuery(p)
 	got := canonV(t, body["query"].(map[string]any)["bool"].(map[string]any)["filter"])
 	want := canonS(t, `[
@@ -85,6 +90,7 @@ func TestBuildQueryFiltersAndPaging(t *testing.T) {
 	  {"terms": {"types": ["Lightning", "Water"]}},
 	  {"terms": {"rarity": ["Rare"]}},
 	  {"terms": {"set_series": ["Base"]}},
+	  {"term": {"set_id": "base1"}},
 	  {"range": {"hp": {"gte": 50, "lte": 120}}}
 	]`)
 	if got != want {

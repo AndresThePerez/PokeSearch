@@ -77,8 +77,10 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 }
 
 type facetBucket struct {
-	Value string `json:"value"`
-	Count int    `json:"count"`
+	Value       string `json:"value"`
+	Label       string `json:"label,omitempty"`
+	ReleaseDate string `json:"release_date,omitempty"`
+	Count       int    `json:"count"`
 }
 
 type searchResponse struct {
@@ -91,6 +93,28 @@ type searchResponse struct {
 	DSL     map[string]any           `json:"dsl,omitempty"`
 }
 
+type esFacetBucket struct {
+	Key      string `json:"key"`
+	DocCount int    `json:"doc_count"`
+	Identity struct {
+		Hits struct {
+			Hits []struct {
+				Source struct {
+					SetName     string `json:"set_name"`
+					ReleaseDate string `json:"release_date"`
+				} `json:"_source"`
+			} `json:"hits"`
+		} `json:"hits"`
+	} `json:"identity"`
+}
+
+type esAggregation struct {
+	Buckets []esFacetBucket `json:"buckets"`
+	Items   struct {
+		Buckets []esFacetBucket `json:"buckets"`
+	} `json:"items"`
+}
+
 type esSearchResponse struct {
 	Took int `json:"took"`
 	Hits struct {
@@ -101,12 +125,7 @@ type esSearchResponse struct {
 			Source json.RawMessage `json:"_source"`
 		} `json:"hits"`
 	} `json:"hits"`
-	Aggregations map[string]struct {
-		Buckets []struct {
-			Key      string `json:"key"`
-			DocCount int    `json:"doc_count"`
-		} `json:"buckets"`
-	} `json:"aggregations"`
+	Aggregations map[string]esAggregation `json:"aggregations"`
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -138,12 +157,26 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 			"types":      {},
 			"rarity":     {},
 			"set_series": {},
+			"sets":       {},
 		},
 	}
 	for _, hit := range esr.Hits.Hits {
 		resp.Results = append(resp.Results, hit.Source)
 	}
 	for name, agg := range esr.Aggregations {
+		if name == "sets" {
+			buckets := make([]facetBucket, 0, len(agg.Items.Buckets))
+			for _, b := range agg.Items.Buckets {
+				bucket := facetBucket{Value: b.Key, Count: b.DocCount}
+				if len(b.Identity.Hits.Hits) > 0 {
+					bucket.Label = b.Identity.Hits.Hits[0].Source.SetName
+					bucket.ReleaseDate = b.Identity.Hits.Hits[0].Source.ReleaseDate
+				}
+				buckets = append(buckets, bucket)
+			}
+			resp.Facets[name] = buckets
+			continue
+		}
 		buckets := make([]facetBucket, 0, len(agg.Buckets))
 		for _, b := range agg.Buckets {
 			buckets = append(buckets, facetBucket{Value: b.Key, Count: b.DocCount})

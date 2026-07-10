@@ -50,6 +50,9 @@ func logParams(p search.Params) map[string]any {
 	if len(p.Series) > 0 {
 		m["series"] = p.Series
 	}
+	if p.SetID != "" {
+		m["set"] = p.SetID
+	}
 	if p.HPMin != nil {
 		m["hp_min"] = *p.HPMin
 	}

@@ -24,6 +24,7 @@ func TestParseParams(t *testing.T) {
 		{"rarity passthrough with empties dropped",
 			"rarity=Rare+Holo,,Classic+Collection", Params{Rarity: []string{"Rare Holo", "Classic Collection"}, Sort: "newest", Page: 1}},
 		{"series passthrough", "series=Sword+%26+Shield", Params{Series: []string{"Sword & Shield"}, Sort: "newest", Page: 1}},
+		{"set id passthrough", "set=sv3pt5", Params{SetID: "sv3pt5", Sort: "newest", Page: 1}},
 		{"hp range parsed", "hp_min=50&hp_max=120", Params{HPMin: intp(50), HPMax: intp(120), Sort: "newest", Page: 1}},
 		{"hp non-numeric dropped", "hp_min=abc&hp_max=", Params{Sort: "newest", Page: 1}},
 		{"sort whitelist, invalid falls back", "q=x&sort=bogus", Params{Q: "x", Sort: "relevance", Page: 1}},

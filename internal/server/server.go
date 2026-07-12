@@ -108,9 +108,10 @@ type esFacetBucket struct {
 	} `json:"identity"`
 }
 
+// esAggregation decodes both facet scopes (filter agg) and the global set
+// catalog: either way the terms buckets sit under the "items" sub-agg.
 type esAggregation struct {
-	Buckets []esFacetBucket `json:"buckets"`
-	Items   struct {
+	Items struct {
 		Buckets []esFacetBucket `json:"buckets"`
 	} `json:"items"`
 }
@@ -163,26 +164,15 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	for _, hit := range esr.Hits.Hits {
 		resp.Results = append(resp.Results, hit.Source)
 	}
-	for name, agg := range esr.Aggregations {
-		if name == "sets" {
-			buckets := make([]facetBucket, 0, len(agg.Items.Buckets))
-			for _, b := range agg.Items.Buckets {
-				bucket := facetBucket{Value: b.Key, Count: b.DocCount}
-				if len(b.Identity.Hits.Hits) > 0 {
-					bucket.Label = b.Identity.Hits.Hits[0].Source.SetName
-					bucket.ReleaseDate = b.Identity.Hits.Hits[0].Source.ReleaseDate
-				}
-				buckets = append(buckets, bucket)
-			}
-			resp.Facets[name] = buckets
-			continue
-		}
-		buckets := make([]facetBucket, 0, len(agg.Buckets))
-		for _, b := range agg.Buckets {
+	for _, name := range []string{"supertype", "types", "rarity", "set_series"} {
+		agg := esr.Aggregations[name]
+		buckets := make([]facetBucket, 0, len(agg.Items.Buckets))
+		for _, b := range agg.Items.Buckets {
 			buckets = append(buckets, facetBucket{Value: b.Key, Count: b.DocCount})
 		}
 		resp.Facets[name] = buckets
 	}
+	resp.Facets["sets"] = mergeSetCatalog(esr.Aggregations["set_catalog"], esr.Aggregations["sets"])
 	if p.Debug {
 		resp.DSL = dsl
 	}
@@ -192,6 +182,26 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	entry.Status = http.StatusOK
 	writeLog(s.logW, entry)
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// mergeSetCatalog joins the stable global set catalog (labels, release dates)
+// with the request-scoped dynamic counts: every catalog set stays visible,
+// sets outside the current query/filters read 0.
+func mergeSetCatalog(catalog, dynamic esAggregation) []facetBucket {
+	counts := make(map[string]int, len(dynamic.Items.Buckets))
+	for _, b := range dynamic.Items.Buckets {
+		counts[b.Key] = b.DocCount
+	}
+	buckets := make([]facetBucket, 0, len(catalog.Items.Buckets))
+	for _, b := range catalog.Items.Buckets {
+		bucket := facetBucket{Value: b.Key, Count: counts[b.Key]}
+		if len(b.Identity.Hits.Hits) > 0 {
+			bucket.Label = b.Identity.Hits.Hits[0].Source.SetName
+			bucket.ReleaseDate = b.Identity.Hits.Hits[0].Source.ReleaseDate
+		}
+		buckets = append(buckets, bucket)
+	}
+	return buckets
 }
 
 func pagesFor(total int) int {

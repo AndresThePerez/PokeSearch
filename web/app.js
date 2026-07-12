@@ -91,7 +91,8 @@ function scheduleSearch() {
 }
 
 function effectiveSort() {
-  return state.sort || (queryText() ? "relevance" : "newest");
+  const sort = state.sort || (queryText() ? "relevance" : "newest");
+  return sort === "relevance" && !queryText() ? "newest" : sort;
 }
 
 function effectiveOrder() {
@@ -103,6 +104,7 @@ function effectiveOrder() {
 
 function syncControls() {
   $("search-input").value = state.q;
+  $("sort-select").querySelector('option[value="relevance"]').disabled = !queryText();
   $("sort-select").value = effectiveSort();
   const canOrder = ["hp", "name"].includes(effectiveSort());
   $("order-toggle").hidden = !canOrder;
@@ -137,7 +139,7 @@ function setLoading(loading, { append = false } = {}) {
 function renderResults(data, { append = false, roundTripMs = 0 } = {}) {
   state.page = data.page;
   renderGrid(data.results, { append });
-  renderFacets(data.facets, data.total);
+  renderFacets(data.facets);
   $("total-count").textContent = `${Number(data.total).toLocaleString()} ${data.total === 1 ? "card" : "cards"}`;
   $("load-more").hidden = data.pages === 0 || data.page >= data.pages;
   $("empty-state").hidden = data.total !== 0;
@@ -186,12 +188,16 @@ function bucketMap(buckets = []) {
   return new Map(buckets.map((bucket) => [bucket.value, bucket.count]));
 }
 
-function renderFacets(facets = {}, total = 0) {
+// Facet counts are disjunctive (scoped by the query plus every other active
+// filter), so renderers only paint what the API returned — they never mutate
+// state. Only explicit user actions may change a filter.
+function renderFacets(facets = {}) {
   const supertypeCounts = bucketMap(facets.supertype);
+  const supertypeAll = (facets.supertype ?? []).reduce((sum, bucket) => sum + bucket.count, 0);
   document.querySelectorAll("#supertype-toggle button").forEach((button) => {
     const labels = { pokemon: "Pokémon", trainer: "Trainer", energy: "Energy" };
     const value = button.dataset.supertype;
-    button.querySelector(".facet-count").textContent = Number(value ? supertypeCounts.get(labels[value]) ?? 0 : total).toLocaleString();
+    button.querySelector(".facet-count").textContent = Number(value ? supertypeCounts.get(labels[value]) ?? 0 : supertypeAll).toLocaleString();
   });
 
   const typeCounts = bucketMap(facets.types);
@@ -200,8 +206,8 @@ function renderFacets(facets = {}, total = 0) {
   });
 
   populateSetSelect(facets.sets, state.set);
-  populateFacetSelect($("rarity-select"), "All rarities", facets.rarity, state.rarity, (value) => { state.rarity = value; });
-  populateFacetSelect($("series-select"), "All series", facets.set_series, state.series, (value) => { state.series = value; });
+  populateFacetSelect($("rarity-select"), "All rarities", facets.rarity, state.rarity);
+  populateFacetSelect($("series-select"), "All series", facets.set_series, state.series);
   syncFilterControls();
 }
 
@@ -212,24 +218,29 @@ function populateSetSelect(buckets = [], selected) {
   for (const bucket of sorted) {
     const label = bucket.label || bucket.value;
     setLabels.set(bucket.value, label);
-    options.push(new Option(`${label} (${Number(bucket.count).toLocaleString()})`, bucket.value));
+    const option = new Option(`${label} (${Number(bucket.count).toLocaleString()})`, bucket.value);
+    option.disabled = bucket.count === 0 && bucket.value !== selected;
+    options.push(option);
+  }
+  if (selected && !sorted.some((bucket) => bucket.value === selected)) {
+    options.push(new Option(`${selected} (0)`, selected));
   }
   $("set-select").replaceChildren(...options);
   $("set-select").value = selected;
 }
 
-function populateFacetSelect(select, emptyLabel, buckets = [], selected, onMissing) {
+function populateFacetSelect(select, emptyLabel, buckets = [], selected) {
   const options = [new Option(emptyLabel, "")];
   for (const bucket of buckets) {
     options.push(new Option(`${bucket.value} (${Number(bucket.count).toLocaleString()})`, bucket.value));
   }
-  select.replaceChildren(...options);
-  if (selected && buckets.some((bucket) => bucket.value === selected)) {
-    select.value = selected;
-  } else {
-    select.value = "";
-    if (selected) onMissing("");
+  // A selected value can drop to zero matches under the current query and
+  // other filters; keep it selectable at (0) instead of silently clearing it.
+  if (selected && !buckets.some((bucket) => bucket.value === selected)) {
+    options.push(new Option(`${selected} (0)`, selected));
   }
+  select.replaceChildren(...options);
+  select.value = selected;
 }
 
 function syncFilterControls() {
@@ -415,9 +426,35 @@ function element(tag, className, textValue) {
   return node;
 }
 
+let modalArtCardID = null;
+
+// The grid's small image is already cached, so it shows instantly while the
+// large art loads detached; the swap is guarded by card id so a slow earlier
+// request can never overwrite a newly clicked card.
+function setModalArt(card) {
+  const image = $("modal-image");
+  modalArtCardID = card.id;
+  image.src = imageURL(card, "small");
+  image.alt = card.name;
+  image.classList.add("is-upgrading");
+  image.classList.remove("art-failed");
+  const largeURL = imageURL(card, "large");
+  const loader = new Image();
+  loader.addEventListener("load", () => {
+    if (modalArtCardID !== card.id) return;
+    image.src = largeURL;
+    image.classList.remove("is-upgrading");
+  }, { once: true });
+  loader.addEventListener("error", () => {
+    if (modalArtCardID !== card.id) return;
+    image.classList.remove("is-upgrading");
+    image.classList.add("art-failed");
+  }, { once: true });
+  loader.src = largeURL;
+}
+
 function renderModal(card) {
-  $("modal-image").src = imageURL(card, "large");
-  $("modal-image").alt = card.name;
+  setModalArt(card);
   $("modal-card-name").textContent = card.name;
   $("modal-set-line").textContent = `${card.set_name} · ${card.number}/${card.set_total} · ${card.release_date}`;
 

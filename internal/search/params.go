@@ -75,6 +75,9 @@ func ParseParams(v url.Values) Params {
 			p.Sort = "newest"
 		}
 	}
+	if p.Sort == "relevance" && p.Q == "" {
+		p.Sort = "newest" // match-all makes _score meaningless
+	}
 	switch p.Sort {
 	case "hp":
 		p.Order = "desc"

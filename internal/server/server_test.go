@@ -76,13 +76,17 @@ const searchESBody = `{
     ]
   },
   "aggregations": {
-    "supertype":  {"buckets": [{"key": "Pokémon", "doc_count": 61}]},
-    "types":      {"buckets": [{"key": "Lightning", "doc_count": 61}]},
-    "rarity":     {"buckets": [{"key": "Common", "doc_count": 30}]},
-    "set_series": {"buckets": [{"key": "Base", "doc_count": 16}]},
-    "sets": {"doc_count": 20324, "items": {"buckets": [
+    "supertype":  {"doc_count": 61, "items": {"buckets": [{"key": "Pokémon", "doc_count": 61}]}},
+    "types":      {"doc_count": 61, "items": {"buckets": [{"key": "Lightning", "doc_count": 61}]}},
+    "rarity":     {"doc_count": 61, "items": {"buckets": [{"key": "Common", "doc_count": 30}]}},
+    "set_series": {"doc_count": 61, "items": {"buckets": [{"key": "Base", "doc_count": 16}]}},
+    "sets":       {"doc_count": 61, "items": {"buckets": [{"key": "base1", "doc_count": 41}]}},
+    "set_catalog": {"doc_count": 20324, "items": {"buckets": [
       {"key": "base1", "doc_count": 102, "identity": {"hits": {"hits": [
         {"_source": {"set_name": "Base", "release_date": "1999-01-09"}}
+      ]}}},
+      {"key": "ex11", "doc_count": 114, "identity": {"hits": {"hits": [
+        {"_source": {"set_name": "Delta Species", "release_date": "2005-10-31"}}
       ]}}}
     ]}}
   }
@@ -124,8 +128,15 @@ func TestSearchHandler(t *testing.T) {
 	if len(resp.Facets) != 5 || resp.Facets["types"][0]["value"] != "Lightning" || resp.Facets["types"][0]["count"] != float64(61) {
 		t.Errorf("facets: %v", resp.Facets)
 	}
-	if sets := resp.Facets["sets"]; len(sets) != 1 || sets[0]["value"] != "base1" || sets[0]["label"] != "Base" || sets[0]["count"] != float64(102) {
+	// The sets facet is the full catalog with per-request dynamic counts
+	// merged on: base1 matched 41 docs, ex11 matched none but keeps its label.
+	if sets := resp.Facets["sets"]; len(sets) != 2 ||
+		sets[0]["value"] != "base1" || sets[0]["label"] != "Base" || sets[0]["count"] != float64(41) ||
+		sets[1]["value"] != "ex11" || sets[1]["label"] != "Delta Species" || sets[1]["count"] != float64(0) {
 		t.Errorf("set facets: %v", sets)
+	}
+	if _, ok := resp.Facets["set_catalog"]; ok {
+		t.Error("set_catalog is internal and must not leak into the facets contract")
 	}
 	if resp.DSL == nil || resp.DSL["track_total_hits"] != true {
 		t.Errorf("debug=1 must echo the DSL, got %v", resp.DSL)
@@ -161,7 +172,16 @@ func TestSearchHandler(t *testing.T) {
 func TestSearchHandlerEmptyResults(t *testing.T) {
 	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
 		return esResponse(200, `{"took":1,"hits":{"total":{"value":0},"hits":[]},
-		  "aggregations":{"supertype":{"buckets":[]},"types":{"buckets":[]},"rarity":{"buckets":[]},"set_series":{"buckets":[]},"sets":{"items":{"buckets":[]}}}}`), nil
+		  "aggregations":{
+		    "supertype":{"doc_count":0,"items":{"buckets":[]}},
+		    "types":{"doc_count":0,"items":{"buckets":[]}},
+		    "rarity":{"doc_count":0,"items":{"buckets":[]}},
+		    "set_series":{"doc_count":0,"items":{"buckets":[]}},
+		    "sets":{"doc_count":0,"items":{"buckets":[]}},
+		    "set_catalog":{"doc_count":20324,"items":{"buckets":[
+		      {"key":"base1","doc_count":102,"identity":{"hits":{"hits":[
+		        {"_source":{"set_name":"Base","release_date":"1999-01-09"}}]}}}
+		    ]}}}}`), nil
 	})
 	s, _ := newTestServer(t, rt)
 	rec := get(t, s, "/api/search?q=zzzzzz")
@@ -169,13 +189,19 @@ func TestSearchHandlerEmptyResults(t *testing.T) {
 		t.Errorf("empty results must be [], got %s", rec.Body.String())
 	}
 	var resp struct {
-		Pages int `json:"pages"`
+		Pages  int                         `json:"pages"`
+		Facets map[string][]map[string]any `json:"facets"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
 	if resp.Pages != 0 {
 		t.Errorf("pages = %d, want 0", resp.Pages)
+	}
+	// Zero results must still expose the whole set catalog at count 0 so the
+	// UI never drops options (and never clears a selected set).
+	if sets := resp.Facets["sets"]; len(sets) != 1 || sets[0]["label"] != "Base" || sets[0]["count"] != float64(0) {
+		t.Errorf("zero-result set catalog: %v", resp.Facets["sets"])
 	}
 }
 

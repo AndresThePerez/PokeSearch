@@ -28,6 +28,7 @@ func TestParseParams(t *testing.T) {
 		{"hp range parsed", "hp_min=50&hp_max=120", Params{HPMin: intp(50), HPMax: intp(120), Sort: "newest", Page: 1}},
 		{"hp non-numeric dropped", "hp_min=abc&hp_max=", Params{Sort: "newest", Page: 1}},
 		{"sort whitelist, invalid falls back", "q=x&sort=bogus", Params{Q: "x", Sort: "relevance", Page: 1}},
+		{"relevance meaningless without q, normalized", "sort=relevance", Params{Sort: "newest", Page: 1}},
 		{"hp sort defaults desc", "sort=hp", Params{Sort: "hp", Order: "desc", Page: 1}},
 		{"hp sort explicit asc", "sort=hp&order=asc", Params{Sort: "hp", Order: "asc", Page: 1}},
 		{"name sort defaults asc", "sort=name", Params{Sort: "name", Order: "asc", Page: 1}},

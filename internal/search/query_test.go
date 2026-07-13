@@ -34,30 +34,20 @@ func params(t *testing.T, qs string) Params {
 	return ParseParams(v)
 }
 
-// With no active filters every facet scope is an empty bool filter (match-all).
+// With no active filters facets can aggregate directly in the text-query
+// scope; exclude-self filter wrappers are only needed when a scope is active.
 const noFilterAggsJSON = `{
-  "supertype": {"filter": {"bool": {"filter": []}},
-    "aggs": {"items": {"terms": {"field": "supertype", "size": 3}}}},
-  "types": {"filter": {"bool": {"filter": []}},
-    "aggs": {"items": {"terms": {"field": "types", "size": 11}}}},
-  "rarity": {"filter": {"bool": {"filter": []}},
-    "aggs": {"items": {"terms": {"field": "rarity", "size": 100}}}},
-  "set_series": {"filter": {"bool": {"filter": []}},
-    "aggs": {"items": {"terms": {"field": "set_series", "size": 20}}}},
-  "sets": {"filter": {"bool": {"filter": []}},
-    "aggs": {"items": {"terms": {"field": "set_id", "size": 200}}}},
-  "set_catalog": {"global": {}, "aggs": {"items": {
-    "terms": {"field": "set_id", "size": 200},
-    "aggs": {"identity": {"top_hits": {"size": 1,
-      "_source": {"includes": ["set_name", "release_date"]}}}}
-  }}}
+  "supertype":  {"terms": {"field": "supertype"}},
+  "types":      {"terms": {"field": "types", "size": 11}},
+  "rarity":     {"terms": {"field": "rarity", "size": 100}},
+  "set_series": {"terms": {"field": "set_series", "size": 20}},
+  "sets":       {"terms": {"field": "set_id", "size": 200}}
 }`
 
 func TestBuildQueryBrowseMode(t *testing.T) {
 	got := canonV(t, BuildQuery(params(t, "")))
 	want := canonS(t, `{
-	  "track_total_hits": true, "from": 0, "size": 24,
-	  "query": {"bool": {"must": [{"match_all": {}}]}},
+	  "track_total_hits": true, "size": 24,
 	  "sort": [{"release_date": "desc"}, {"id": "asc"}],
 	  "aggs": `+noFilterAggsJSON+`}`)
 	if got != want {
@@ -68,7 +58,7 @@ func TestBuildQueryBrowseMode(t *testing.T) {
 func TestBuildQueryFullText(t *testing.T) {
 	got := canonV(t, BuildQuery(params(t, "q=Pikuchu")))
 	want := canonS(t, `{
-	  "track_total_hits": true, "from": 0, "size": 24,
+	  "track_total_hits": true, "size": 24,
 	  "query": {"bool": {
 	    "should": [
 	      {"term": {"name.kw": {"value": "pikuchu", "boost": 8}}},
@@ -78,8 +68,7 @@ func TestBuildQueryFullText(t *testing.T) {
 	      {"multi_match": {"query": "Pikuchu", "type": "best_fields", "fuzziness": "AUTO",
 	        "fields": ["attacks.name^2", "abilities.name^2", "attacks.text", "abilities.text",
 	                   "flavor_text", "set_name^1.5", "artist"]}}
-	    ],
-	    "minimum_should_match": 1
+	    ]
 	  }},
 	  "sort": ["_score", {"id": "asc"}],
 	  "aggs": `+noFilterAggsJSON+`}`)
@@ -147,25 +136,38 @@ func TestBuildQueryFacetScopesExcludeSelf(t *testing.T) {
 			t.Errorf("%s scope\n got %s\nwant %s", name, got, want)
 		}
 	}
-	if _, ok := aggs["set_catalog"].(map[string]any)["global"]; !ok {
-		t.Error("set_catalog must stay global (stable 173-set label catalog)")
+	if _, ok := aggs["set_catalog"]; ok {
+		t.Error("hot search DSL must not rebuild the static set catalog")
 	}
 }
 
 func TestBuildQueryIDFilter(t *testing.T) {
 	body := BuildQuery(params(t, "id=cel25c-17_A"))
-	got := canonV(t, body["post_filter"])
-	want := canonS(t, `{"bool": {"filter": [{"term": {"id": "cel25c-17_A"}}]}}`)
+	got := canonV(t, body)
+	want := canonS(t, `{"size": 1, "query": {"term": {"id": "cel25c-17_A"}}}`)
 	if got != want {
-		t.Errorf("id filter\n got %s\nwant %s", got, want)
+		t.Errorf("id fast path\n got %s\nwant %s", got, want)
 	}
-	// The ID filter has no facet, so every facet scope must include it.
-	aggs := BuildQuery(params(t, "id=cel25c-17_A"))["aggs"].(map[string]any)
-	for _, name := range []string{"supertype", "types", "rarity", "set_series", "sets"} {
-		scope := aggs[name].(map[string]any)["filter"].(map[string]any)["bool"].(map[string]any)["filter"]
-		if got, want := canonV(t, scope), canonS(t, `[{"term": {"id": "cel25c-17_A"}}]`); got != want {
-			t.Errorf("%s scope must keep id filter\n got %s\nwant %s", name, got, want)
-		}
+
+	// Combining ID with another constraint must keep the full search/facet path.
+	combined := BuildQuery(params(t, "id=cel25c-17_A&types=Fire"))
+	if combined["aggs"] == nil || combined["post_filter"] == nil {
+		t.Errorf("combined ID query must keep full behavior: %v", combined)
+	}
+}
+
+func TestBuildSetCatalogQuery(t *testing.T) {
+	got := canonV(t, BuildSetCatalogQuery())
+	want := canonS(t, `{
+	  "track_total_hits": false, "size": 0,
+	  "aggs": {"set_catalog": {
+	    "terms": {"field": "set_id", "size": 200},
+	    "aggs": {"identity": {"top_hits": {"size": 1,
+	      "_source": {"includes": ["set_name", "release_date"]}}}}
+	  }}
+	}`)
+	if got != want {
+		t.Errorf("catalog DSL\n got %s\nwant %s", got, want)
 	}
 }
 

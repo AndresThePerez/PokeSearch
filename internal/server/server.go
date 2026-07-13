@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v8"
@@ -18,10 +19,12 @@ import (
 )
 
 type Server struct {
-	es   *elasticsearch.Client
-	mux  *http.ServeMux
-	logW io.Writer
-	now  func() time.Time
+	es           *elasticsearch.Client
+	mux          *http.ServeMux
+	logW         io.Writer
+	now          func() time.Time
+	setCatalogMu sync.Mutex
+	setCatalog   []facetBucket
 }
 
 func New(es *elasticsearch.Client, static fs.FS, logW io.Writer, now func() time.Time) *Server {
@@ -108,12 +111,20 @@ type esFacetBucket struct {
 	} `json:"identity"`
 }
 
-// esAggregation decodes both facet scopes (filter agg) and the global set
-// catalog: either way the terms buckets sit under the "items" sub-agg.
+// esAggregation decodes both direct terms aggregations and filtered facet
+// scopes, whose terms buckets sit under the "items" sub-aggregation.
 type esAggregation struct {
-	Items struct {
+	Buckets []esFacetBucket `json:"buckets"`
+	Items   struct {
 		Buckets []esFacetBucket `json:"buckets"`
 	} `json:"items"`
+}
+
+func (a esAggregation) buckets() []esFacetBucket {
+	if a.Buckets != nil {
+		return a.Buckets
+	}
+	return a.Items.Buckets
 }
 
 type esSearchResponse struct {
@@ -147,6 +158,19 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var setCatalog []facetBucket
+	if _, hasAggs := dsl["aggs"]; hasAggs {
+		setCatalog, err = s.loadSetCatalog(r)
+		if err != nil {
+			entry.TookMs = esr.Took
+			entry.Total = esr.Hits.Total.Value
+			entry.Status = http.StatusServiceUnavailable
+			writeLog(s.logW, entry)
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "elasticsearch unavailable"})
+			return
+		}
+	}
+
 	resp := searchResponse{
 		Total:   esr.Hits.Total.Value,
 		Page:    p.Page,
@@ -166,13 +190,16 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, name := range []string{"supertype", "types", "rarity", "set_series"} {
 		agg := esr.Aggregations[name]
-		buckets := make([]facetBucket, 0, len(agg.Items.Buckets))
-		for _, b := range agg.Items.Buckets {
+		esBuckets := agg.buckets()
+		buckets := make([]facetBucket, 0, len(esBuckets))
+		for _, b := range esBuckets {
 			buckets = append(buckets, facetBucket{Value: b.Key, Count: b.DocCount})
 		}
 		resp.Facets[name] = buckets
 	}
-	resp.Facets["sets"] = mergeSetCatalog(esr.Aggregations["set_catalog"], esr.Aggregations["sets"])
+	if setCatalog != nil {
+		resp.Facets["sets"] = mergeSetCatalog(setCatalog, esr.Aggregations["sets"])
+	}
 	if p.Debug {
 		resp.DSL = dsl
 	}
@@ -184,21 +211,46 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// mergeSetCatalog joins the stable global set catalog (labels, release dates)
-// with the request-scoped dynamic counts: every catalog set stays visible,
-// sets outside the current query/filters read 0.
-func mergeSetCatalog(catalog, dynamic esAggregation) []facetBucket {
-	counts := make(map[string]int, len(dynamic.Items.Buckets))
-	for _, b := range dynamic.Items.Buckets {
-		counts[b.Key] = b.DocCount
+// loadSetCatalog lazily fetches the immutable set metadata once per app
+// process. The standalone size:0 request is also eligible for ES's request
+// cache, while hot search requests only calculate dynamic counts.
+func (s *Server) loadSetCatalog(r *http.Request) ([]facetBucket, error) {
+	s.setCatalogMu.Lock()
+	defer s.setCatalogMu.Unlock()
+	if s.setCatalog != nil {
+		return s.setCatalog, nil
 	}
-	buckets := make([]facetBucket, 0, len(catalog.Items.Buckets))
-	for _, b := range catalog.Items.Buckets {
-		bucket := facetBucket{Value: b.Key, Count: counts[b.Key]}
+
+	esr, err := s.searchES(r, search.BuildSetCatalogQuery())
+	if err != nil {
+		return nil, err
+	}
+	esBuckets := esr.Aggregations["set_catalog"].buckets()
+	catalog := make([]facetBucket, 0, len(esBuckets))
+	for _, b := range esBuckets {
+		bucket := facetBucket{Value: b.Key}
 		if len(b.Identity.Hits.Hits) > 0 {
 			bucket.Label = b.Identity.Hits.Hits[0].Source.SetName
 			bucket.ReleaseDate = b.Identity.Hits.Hits[0].Source.ReleaseDate
 		}
+		catalog = append(catalog, bucket)
+	}
+	s.setCatalog = catalog
+	return s.setCatalog, nil
+}
+
+// mergeSetCatalog joins cached labels/releases with per-request dynamic
+// counts: every catalog set stays visible, and non-matching sets read 0.
+func mergeSetCatalog(catalog []facetBucket, dynamic esAggregation) []facetBucket {
+	dynamicBuckets := dynamic.buckets()
+	counts := make(map[string]int, len(dynamicBuckets))
+	for _, b := range dynamicBuckets {
+		counts[b.Key] = b.DocCount
+	}
+	buckets := make([]facetBucket, 0, len(catalog))
+	for _, cached := range catalog {
+		bucket := cached
+		bucket.Count = counts[bucket.Value]
 		buckets = append(buckets, bucket)
 	}
 	return buckets

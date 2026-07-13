@@ -57,7 +57,7 @@ func get(t *testing.T, s *Server, path string) *httptest.ResponseRecorder {
 }
 
 // Two real docs (base1-1 Alakazam, ex11-12 Mewtwo delta) inside a real-shaped
-// ES search response, with aggregations.
+// hot-search response. The static set catalog is fetched separately below.
 const searchESBody = `{
   "took": 4,
   "hits": {
@@ -80,22 +80,35 @@ const searchESBody = `{
     "types":      {"doc_count": 61, "items": {"buckets": [{"key": "Lightning", "doc_count": 61}]}},
     "rarity":     {"doc_count": 61, "items": {"buckets": [{"key": "Common", "doc_count": 30}]}},
     "set_series": {"doc_count": 61, "items": {"buckets": [{"key": "Base", "doc_count": 16}]}},
-    "sets":       {"doc_count": 61, "items": {"buckets": [{"key": "base1", "doc_count": 41}]}},
-    "set_catalog": {"doc_count": 20324, "items": {"buckets": [
+    "sets":       {"doc_count": 61, "items": {"buckets": [{"key": "base1", "doc_count": 41}]}}
+  }
+}`
+
+const catalogESBody = `{
+  "took": 6,
+  "hits": {"hits": []},
+  "aggregations": {
+    "set_catalog": {"buckets": [
       {"key": "base1", "doc_count": 102, "identity": {"hits": {"hits": [
         {"_source": {"set_name": "Base", "release_date": "1999-01-09"}}
       ]}}},
       {"key": "ex11", "doc_count": 114, "identity": {"hits": {"hits": [
         {"_source": {"set_name": "Delta Species", "release_date": "2005-10-31"}}
       ]}}}
-    ]}}
+    ]}
   }
 }`
 
 func TestSearchHandler(t *testing.T) {
 	var esReqBody []byte
+	catalogCalls := 0
 	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
-		esReqBody, _ = io.ReadAll(r.Body)
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"set_catalog"`)) {
+			catalogCalls++
+			return esResponse(200, catalogESBody), nil
+		}
+		esReqBody = body
 		return esResponse(200, searchESBody), nil
 	})
 	s, logBuf := newTestServer(t, rt)
@@ -141,8 +154,11 @@ func TestSearchHandler(t *testing.T) {
 	if resp.DSL == nil || resp.DSL["track_total_hits"] != true {
 		t.Errorf("debug=1 must echo the DSL, got %v", resp.DSL)
 	}
-	if !bytes.Contains(esReqBody, []byte(`"minimum_should_match":1`)) {
-		t.Errorf("ES request body: %s", esReqBody)
+	if bytes.Contains(esReqBody, []byte(`"minimum_should_match"`)) || bytes.Contains(esReqBody, []byte(`"set_catalog"`)) {
+		t.Errorf("hot ES request must omit implicit bool defaults and static catalog: %s", esReqBody)
+	}
+	if catalogCalls != 1 {
+		t.Errorf("set catalog calls = %d, want 1", catalogCalls)
 	}
 
 	line := strings.TrimSpace(logBuf.String())
@@ -171,17 +187,17 @@ func TestSearchHandler(t *testing.T) {
 
 func TestSearchHandlerEmptyResults(t *testing.T) {
 	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"set_catalog"`)) {
+			return esResponse(200, catalogESBody), nil
+		}
 		return esResponse(200, `{"took":1,"hits":{"total":{"value":0},"hits":[]},
 		  "aggregations":{
-		    "supertype":{"doc_count":0,"items":{"buckets":[]}},
-		    "types":{"doc_count":0,"items":{"buckets":[]}},
-		    "rarity":{"doc_count":0,"items":{"buckets":[]}},
-		    "set_series":{"doc_count":0,"items":{"buckets":[]}},
-		    "sets":{"doc_count":0,"items":{"buckets":[]}},
-		    "set_catalog":{"doc_count":20324,"items":{"buckets":[
-		      {"key":"base1","doc_count":102,"identity":{"hits":{"hits":[
-		        {"_source":{"set_name":"Base","release_date":"1999-01-09"}}]}}}
-		    ]}}}}`), nil
+		    "supertype":{"buckets":[]},
+		    "types":{"buckets":[]},
+		    "rarity":{"buckets":[]},
+		    "set_series":{"buckets":[]},
+		    "sets":{"buckets":[]}}}`), nil
 	})
 	s, _ := newTestServer(t, rt)
 	rec := get(t, s, "/api/search?q=zzzzzz")
@@ -200,8 +216,58 @@ func TestSearchHandlerEmptyResults(t *testing.T) {
 	}
 	// Zero results must still expose the whole set catalog at count 0 so the
 	// UI never drops options (and never clears a selected set).
-	if sets := resp.Facets["sets"]; len(sets) != 1 || sets[0]["label"] != "Base" || sets[0]["count"] != float64(0) {
+	if sets := resp.Facets["sets"]; len(sets) != 2 || sets[0]["label"] != "Base" || sets[0]["count"] != float64(0) ||
+		sets[1]["label"] != "Delta Species" || sets[1]["count"] != float64(0) {
 		t.Errorf("zero-result set catalog: %v", resp.Facets["sets"])
+	}
+}
+
+func TestSetCatalogCachedAcrossSearches(t *testing.T) {
+	hotCalls := 0
+	catalogCalls := 0
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"set_catalog"`)) {
+			catalogCalls++
+			return esResponse(200, catalogESBody), nil
+		}
+		hotCalls++
+		return esResponse(200, searchESBody), nil
+	})
+	s, _ := newTestServer(t, rt)
+	for _, path := range []string{"/api/search?q=pikachu&types=Lightning", "/api/search?q=charizard&types=Fire"} {
+		if rec := get(t, s, path); rec.Code != 200 {
+			t.Fatalf("%s: status %d body %s", path, rec.Code, rec.Body.String())
+		}
+	}
+	if hotCalls != 2 || catalogCalls != 1 {
+		t.Errorf("hot/catalog calls = %d/%d, want 2/1", hotCalls, catalogCalls)
+	}
+}
+
+func TestExactIDLookupSkipsAggregationsAndCatalog(t *testing.T) {
+	calls := 0
+	var esReqBody []byte
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		esReqBody, _ = io.ReadAll(r.Body)
+		return esResponse(200, `{"took":1,"hits":{"total":{"value":1},"hits":[
+		  {"_source":{"id":"base1-1","name":"Alakazam"}}]}}`), nil
+	})
+	s, _ := newTestServer(t, rt)
+	rec := get(t, s, "/api/search?id=base1-1&debug=1")
+	if rec.Code != 200 {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	if calls != 1 || bytes.Contains(esReqBody, []byte(`"aggs"`)) || bytes.Contains(esReqBody, []byte(`"set_catalog"`)) {
+		t.Errorf("ID lookup calls/body = %d/%s", calls, esReqBody)
+	}
+	var resp searchResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Total != 1 || len(resp.Results) != 1 || len(resp.Facets) != 5 || len(resp.Facets["sets"]) != 0 {
+		t.Errorf("ID response: %+v", resp)
 	}
 }
 

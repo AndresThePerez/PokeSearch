@@ -10,13 +10,24 @@ import "strings"
 // is scoped by every active filter except its own, so a selection never
 // collapses its own alternatives.
 func BuildQuery(p Params) map[string]any {
+	if isExactIDLookup(p) {
+		return map[string]any{
+			"size":  1,
+			"query": map[string]any{"term": map[string]any{"id": p.ID}},
+		}
+	}
+
 	body := map[string]any{
 		"track_total_hits": true,
-		"from":             (p.Page - 1) * PageSize,
 		"size":             PageSize,
-		"query":            map[string]any{"bool": buildBool(p)},
 		"sort":             buildSort(p),
 		"aggs":             buildAggs(p),
+	}
+	if p.Page > 1 {
+		body["from"] = (p.Page - 1) * PageSize
+	}
+	if p.Q != "" {
+		body["query"] = map[string]any{"bool": buildBool(p)}
 	}
 	if filter := buildFilters(p, ""); len(filter) > 0 {
 		body["post_filter"] = map[string]any{"bool": map[string]any{"filter": filter}}
@@ -24,13 +35,17 @@ func BuildQuery(p Params) map[string]any {
 	return body
 }
 
+// isExactIDLookup identifies the deep-link card fetch. It deliberately stays
+// narrow so combining id with filters, pagination, or an explicit sort keeps
+// the full search behavior.
+func isExactIDLookup(p Params) bool {
+	return p.ID != "" && p.Q == "" && p.Supertype == "" && len(p.Types) == 0 &&
+		len(p.Rarity) == 0 && len(p.Series) == 0 && p.SetID == "" &&
+		p.HPMin == nil && p.HPMax == nil && p.Sort == "newest" && p.Order == "" && p.Page == 1
+}
+
 func buildBool(p Params) map[string]any {
-	b := map[string]any{}
-	if p.Q == "" {
-		b["must"] = []any{map[string]any{"match_all": map[string]any{}}}
-		return b
-	}
-	b["should"] = []any{
+	return map[string]any{"should": []any{
 		map[string]any{"term": map[string]any{"name.kw": map[string]any{
 			"value": strings.ToLower(p.Q),
 			"boost": 8,
@@ -64,30 +79,16 @@ func buildBool(p Params) map[string]any {
 				"artist",
 			},
 		}},
-	}
-	b["minimum_should_match"] = 1
-	return b
+	}}
 }
 
 func buildAggs(p Params) map[string]any {
 	return map[string]any{
-		"supertype":  facetAgg(p, "supertype", "supertype", 3),
+		"supertype":  facetAgg(p, "supertype", "supertype", 0),
 		"types":      facetAgg(p, "types", "types", 11),
 		"rarity":     facetAgg(p, "rarity", "rarity", 100),
 		"set_series": facetAgg(p, "series", "set_series", 20),
 		"sets":       facetAgg(p, "set", "set_id", 200),
-		// The catalog stays global on purpose: it owns the stable 173 set
-		// labels; per-request counts come from the scoped sets agg above.
-		"set_catalog": map[string]any{
-			"global": map[string]any{},
-			"aggs": map[string]any{"items": map[string]any{
-				"terms": map[string]any{"field": "set_id", "size": 200},
-				"aggs": map[string]any{"identity": map[string]any{"top_hits": map[string]any{
-					"size":    1,
-					"_source": map[string]any{"includes": []string{"set_name", "release_date"}},
-				}}},
-			}},
-		},
 	}
 }
 
@@ -95,13 +96,33 @@ func buildAggs(p Params) map[string]any {
 // except the facet's own (exclude = the Params filter to leave out).
 func facetAgg(p Params, exclude, field string, size int) map[string]any {
 	scope := buildFilters(p, exclude)
-	if scope == nil {
-		scope = []any{}
+	terms := map[string]any{"field": field}
+	if size > 0 {
+		terms["size"] = size
+	}
+	if len(scope) == 0 {
+		return map[string]any{"terms": terms}
 	}
 	return map[string]any{
 		"filter": map[string]any{"bool": map[string]any{"filter": scope}},
 		"aggs": map[string]any{"items": map[string]any{
-			"terms": map[string]any{"field": field, "size": size},
+			"terms": terms,
+		}},
+	}
+}
+
+// BuildSetCatalogQuery produces the cacheable, match-all catalog request used
+// to attach stable set labels and release dates to dynamic per-search counts.
+func BuildSetCatalogQuery() map[string]any {
+	return map[string]any{
+		"track_total_hits": false,
+		"size":             0,
+		"aggs": map[string]any{"set_catalog": map[string]any{
+			"terms": map[string]any{"field": "set_id", "size": 200},
+			"aggs": map[string]any{"identity": map[string]any{"top_hits": map[string]any{
+				"size":    1,
+				"_source": map[string]any{"includes": []string{"set_name", "release_date"}},
+			}}},
 		}},
 	}
 }

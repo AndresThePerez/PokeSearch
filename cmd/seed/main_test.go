@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
@@ -74,10 +75,18 @@ func TestSeedRun(t *testing.T) {
 			},
 		},
 		{
-			name:     "a rejected document fails the run",
+			name:     "a rejected document fails the run and is named",
 			counts:   []int{-1},
 			bulkBody: bulkItemFailure,
-			wantErr:  "bulk",
+			wantErr:  "base1-2",
+			check: func(t *testing.T, f *seedFake, _ *tarballServer) {
+				// ES reports document-level rejections with HTTP 200, so the
+				// reason has to come out of the body, not the status line.
+				_, settings, _, _, _ := f.snapshot()
+				if !slices.Contains(settings, refreshRestored) {
+					t.Errorf("settings = %v, want refresh restored even though the load failed", settings)
+				}
+			},
 		},
 		{
 			name:    "a final count that disagrees fails the run",
@@ -130,14 +139,117 @@ func assertSeeded(t *testing.T, f *seedFake, ref string) {
 	if chunks != 1 || docs != seedDocCount {
 		t.Errorf("bulk = %d chunks / %d docs, want 1 / %d", chunks, docs, seedDocCount)
 	}
-	if !slices.Contains(settings, `{"index":{"refresh_interval":"-1"}}`) {
-		t.Errorf("settings = %v, want refresh disabled during the load", settings)
-	}
-	if !slices.Contains(settings, `{"index":{"refresh_interval":"30s"}}`) {
-		t.Errorf("settings = %v, want refresh restored after the load", settings)
+	// Exactly two settings calls: the deferred restore must notice the explicit
+	// one already ran rather than issuing a second.
+	if !slices.Equal(settings, []string{refreshDisabled, refreshRestored}) {
+		t.Errorf("settings = %v, want exactly [disable, restore]", settings)
 	}
 	if !f.called("POST /cards/_forcemerge") {
 		t.Error("index was never force-merged")
+	}
+}
+
+// setDownloadTuning shrinks the corpus download's timeout and backoff for the
+// duration of one test — the production values are minutes and seconds.
+func setDownloadTuning(t *testing.T, timeout time.Duration) {
+	t.Helper()
+	oldTimeout, oldBackoff := downloadTimeout, downloadBackoff
+	downloadTimeout = timeout
+	downloadBackoff = func(int) time.Duration { return time.Millisecond }
+	t.Cleanup(func() { downloadTimeout, downloadBackoff = oldTimeout, oldBackoff })
+}
+
+// A wedged corpus host must fail the seed instead of hanging it forever.
+func TestSeedDownloadTimesOut(t *testing.T) {
+	setDownloadTuning(t, 20*time.Millisecond)
+	fake := &seedFake{counts: []int{-1}}
+	esURL, tarballBase, tarball := newSeedEnv(t, fake)
+	tarball.handler = func(int, http.ResponseWriter) bool {
+		time.Sleep(150 * time.Millisecond)
+		return true
+	}
+
+	err := run(esURL, tarballBase, "test-ref", false)
+	if err == nil || !strings.Contains(err.Error(), "download") {
+		t.Fatalf("run error = %v, want a download failure", err)
+	}
+	if got := tarball.attemptCount(); got != downloadAttempts {
+		t.Errorf("download attempts = %d, want %d", got, downloadAttempts)
+	}
+}
+
+// GitHub 5xxs; a transient one must not cost the whole seed.
+func TestSeedDownloadRetriesServerErrors(t *testing.T) {
+	setDownloadTuning(t, 5*time.Second)
+	fake := &seedFake{counts: []int{-1, seedDocCount}}
+	esURL, tarballBase, tarball := newSeedEnv(t, fake)
+	tarball.handler = func(attempt int, w http.ResponseWriter) bool {
+		if attempt <= 2 {
+			w.WriteHeader(http.StatusBadGateway)
+			return true
+		}
+		return false
+	}
+
+	if err := run(esURL, tarballBase, "test-ref", false); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got := tarball.attemptCount(); got != 3 {
+		t.Errorf("download attempts = %d, want 3", got)
+	}
+	assertSeeded(t, fake, "test-ref")
+}
+
+// A bad ref is a 404, and a 404 will not become a 200 on the third try.
+func TestSeedDownloadDoesNotRetryClientErrors(t *testing.T) {
+	setDownloadTuning(t, 5*time.Second)
+	fake := &seedFake{counts: []int{-1}}
+	esURL, tarballBase, tarball := newSeedEnv(t, fake)
+	tarball.handler = func(_ int, w http.ResponseWriter) bool {
+		w.WriteHeader(http.StatusNotFound)
+		return true
+	}
+
+	err := run(esURL, tarballBase, "no-such-ref", false)
+	if err == nil || !strings.Contains(err.Error(), "download") {
+		t.Fatalf("run error = %v, want a download failure", err)
+	}
+	if got := tarball.attemptCount(); got != 1 {
+		t.Errorf("download attempts = %d, want 1 — a 404 must not be retried", got)
+	}
+}
+
+// The load runs with refresh_interval disabled. If the seed dies in the middle
+// of it, the index must not be left in that state: it would never become
+// searchable on its own, and the next /healthz would report a stale count.
+func TestSeedRestoresRefreshWhenABulkChunkFails(t *testing.T) {
+	fake := &seedFake{counts: []int{-1}, bulkStatus: http.StatusInternalServerError,
+		bulkBody: `{"error":{"type":"circuit_breaking_exception"}}`}
+	esURL, tarballBase, _ := newSeedEnv(t, fake)
+
+	if err := run(esURL, tarballBase, "test-ref", false); err == nil {
+		t.Fatal("run succeeded, want the 500 from _bulk to fail it")
+	}
+	_, settings, _, _, _ := fake.snapshot()
+	if !slices.Equal(settings, []string{refreshDisabled, refreshRestored}) {
+		t.Errorf("settings = %v, want [disable, restore] — the deferred restore must run", settings)
+	}
+}
+
+// A restore that itself fails must not mask the error that caused the exit.
+func TestSeedRestoreFailureKeepsTheOriginalError(t *testing.T) {
+	fake := &seedFake{counts: []int{-1}, bulkBody: bulkItemFailure}
+	fake.settingsFn = func(attempt int, _ string) int {
+		if attempt == 2 {
+			return http.StatusBadRequest // the restore call
+		}
+		return 0
+	}
+	esURL, tarballBase, _ := newSeedEnv(t, fake)
+
+	err := run(esURL, tarballBase, "test-ref", false)
+	if err == nil || !strings.Contains(err.Error(), "base1-2") {
+		t.Fatalf("run error = %v, want the rejected document, not the restore failure", err)
 	}
 }
 

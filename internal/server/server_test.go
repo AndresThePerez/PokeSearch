@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -34,6 +36,14 @@ func esResponse(status int, body string) *http.Response {
 
 func newTestServer(t *testing.T, rt http.RoundTripper) (*Server, *bytes.Buffer) {
 	t.Helper()
+	var logBuf bytes.Buffer
+	return newTestServerLogging(t, rt, &logBuf), &logBuf
+}
+
+// newTestServerLogging is newTestServer with an explicit log sink — concurrent
+// tests pass io.Discard because a bytes.Buffer is not safe under -race.
+func newTestServerLogging(t *testing.T, rt http.RoundTripper, logW io.Writer) *Server {
+	t.Helper()
 	es, err := elasticsearch.NewClient(elasticsearch.Config{
 		Addresses: []string{"http://fake-es:9200"},
 		Transport: rt,
@@ -41,12 +51,11 @@ func newTestServer(t *testing.T, rt http.RoundTripper) (*Server, *bytes.Buffer) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	var logBuf bytes.Buffer
 	static := fstest.MapFS{
 		"index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>Pokesearch</title>")},
 	}
 	fixed := func() time.Time { return time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC) }
-	return New(es, static, &logBuf, fixed), &logBuf
+	return New(es, static, logW, fixed)
 }
 
 func get(t *testing.T, s *Server, path string) *httptest.ResponseRecorder {
@@ -54,6 +63,22 @@ func get(t *testing.T, s *Server, path string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
 	s.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
 	return rec
+}
+
+// facetLen reports how many buckets a successful search response carries for
+// the named facet.
+func facetLen(t *testing.T, rec *httptest.ResponseRecorder, name string) int {
+	t.Helper()
+	if rec.Code != 200 {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Facets map[string][]map[string]any `json:"facets"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	return len(resp.Facets[name])
 }
 
 // Two real docs (base1-1 Alakazam, ex11-12 Mewtwo delta) inside a real-shaped
@@ -243,6 +268,61 @@ func TestSetCatalogCachedAcrossSearches(t *testing.T) {
 	if hotCalls != 2 || catalogCalls != 1 {
 		t.Errorf("hot/catalog calls = %d/%d, want 2/1", hotCalls, catalogCalls)
 	}
+}
+
+// TestSetCatalogEmptyNotCached: the first search runs against an unseeded index
+// (the catalog agg returns zero buckets); once the fake starts returning
+// buckets — i.e. after a seed — the next search must show the populated
+// catalog. Caching the empty result would wedge the facet until a restart.
+func TestSetCatalogEmptyNotCached(t *testing.T) {
+	var seeded atomic.Bool
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"set_catalog"`)) {
+			if seeded.Load() {
+				return esResponse(200, catalogESBody), nil
+			}
+			return esResponse(200, `{"took":1,"hits":{"total":{"value":0},"hits":[]},
+			  "aggregations":{"set_catalog":{"buckets":[]}}}`), nil
+		}
+		return esResponse(200, searchESBody), nil
+	})
+	s, _ := newTestServer(t, rt)
+
+	if got := facetLen(t, get(t, s, "/api/search?q=pikachu"), "sets"); got != 0 {
+		t.Fatalf("pre-seed sets facet = %d, want 0", got)
+	}
+	seeded.Store(true)
+	if got := facetLen(t, get(t, s, "/api/search?q=pikachu"), "sets"); got == 0 {
+		t.Fatal("post-seed sets facet still empty — the empty catalog was cached")
+	}
+}
+
+// TestSetCatalogConcurrentColdStart: N parallel cold-start searches must not
+// deadlock and must all complete. Meaningful under -race.
+func TestSetCatalogConcurrentColdStart(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"set_catalog"`)) {
+			return esResponse(200, catalogESBody), nil
+		}
+		return esResponse(200, searchESBody), nil
+	})
+	s := newTestServerLogging(t, rt, io.Discard)
+
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rec := httptest.NewRecorder()
+			s.ServeHTTP(rec, httptest.NewRequest("GET", "/api/search?q=pikachu", nil))
+			if rec.Code != 200 {
+				t.Errorf("status %d", rec.Code)
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 func TestExactIDLookupSkipsAggregationsAndCatalog(t *testing.T) {

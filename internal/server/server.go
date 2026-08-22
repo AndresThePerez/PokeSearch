@@ -23,7 +23,7 @@ type Server struct {
 	mux          *http.ServeMux
 	logW         io.Writer
 	now          func() time.Time
-	setCatalogMu sync.Mutex
+	setCatalogMu sync.RWMutex
 	setCatalog   []facetBucket
 }
 
@@ -211,14 +211,19 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// loadSetCatalog lazily fetches the immutable set metadata once per app
-// process. The standalone size:0 request is also eligible for ES's request
-// cache, while hot search requests only calculate dynamic counts.
+// loadSetCatalog lazily fetches the immutable set metadata. The ES call runs
+// OUTSIDE the lock (a slow ES must not serialize every cold-start request),
+// and an empty catalog — an unseeded index — is served but never cached, so
+// the first search after seeding heals it. Concurrent cold starts may fetch
+// redundantly; that is bounded, harmless, and keeps this stdlib-only.
+// The standalone size:0 request is also eligible for ES's request cache,
+// while hot search requests only calculate dynamic counts.
 func (s *Server) loadSetCatalog(r *http.Request) ([]facetBucket, error) {
-	s.setCatalogMu.Lock()
-	defer s.setCatalogMu.Unlock()
-	if s.setCatalog != nil {
-		return s.setCatalog, nil
+	s.setCatalogMu.RLock()
+	cached := s.setCatalog
+	s.setCatalogMu.RUnlock()
+	if len(cached) > 0 {
+		return cached, nil
 	}
 
 	esr, err := s.searchES(r, search.BuildSetCatalogQuery())
@@ -235,8 +240,17 @@ func (s *Server) loadSetCatalog(r *http.Request) ([]facetBucket, error) {
 		}
 		catalog = append(catalog, bucket)
 	}
-	s.setCatalog = catalog
-	return s.setCatalog, nil
+	if len(catalog) == 0 {
+		return catalog, nil // unseeded: serve empty, cache nothing
+	}
+
+	s.setCatalogMu.Lock()
+	if len(s.setCatalog) == 0 {
+		s.setCatalog = catalog
+	}
+	cached = s.setCatalog
+	s.setCatalogMu.Unlock()
+	return cached, nil
 }
 
 // mergeSetCatalog joins cached labels/releases with per-request dynamic

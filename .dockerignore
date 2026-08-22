@@ -1,0 +1,16 @@
+# Keep the build context to what the compiler actually needs. Everything here
+# would otherwise be uploaded to the daemon on every build and land in a layer.
+.git
+.github
+.superpowers
+
+# Documentation and hero assets (docs/media holds the README screenshot and
+# holo GIF — megabytes of binary that no build step reads).
+*.md
+**/*.md
+docs/
+
+# Compose files are deployment inputs, not build inputs.
+docker-compose*.yml
+Dockerfile
+.dockerignore

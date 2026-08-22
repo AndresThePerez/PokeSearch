@@ -16,6 +16,10 @@ type QueryLog struct {
 	TookMs   int            `json:"took_ms"`
 	Total    int            `json:"total"`
 	Status   int            `json:"status"`
+	// Error carries the server-side cause of a non-2xx — for a 503 that is the
+	// truncated Elasticsearch error body, which is what makes a mapping error
+	// distinguishable from a down cluster. Never sent to clients.
+	Error string `json:"error,omitempty"`
 }
 
 func writeLog(w io.Writer, entry QueryLog) {

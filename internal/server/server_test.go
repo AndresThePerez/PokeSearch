@@ -397,17 +397,128 @@ func TestExactIDLookupSkipsAggregationsAndCatalog(t *testing.T) {
 	}
 }
 
+// errorBody decodes the M3 error contract:
+//
+//	{"error":{"code":...,"field":...,"message":...},"request_id":"..."}
+type errorBody struct {
+	Error struct {
+		Code    string `json:"code"`
+		Field   string `json:"field"`
+		Message string `json:"message"`
+	} `json:"error"`
+	RequestID string `json:"request_id"`
+}
+
+func decodeError(t *testing.T, rec *httptest.ResponseRecorder) errorBody {
+	t.Helper()
+	var body errorBody
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error body %q: %v", rec.Body.String(), err)
+	}
+	return body
+}
+
 func TestSearchHandlerESDown(t *testing.T) {
 	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
 		return nil, errors.New("connection refused")
 	})
 	s, logBuf := newTestServer(t, rt)
 	rec := get(t, s, "/api/search?q=x")
-	if rec.Code != 503 || !strings.Contains(rec.Body.String(), "elasticsearch unavailable") {
-		t.Errorf("status %d body %s", rec.Code, rec.Body.String())
+	if rec.Code != 503 {
+		t.Errorf("status %d, want 503", rec.Code)
+	}
+	body := decodeError(t, rec)
+	if body.Error.Code != "es_unavailable" || body.Error.Message != "elasticsearch unavailable" {
+		t.Errorf("503 body = %+v", body.Error)
 	}
 	if !strings.Contains(logBuf.String(), `"status":503`) {
 		t.Errorf("failure must still log: %q", logBuf.String())
+	}
+}
+
+// Strict params (D1) are a client error, reported with the offending field.
+func TestSearchHandlerInvalidParams(t *testing.T) {
+	for _, tc := range []struct{ query, field string }{
+		{"sort=bogus", "sort"},
+		{"supertype=wizard", "supertype"},
+		{"hp_min=abc", "hp_min"},
+		{"page=two", "page"},
+		{"page_size=lots", "page_size"},
+	} {
+		t.Run(tc.query, func(t *testing.T) {
+			rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+				t.Error("invalid params must be rejected before ES is called")
+				return esResponse(200, searchESBody), nil
+			})
+			s, logBuf := newTestServer(t, rt)
+			rec := get(t, s, "/api/search?"+tc.query)
+			if rec.Code != 400 {
+				t.Fatalf("status %d, want 400: %s", rec.Code, rec.Body.String())
+			}
+			body := decodeError(t, rec)
+			if body.Error.Code != "invalid_param" || body.Error.Field != tc.field || body.Error.Message == "" {
+				t.Errorf("400 body = %+v, want invalid_param on %q", body.Error, tc.field)
+			}
+			if !strings.Contains(logBuf.String(), `"status":400`) {
+				t.Errorf("rejection must log: %q", logBuf.String())
+			}
+		})
+	}
+}
+
+// Lenient inputs (D1) keep returning 200: unknown comma-list members are
+// dropped, out-of-range integers clamp, unknown keys are ignored.
+func TestSearchHandlerLenientParams(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"set_catalog"`)) {
+			return esResponse(200, catalogESBody), nil
+		}
+		return esResponse(200, searchESBody), nil
+	})
+	s, _ := newTestServer(t, rt)
+	for _, query := range []string{
+		"types=Wizard", "types=Wizard,Fire", "page=999999", "utm_source=x",
+		"rarity=NotARarity", "series=Nope", "sort=hp&order=desc", "supertype=POKEMON",
+	} {
+		if rec := get(t, s, "/api/search?"+query); rec.Code != 200 {
+			t.Errorf("%s: status %d, want 200: %s", query, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+// /api/suggest reads only q, so field errors on other params are ignored
+// there rather than turned into a 400.
+func TestSuggestIgnoresOtherFieldErrors(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return esResponse(200, `{"took":2,"suggest":{"card":[{"text":"pika","offset":0,"length":4,
+		  "options":[{"text":"Pikachu","_id":"base1-58"}]}]}}`), nil
+	})
+	s, _ := newTestServer(t, rt)
+	rec := get(t, s, "/api/suggest?sort=bogus&q=pika")
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Pikachu") {
+		t.Errorf("status %d body %s", rec.Code, rec.Body.String())
+	}
+}
+
+// An ES error body is folded into the returned error so the log can tell a
+// mapping error from a down cluster, while the client body stays generic.
+func TestSearchESErrorBodyLogged(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return esResponse(400, `{"error":{"type":"search_phase_execution_exception",
+		  "reason":"No mapping found for [nope] in order to sort on"}}`), nil
+	})
+	s, logBuf := newTestServer(t, rt)
+	rec := get(t, s, "/api/search?q=x")
+	if rec.Code != 503 {
+		t.Fatalf("status %d, want 503", rec.Code)
+	}
+	if body := decodeError(t, rec); body.Error.Code != "es_unavailable" ||
+		strings.Contains(body.Error.Message, "mapping") {
+		t.Errorf("client body must stay generic, got %+v", body.Error)
+	}
+	if !strings.Contains(logBuf.String(), "search_phase_execution_exception") {
+		t.Errorf("ES error body must reach the log: %q", logBuf.String())
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -61,6 +62,67 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// Error codes in the M3 contract. invalid_param is the client's fault (400);
+// es_unavailable is ours (503).
+const (
+	codeInvalidParam  = "invalid_param"
+	codeESUnavailable = "es_unavailable"
+)
+
+type errorDetail struct {
+	Code    string `json:"code"`
+	Field   string `json:"field,omitempty"`
+	Message string `json:"message"`
+}
+
+type errorEnvelope struct {
+	Error     errorDetail `json:"error"`
+	RequestID string      `json:"request_id"`
+}
+
+// writeError emits the single error shape every non-2xx response uses:
+//
+//	{"error":{"code":...,"field":...,"message":...},"request_id":"..."}
+//
+// request_id is an empty string until the request-ID middleware lands; the
+// field is present from the start so the shape never changes again.
+func (s *Server) writeError(w http.ResponseWriter, r *http.Request, status int, code, field, message string) {
+	writeJSON(w, status, errorEnvelope{
+		Error:     errorDetail{Code: code, Field: field, Message: message},
+		RequestID: requestID(r),
+	})
+}
+
+// writeES503 is the one place a failed ES call becomes a client response: the
+// error (which carries the truncated ES body) goes to the log, the client gets
+// the generic contract.
+func (s *Server) writeES503(w http.ResponseWriter, r *http.Request, entry QueryLog, cause error) {
+	entry.Status = http.StatusServiceUnavailable
+	if cause != nil {
+		entry.Error = cause.Error()
+	}
+	writeLog(s.logW, entry)
+	s.writeError(w, r, http.StatusServiceUnavailable, codeESUnavailable, "", "elasticsearch unavailable")
+}
+
+// requestID is a placeholder until the observability middleware lands; it
+// keeps writeError's signature and the response shape final from now on.
+func requestID(_ *http.Request) string { return "" }
+
+// esErrorBodyLimit caps how much of an ES error body reaches the log. Enough
+// to identify a mapping error, not enough to flood a log on a bad day.
+const esErrorBodyLimit = 2 << 10
+
+// esError folds the ES error body into the returned error so the log can tell
+// a mapping error from a down cluster. Callers must not surface it to clients.
+func esError(status string, body io.Reader) error {
+	snippet, err := io.ReadAll(io.LimitReader(body, esErrorBodyLimit))
+	if err != nil || len(snippet) == 0 {
+		return errors.New(status)
+	}
+	return fmt.Errorf("es %s: %s", status, bytes.TrimSpace(snippet))
 }
 
 // handleLivez is the cheap liveness probe and the container healthcheck
@@ -166,7 +228,7 @@ type esSearchResponse struct {
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
-	p, _ := search.ParseParams(r.URL.Query()) // TODO(Task 7): wire field errors to 400
+	p, ferrs := search.ParseParams(r.URL.Query())
 	dsl := search.BuildQuery(p)
 	entry := QueryLog{
 		Time:     s.now().UTC().Format(time.RFC3339),
@@ -175,11 +237,19 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		DSL:      dsl,
 	}
 
+	// Strict params are rejected before ES is touched: a typo must not cost a
+	// cluster round trip, and it must not return a plausible-looking answer.
+	if len(ferrs) > 0 {
+		entry.Status = http.StatusBadRequest
+		entry.Error = ferrs[0].Message
+		writeLog(s.logW, entry)
+		s.writeError(w, r, http.StatusBadRequest, codeInvalidParam, ferrs[0].Field, ferrs[0].Message)
+		return
+	}
+
 	esr, err := s.searchES(r, dsl)
 	if err != nil {
-		entry.Status = http.StatusServiceUnavailable
-		writeLog(s.logW, entry)
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "elasticsearch unavailable"})
+		s.writeES503(w, r, entry, err)
 		return
 	}
 
@@ -189,9 +259,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			entry.TookMs = esr.Took
 			entry.Total = esr.Hits.Total.Value
-			entry.Status = http.StatusServiceUnavailable
-			writeLog(s.logW, entry)
-			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "elasticsearch unavailable"})
+			s.writeES503(w, r, entry, err)
 			return
 		}
 	}
@@ -326,7 +394,7 @@ func (s *Server) searchES(r *http.Request, dsl map[string]any) (*esSearchRespons
 	}
 	defer res.Body.Close()
 	if res.IsError() {
-		return nil, errors.New(res.Status())
+		return nil, esError(res.Status(), res.Body)
 	}
 
 	var esr esSearchResponse
@@ -348,7 +416,9 @@ type esSuggestResponse struct {
 }
 
 func (s *Server) handleSuggest(w http.ResponseWriter, r *http.Request) {
-	p, _ := search.ParseParams(r.URL.Query()) // TODO(Task 7): wire field errors to 400
+	// /api/suggest reads only q, so field errors on any other parameter are
+	// irrelevant here and are deliberately ignored rather than rejected.
+	p, _ := search.ParseParams(r.URL.Query())
 	if p.Q == "" {
 		writeJSON(w, http.StatusOK, map[string]any{"suggestions": []string{}})
 		return
@@ -371,9 +441,7 @@ func (s *Server) handleSuggest(w http.ResponseWriter, r *http.Request) {
 		took += fuzzyTook
 	}
 	if err != nil {
-		entry.Status = http.StatusServiceUnavailable
-		writeLog(s.logW, entry)
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "elasticsearch unavailable"})
+		s.writeES503(w, r, entry, err)
 		return
 	}
 
@@ -401,7 +469,7 @@ func (s *Server) suggestES(r *http.Request, dsl map[string]any) ([]string, int, 
 	}
 	defer res.Body.Close()
 	if res.IsError() {
-		return nil, 0, errors.New(res.Status())
+		return nil, 0, esError(res.Status(), res.Body)
 	}
 
 	var esr esSuggestResponse

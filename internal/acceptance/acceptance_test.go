@@ -84,6 +84,34 @@ func search(t *testing.T, qs string) searchResp {
 	return out
 }
 
+type errorResp struct {
+	Error struct {
+		Code    string `json:"code"`
+		Field   string `json:"field"`
+		Message string `json:"message"`
+	} `json:"error"`
+	RequestID string `json:"request_id"`
+}
+
+// rawSearch returns the status and decoded error envelope without asserting a
+// 200 — search() fatals on non-2xx, which is exactly what the 400 table needs
+// to inspect instead.
+func rawSearch(t *testing.T, qs string) (int, errorResp) {
+	t.Helper()
+	res, err := http.Get(baseURL() + "/api/search?" + qs)
+	if err != nil {
+		t.Fatalf("GET %s: %v", qs, err)
+	}
+	defer res.Body.Close()
+	var out errorResp
+	if res.StatusCode != 200 {
+		if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+			t.Fatalf("GET %s: decode error body: %v", qs, err)
+		}
+	}
+	return res.StatusCode, out
+}
+
 func counts(buckets []bucket) map[string]int {
 	m := make(map[string]int, len(buckets))
 	for _, b := range buckets {
@@ -263,9 +291,8 @@ func TestSortMatrix(t *testing.T) {
 	if r := search(t, "q=charizard&sort=relevance&debug=1"); fmt.Sprint(r.DSL["sort"].([]any)[0]) != "_score" {
 		t.Errorf("relevance must sort by _score: %v", r.DSL["sort"])
 	}
-	if r := search(t, "sort=bogus&debug=1"); fmt.Sprint(r.DSL["sort"].([]any)[0]) != "map[release_date:desc]" {
-		t.Errorf("invalid sort must fall back to newest: %v", r.DSL["sort"])
-	}
+	// sort=bogus used to fall back to newest; since M3 (D1) it is a 400.
+	// See TestErrorContract.
 	if r := search(t, "sort=relevance&debug=1"); fmt.Sprint(r.DSL["sort"].([]any)[0]) != "map[release_date:desc]" {
 		t.Errorf("blank-query relevance must normalize to newest: %v", r.DSL["sort"])
 	}
@@ -284,6 +311,40 @@ func TestPageBoundariesDeterministic(t *testing.T) {
 	}
 	if len(seen) != 2*pageSize {
 		t.Errorf("pages 1-2 yielded %d unique ids, want %d", len(seen), 2*pageSize)
+	}
+}
+
+// The M3 error contract (D1/A2): strict params return 400 with a field-named
+// structured body; list members and unknown keys stay lenient at 200.
+func TestErrorContract(t *testing.T) {
+	strict := []struct{ query, field string }{
+		{"sort=bogus", "sort"},
+		{"sort=hp&order=sideways", "order"},
+		{"supertype=wizard", "supertype"},
+		{"hp_min=abc", "hp_min"},
+		{"hp_max=1e3", "hp_max"},
+		{"page=two", "page"},
+		{"page_size=lots", "page_size"},
+	}
+	for _, tc := range strict {
+		status, body := rawSearch(t, tc.query)
+		if status != http.StatusBadRequest {
+			t.Errorf("%s: status %d, want 400", tc.query, status)
+			continue
+		}
+		if body.Error.Code != "invalid_param" || body.Error.Field != tc.field || body.Error.Message == "" {
+			t.Errorf("%s: error = %+v, want invalid_param on %q with a message", tc.query, body.Error, tc.field)
+		}
+	}
+
+	lenient := []string{
+		"types=Wizard", "types=Wizard,Fire", "rarity=NotARarity", "series=Nope",
+		"page=999999", "page_size=500", "utm_source=x", "supertype=POKEMON",
+	}
+	for _, query := range lenient {
+		if status, body := rawSearch(t, query); status != http.StatusOK {
+			t.Errorf("%s: status %d, want 200 (lenient): %+v", query, status, body.Error)
+		}
 	}
 }
 

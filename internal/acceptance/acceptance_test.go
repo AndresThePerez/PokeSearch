@@ -17,6 +17,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	searchpkg "github.com/AndresThePerez/pokesearch/internal/search"
 )
 
 const (
@@ -377,5 +379,43 @@ func TestPageSizeBounds(t *testing.T) {
 	}
 	if r := search(t, "page=999999"); r.Page != wantBrowsePages {
 		t.Errorf("page clamp at default size = %d, want %d", r.Page, wantBrowsePages)
+	}
+}
+
+// TestFacetsLeaveNoRemainder makes the "rarity terms.size 30 against 38 live
+// rarities" drift class structural instead of anecdotal.
+//
+// A terms aggregation only drops buckets into sum_other_doc_count when its
+// size is below the field's cardinality, and the API deliberately does not
+// surface sum_other_doc_count (it is ES bookkeeping, not a search result). So
+// the remainder is asserted through its two observable halves: every registered
+// facet returns exactly the corpus's known cardinality, and the size configured
+// in searchpkg.Facets sits at or above it. Driving the loop off the registry means
+// a sixth facet cannot be added without an expectation here.
+func TestFacetsLeaveNoRemainder(t *testing.T) {
+	live := map[string]int{
+		"supertype": wantClasses, "types": wantTypes, "rarity": wantRarities,
+		"set_series": wantSeries, searchpkg.SetsFacet: wantSets,
+	}
+	if len(searchpkg.Facets) != len(live) {
+		t.Fatalf("%d facets registered, %d expectations — add the new facet's live cardinality",
+			len(searchpkg.Facets), len(live))
+	}
+
+	browse := search(t, "")
+	for _, f := range searchpkg.Facets {
+		want, ok := live[f.Name]
+		if !ok {
+			t.Errorf("facet %q has no expected cardinality", f.Name)
+			continue
+		}
+		if got := len(browse.Facets[f.Name]); got != want {
+			t.Errorf("facet %q returned %d buckets, want %d — a short terms size leaves a "+
+				"sum_other_doc_count remainder and the UI silently loses values", f.Name, got, want)
+		}
+		if f.Size != 0 && f.Size < want {
+			t.Errorf("facet %q: terms size %d is below the live cardinality %d",
+				f.Name, f.Size, want)
+		}
 	}
 }

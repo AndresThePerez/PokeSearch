@@ -83,23 +83,51 @@ func buildBool(p Params) map[string]any {
 	}}
 }
 
+// FacetDef is one entry of the single facet registry. Three things used to
+// repeat this knowledge — the aggregation builder, the response decoder and the
+// facet map the handler pre-populates — and the rarity terms.size drift (30
+// configured against 38 live rarities) is exactly what happens when they
+// disagree. They now all read this list.
+type FacetDef struct {
+	Name    string // response and aggregation key
+	Exclude string // the Params filter this facet must not apply to itself
+	Field   string // the ES field to aggregate
+	Size    int    // terms size; 0 means the ES default
+}
+
+// SetsFacet is the one facet whose labels and release dates come from the
+// cached set catalog rather than from the per-request aggregation, so the
+// handler special-cases it on the way out.
+const SetsFacet = "sets"
+
+// Facets is the registry. Sizes are ceilings, not guesses: each is at or above
+// the live cardinality of the pinned corpus (types 11 of 11, rarity 38 of 100,
+// series 17 of 20, sets 173 of 200), so no terms aggregation ever drops a
+// bucket into sum_other_doc_count. Raising a corpus cardinality past one of
+// these silently truncates a facet — internal/acceptance asserts against it.
+var Facets = []FacetDef{
+	{Name: "supertype", Exclude: "supertype", Field: "supertype", Size: 0},
+	{Name: "types", Exclude: "types", Field: "types", Size: 11},
+	{Name: "rarity", Exclude: "rarity", Field: "rarity", Size: 100},
+	{Name: "set_series", Exclude: "series", Field: "set_series", Size: 20},
+	{Name: SetsFacet, Exclude: "set", Field: "set_id", Size: 200},
+}
+
 func buildAggs(p Params) map[string]any {
-	return map[string]any{
-		"supertype":  facetAgg(p, "supertype", "supertype", 0),
-		"types":      facetAgg(p, "types", "types", 11),
-		"rarity":     facetAgg(p, "rarity", "rarity", 100),
-		"set_series": facetAgg(p, "series", "set_series", 20),
-		"sets":       facetAgg(p, "set", "set_id", 200),
+	aggs := make(map[string]any, len(Facets))
+	for _, f := range Facets {
+		aggs[f.Name] = facetAgg(p, f)
 	}
+	return aggs
 }
 
 // facetAgg scopes one facet's terms aggregation with every active filter
-// except the facet's own (exclude = the Params filter to leave out).
-func facetAgg(p Params, exclude, field string, size int) map[string]any {
-	scope := buildFilters(p, exclude)
-	terms := map[string]any{"field": field}
-	if size > 0 {
-		terms["size"] = size
+// except the facet's own.
+func facetAgg(p Params, f FacetDef) map[string]any {
+	scope := buildFilters(p, f.Exclude)
+	terms := map[string]any{"field": f.Field}
+	if f.Size > 0 {
+		terms["size"] = f.Size
 	}
 	if len(scope) == 0 {
 		return map[string]any{"terms": terms}
@@ -190,11 +218,15 @@ func orderOr(order, fallback string) string {
 	return fallback
 }
 
+// SuggestSize is how many completions /api/suggest asks ES for. The frontend
+// slices to the same number, so the two must not drift.
+const SuggestSize = 8
+
 // BuildSuggest produces the completion-suggester body for /api/suggest.
 func BuildSuggest(q string, fuzzy bool) map[string]any {
 	completion := map[string]any{
 		"field":           "name.suggest",
-		"size":            8,
+		"size":            SuggestSize,
 		"skip_duplicates": true,
 	}
 	if fuzzy {

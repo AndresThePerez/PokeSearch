@@ -540,28 +540,23 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 		TookMs:  esr.Took,
 		Results: make([]json.RawMessage, 0, len(esr.Hits.Hits)),
-		Facets: map[string][]facetBucket{
-			"supertype":  {},
-			"types":      {},
-			"rarity":     {},
-			"set_series": {},
-			"sets":       {},
-		},
+		Facets:  make(map[string][]facetBucket, len(search.Facets)),
 	}
 	for _, hit := range esr.Hits.Hits {
 		resp.Results = append(resp.Results, hit.Source)
 	}
-	for _, name := range []string{"supertype", "types", "rarity", "set_series"} {
-		agg := esr.Aggregations[name]
-		esBuckets := agg.buckets()
+	// Every registered facet is always present in the response, empty or not —
+	// the UI renders a fixed set of controls and must never have to guess.
+	for _, f := range search.Facets {
+		esBuckets := esr.Aggregations[f.Name].buckets()
 		buckets := make([]facetBucket, 0, len(esBuckets))
 		for _, b := range esBuckets {
 			buckets = append(buckets, facetBucket{Value: b.Key, Count: b.DocCount})
 		}
-		resp.Facets[name] = buckets
+		resp.Facets[f.Name] = buckets
 	}
 	if setCatalog != nil {
-		resp.Facets["sets"] = mergeSetCatalog(setCatalog, esr.Aggregations["sets"])
+		resp.Facets[search.SetsFacet] = mergeSetCatalog(setCatalog, esr.Aggregations[search.SetsFacet])
 	}
 	if p.Debug {
 		resp.DSL = dsl
@@ -645,7 +640,11 @@ func pagesFor(total, pageSize int) int {
 	return (capped + pageSize - 1) / pageSize
 }
 
-func (s *Server) searchES(r *http.Request, dsl map[string]any) (*esSearchResponse, error) {
+// esQuery runs one _search against the cards index and decodes the reply into
+// T. Every ES round trip in this package goes through it, so the per-request
+// timeout, the error-body capture and the decode all happen in exactly one
+// place — the response shape is the only thing that varies.
+func esQuery[T any](s *Server, r *http.Request, dsl map[string]any) (*T, error) {
 	body, err := json.Marshal(dsl)
 	if err != nil {
 		return nil, err
@@ -665,11 +664,15 @@ func (s *Server) searchES(r *http.Request, dsl map[string]any) (*esSearchRespons
 		return nil, esError(res.Status(), res.Body)
 	}
 
-	var esr esSearchResponse
-	if err := json.NewDecoder(res.Body).Decode(&esr); err != nil {
+	var decoded T
+	if err := json.NewDecoder(res.Body).Decode(&decoded); err != nil {
 		return nil, err
 	}
-	return &esr, nil
+	return &decoded, nil
+}
+
+func (s *Server) searchES(r *http.Request, dsl map[string]any) (*esSearchResponse, error) {
+	return esQuery[esSearchResponse](s, r, dsl)
 }
 
 type esSuggestResponse struct {
@@ -717,28 +720,11 @@ func (s *Server) handleSuggest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"suggestions": names})
 }
 
+// suggestES is esQuery plus the flattening the completion suggester needs:
+// ES nests options one level deeper than the endpoint's contract wants.
 func (s *Server) suggestES(r *http.Request, dsl map[string]any) ([]string, int, error) {
-	body, err := json.Marshal(dsl)
+	esr, err := esQuery[esSuggestResponse](s, r, dsl)
 	if err != nil {
-		return nil, 0, err
-	}
-	ctx, cancel := s.esCtx(r)
-	defer cancel()
-	res, err := s.es.Search(
-		s.es.Search.WithContext(ctx),
-		s.es.Search.WithIndex(esindex.IndexName),
-		s.es.Search.WithBody(bytes.NewReader(body)),
-	)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer res.Body.Close()
-	if res.IsError() {
-		return nil, 0, esError(res.Status(), res.Body)
-	}
-
-	var esr esSuggestResponse
-	if err := json.NewDecoder(res.Body).Decode(&esr); err != nil {
 		return nil, 0, err
 	}
 	names := []string{}

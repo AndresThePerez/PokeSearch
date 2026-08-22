@@ -817,6 +817,81 @@ func TestMetaESDown(t *testing.T) {
 	}
 }
 
+// Metrics are opt-in: /debug/vars must not exist unless the operator asked for
+// it, because the production tunnel forwards every path it is given.
+func TestDebugVarsRequiresOptIn(t *testing.T) {
+	s, _ := newTestServer(t, roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		t.Error("/debug/vars must not call ES")
+		return nil, nil
+	}))
+	rec := get(t, s, "/debug/vars")
+	if rec.Code != 404 {
+		t.Fatalf("status %d, want 404 — metrics must be off by default: %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "pokesearch_http") {
+		t.Errorf("counters leaked without EnableMetrics: %s", rec.Body.String())
+	}
+}
+
+// With metrics on, /debug/vars serves the stdlib expvar document and the
+// per-route/per-status counters the access middleware maintains.
+func TestDebugVarsCounters(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"set_catalog"`)) {
+			return esResponse(200, catalogESBody), nil
+		}
+		return esResponse(200, searchESBody), nil
+	})
+	s, _ := newTestServer(t, rt)
+	s.EnableMetrics()
+
+	if rec := get(t, s, "/api/search?q=pikachu"); rec.Code != 200 {
+		t.Fatalf("search: %d", rec.Code)
+	}
+	if rec := get(t, s, "/api/search?sort=bogus"); rec.Code != 400 {
+		t.Fatalf("bad search: %d", rec.Code)
+	}
+
+	rec := get(t, s, "/debug/vars")
+	if rec.Code != 200 {
+		t.Fatalf("status %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var doc struct {
+		HTTP map[string]int `json:"pokesearch_http"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
+		t.Fatalf("expvar document must be JSON: %v\n%s", err, rec.Body.String())
+	}
+	if doc.HTTP["search_200"] < 1 {
+		t.Errorf("search_200 = %d, want >= 1 (counters: %v)", doc.HTTP["search_200"], doc.HTTP)
+	}
+	if doc.HTTP["search_400"] < 1 {
+		t.Errorf("search_400 = %d, want >= 1 (counters: %v)", doc.HTTP["search_400"], doc.HTTP)
+	}
+}
+
+// routeLabel keeps the counter map bounded: an arbitrary URL path must never
+// become an arbitrary expvar key, or a crawler turns the metrics map into a
+// memory leak.
+func TestRouteLabel(t *testing.T) {
+	for path, want := range map[string]string{
+		"/api/search":       "search",
+		"/api/suggest":      "suggest",
+		"/api/meta":         "meta",
+		"/healthz":          "healthz",
+		"/livez":            "livez",
+		"/debug/vars":       "metrics",
+		"/":                 "static",
+		"/styles.css":       "static",
+		"/../../etc/passwd": "static",
+	} {
+		if got := routeLabel(path); got != want {
+			t.Errorf("routeLabel(%q) = %q, want %q", path, got, want)
+		}
+	}
+}
+
 // Every response carries X-Request-Id. An inbound id is honoured — X-Request-Id
 // first, then Cloudflare's Cf-Ray — so one trace spans edge, app log and
 // client. An implausible id is replaced rather than repaired: it would

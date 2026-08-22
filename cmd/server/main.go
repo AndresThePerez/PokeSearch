@@ -71,6 +71,13 @@ func run(ctx context.Context, cfg config) error {
 	}
 
 	s := server.New(es, web.Files, os.Stdout, time.Now)
+	if cfg.metrics {
+		// Opt-in only: the production tunnel forwards whatever path it is
+		// handed, so METRICS=1 belongs to local and CI runs, never the server
+		// topology.
+		s.EnableMetrics()
+		slog.Info("expvar metrics enabled", "path", "/debug/vars")
+	}
 	srv := &http.Server{
 		Addr:              ":" + cfg.port,
 		Handler:           s,

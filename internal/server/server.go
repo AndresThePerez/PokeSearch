@@ -9,11 +9,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"expvar"
 	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -151,6 +153,7 @@ func (s *Server) withObservability(next http.Handler) http.Handler {
 		start := s.now()
 		next.ServeHTTP(rec, r.WithContext(context.WithValue(r.Context(), ctxRequestID{}, id)))
 
+		httpStats.Add(routeLabel(r.URL.Path)+"_"+strconv.Itoa(rec.status), 1)
 		s.log.LogAttrs(r.Context(), slog.LevelInfo, "access",
 			slog.String("method", r.Method),
 			slog.String("path", r.URL.Path),
@@ -159,6 +162,43 @@ func (s *Server) withObservability(next http.Handler) http.Handler {
 			slog.Int64("dur_ms", s.now().Sub(start).Milliseconds()),
 			slog.String("request_id", id))
 	})
+}
+
+// httpStats counts requests by route and status class. expvar registration is
+// global and happens once at package init, so every Server shares one map —
+// which is what a process-wide counter should be. Publishing it is a separate,
+// opt-in decision (EnableMetrics); counting is always on, so switching metrics
+// on later still shows the process's whole history.
+var httpStats = expvar.NewMap("pokesearch_http")
+
+// routeLabel maps a request path onto a fixed, small set of counter names.
+// Unknown paths collapse to "static" on purpose: an arbitrary URL must never
+// become an arbitrary expvar key, or a crawler turns the map into a slow leak.
+func routeLabel(path string) string {
+	switch path {
+	case "/api/search":
+		return "search"
+	case "/api/suggest":
+		return "suggest"
+	case "/api/meta":
+		return "meta"
+	case "/healthz":
+		return "healthz"
+	case "/livez":
+		return "livez"
+	case "/debug/vars":
+		return "metrics"
+	default:
+		return "static"
+	}
+}
+
+// EnableMetrics publishes the expvar document at /debug/vars. It is a method
+// rather than a constructor argument so New's signature stays stable, and it
+// is opt-in because the production Cloudflare tunnel forwards every path it is
+// given — the ingress routes only "/", and this endpoint must not change that.
+func (s *Server) EnableMetrics() {
+	s.mux.Handle("GET /debug/vars", expvar.Handler())
 }
 
 // statusRecorder captures what the handler actually sent, so the access line

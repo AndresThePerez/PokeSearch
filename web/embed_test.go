@@ -36,6 +36,8 @@ func TestEmbeddedMarkupHasRequiredElements(t *testing.T) {
 		"empty-state", "load-more", "degraded-banner", "total-count",
 		"query-inspector", "response-inspector", "copy-dsl", "copy-response",
 		"dsl-json", "response-json", "card-modal", "modal-close",
+		"stats-link", "stats-view", "stats-total", "stats-superlatives",
+		"stats-charts",
 	}
 	for _, id := range ids {
 		if !strings.Contains(page, `id="`+id+`"`) {

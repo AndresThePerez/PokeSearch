@@ -12,9 +12,50 @@ import { runSearch, scheduleSearch, refreshHealth } from "./api.js";
 import { scheduleSuggest, closeSuggestions, handleSuggestKeydown } from "./suggest.js";
 import { bindModalEvents, openDeepLink } from "./modal.js";
 import { lastResponseHadDSL } from "./telemetry.js";
+import { showStats } from "./stats.js";
+
+// The app has two views and one hash router. #stats is a route; #card= is not
+// — the modal is an overlay on whichever view is underneath it, so a card deep
+// link must never move the reader off the Stats view and back again.
+const STATS_ROUTE = "#stats";
+
+function isStatsRoute() {
+  return location.hash === STATS_ROUTE;
+}
+
+// statsViewOpen asks what is actually on screen rather than what the hash
+// says, because a #card= overlay leaves the route underneath it untouched.
+function statsViewOpen() {
+  return document.body.classList.contains("route-stats");
+}
+
+// renderRoute paints the current route. The search furniture is hidden with a
+// body class rather than by setting hidden on each element: those flags belong
+// to the search itself (an empty state, a last page), and a route must not be
+// able to overwrite them and then guess them back.
+// load is false for the very first paint: the view has to switch immediately,
+// but its fetch waits for the initial search so the two cannot race for the
+// inspector panes.
+function renderRoute({ load = true } = {}) {
+  if (location.hash.startsWith("#card=")) return;
+  const stats = isStatsRoute();
+  document.body.classList.toggle("route-stats", stats);
+  $("stats-view").hidden = !stats;
+  $("stats-link").textContent = stats ? "Back to search" : "Archive stats";
+  if (stats && load) showStats();
+}
+
+// leaveStatsRoute returns to the search view with a clean URL — a pushState so
+// Back still walks back into the stats page the reader came from.
+function leaveStatsRoute() {
+  history.pushState(null, "", `${location.pathname}${location.search}`);
+  renderRoute();
+}
 
 function bindCoreEvents() {
   $("search-input").addEventListener("input", (event) => {
+    // Typing is a search, and a search belongs on the search view.
+    if (statsViewOpen()) leaveStatsRoute();
     state.q = event.target.value;
     // A new query invalidates an explicit sort: relevance is only meaningful
     // with a query, and the server would flip it anyway.
@@ -81,13 +122,27 @@ function bindCoreEvents() {
   });
 
   $("query-inspector").addEventListener("toggle", () => {
-    if ($("query-inspector").open && !lastResponseHadDSL()) runSearch();
+    if (!$("query-inspector").open || lastResponseHadDSL()) return;
+    // Whichever view is open owes the inspector its own DSL.
+    if (statsViewOpen()) showStats();
+    else runSearch();
   });
+
+  // The stats link is a plain anchor on the way in, so it is a real link; on
+  // the way back it clears the hash instead of leaving a bare "#" behind.
+  $("stats-link").addEventListener("click", (event) => {
+    if (!statsViewOpen()) return;
+    event.preventDefault();
+    leaveStatsRoute();
+  });
+
+  window.addEventListener("hashchange", () => renderRoute());
 
   // Back and Forward restore a previous search. A history entry that only
   // differs by the #card= hash is the modal's, not a search's, and re-running
   // the identical query for it would be pure waste.
   window.addEventListener("popstate", () => {
+    renderRoute();
     const before = buildParams().toString();
     readStateFromURL();
     syncControls();
@@ -168,8 +223,11 @@ function init() {
   bindCoreEvents();
   bindFilterEvents();
   bindModalEvents();
+  renderRoute({ load: false });
   refreshHealth();
-  runSearch().then(openDeepLink);
+  runSearch().then(openDeepLink).then(() => {
+    if (statsViewOpen()) showStats();
+  });
 }
 
 init();

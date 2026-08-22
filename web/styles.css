@@ -1101,6 +1101,183 @@ mark {
   background: var(--surface-raised);
 }
 
+/* ── Stats view (#stats) ────────────────────────────────────────────────────
+   One accent hue for every mark on the page: bar length carries magnitude, so
+   colour is free to mean nothing — except on the energy-type rows, where the
+   type's own canonical dot carries identity beside the label. Marks stay thin,
+   grid and axis are hairlines one shade off the surface, and every bar prints
+   its own value, so nothing here is readable by colour alone. */
+
+.header-aside {
+  display: grid;
+  justify-items: end;
+  gap: .5rem;
+}
+
+.stats-link {
+  padding: .3rem .7rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: .7rem;
+  font-weight: 650;
+  letter-spacing: .04em;
+  text-decoration: none;
+  white-space: nowrap;
+  background: var(--surface);
+  transition: color 160ms ease, border-color 160ms ease;
+}
+
+.stats-link:hover { color: var(--ink); border-color: var(--accent); }
+
+/* The route hides the search furniture with a class instead of touching each
+   element's hidden flag — those flags belong to the search (empty state, last
+   page) and a route must not have to guess them back. */
+body.route-stats .results-toolbar,
+body.route-stats #results-grid,
+body.route-stats #load-more,
+body.route-stats #empty-state,
+body.route-stats #degraded-banner,
+body.route-stats #filter-rail { display: none; }
+
+/* Two columns instead of three: the charts take the filter rail's space, and
+   the observability rail stays — the Stats page shows its machinery too. This
+   single rule outranks every layout breakpoint below on specificity. */
+body.route-stats .app-layout { grid-template-columns: minmax(0, 1fr) minmax(340px, 440px); }
+
+.stats-header { margin-bottom: clamp(1.25rem, 2.5vw, 2rem); }
+
+#stats-total {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(1.7rem, 3vw, 2.55rem);
+  line-height: 1;
+  letter-spacing: -.03em;
+}
+
+#stats-superlatives {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .25rem .75rem;
+  margin: .9rem 0 0;
+  color: var(--muted);
+  font-size: .78rem;
+}
+
+.stats-fact + .stats-fact::before { margin-right: .75rem; content: "·"; }
+
+.stats-message { color: var(--muted); font-size: .85rem; }
+
+#stats-charts {
+  display: grid;
+  /* min(320px, 100%), not a bare 320px: a fixed track minimum cannot shrink
+     below itself, so at 320px the grid would push the page sideways. */
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  gap: clamp(1rem, 2vw, 1.75rem);
+}
+
+.chart-block {
+  min-width: 0;
+  padding: clamp(1rem, 1.6vw, 1.5rem);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.chart-block.is-wide { grid-column: 1 / -1; }
+
+.chart-title { margin: 0 0 .35rem; font-size: .95rem; letter-spacing: -.01em; }
+
+.chart-note {
+  margin: 0 0 1.15rem;
+  color: var(--muted);
+  font-size: .74rem;
+  line-height: 1.55;
+}
+
+.chart-subtitle {
+  margin: 1.35rem 0 .75rem;
+  color: var(--muted);
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.chart-split .chart-note { margin: .9rem 0 0; }
+
+.chart-rows { display: grid; gap: .38rem; }
+
+.chart-row {
+  display: grid;
+  grid-template-columns: minmax(88px, 118px) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .6rem;
+}
+
+.chart-label { display: flex; align-items: center; gap: .4rem; min-width: 0; }
+
+.chart-label-text {
+  overflow: hidden;
+  color: #ced1d9;
+  font-size: .74rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-track {
+  height: 9px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, .05);
+}
+
+.chart-fill {
+  display: block;
+  min-width: 2px;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+}
+
+.chart-value {
+  min-width: 3.4rem;
+  color: var(--muted);
+  font-size: .72rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* The one chart with too many marks to label individually: every fifth year is
+   labelled, the busiest year is emphasised, and each column carries its exact
+   count as a tooltip. */
+.chart-cols {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  height: 178px;
+}
+
+.chart-col { display: grid; flex: 1 1 0; grid-template-rows: minmax(0, 1fr) auto; min-width: 0; }
+
+.chart-col-fill {
+  align-self: end;
+  width: 100%;
+  min-height: 1px;
+  border-radius: 3px 3px 0 0;
+  background: color-mix(in srgb, var(--accent) 48%, transparent);
+}
+
+.chart-col.is-peak .chart-col-fill { background: var(--accent); }
+
+.chart-col-label {
+  padding-top: .3rem;
+  border-top: 1px solid var(--line-soft);
+  color: var(--muted);
+  font-size: .56rem;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
 .observability-rail {
   position: sticky;
   top: 117px;
@@ -1239,6 +1416,10 @@ mark {
     max-height: none;
     overflow: visible;
   }
+  /* The search view already drops the rail below the results at this width;
+     the charts need the same room, so the Stats route follows it down. */
+  body.route-stats .app-layout { grid-template-columns: minmax(0, 1fr); }
+  body.route-stats .observability-rail { grid-column: auto; }
 }
 
 @media (max-width: 768px) {
@@ -1250,6 +1431,7 @@ mark {
     padding: 1rem;
   }
   .brand { justify-self: center; }
+  .header-aside { justify-items: center; }
   .archive-note {
     line-height: 1.4;
     text-align: center;
@@ -1310,7 +1492,14 @@ mark {
 @media (max-width: 500px) {
   .site-header { align-items: stretch; }
   .brand { justify-self: start; }
+  .header-aside { grid-auto-flow: column; align-items: center; justify-content: space-between; justify-items: start; }
   .archive-note { text-align: left; }
+  /* Only decade labels survive at phone widths — 28 year labels in 320px is a
+     smear, and the tooltip still carries every column's exact count. */
+  .chart-col-label:not(.is-decade) { color: transparent; }
+  .chart-row { grid-template-columns: minmax(68px, 96px) minmax(0, 1fr) auto; gap: .45rem; }
+  .chart-value { min-width: 2.9rem; }
+  .chart-cols { height: 140px; }
   .search-key { display: none; }
   .search-combobox input { padding-right: 1rem; }
   .segmented-control { grid-template-columns: 1fr; }

@@ -10,6 +10,10 @@ import { holoTier, attachHolo, setHoloTier, setHoloArtLoaded } from "./holo.js";
 let modalOpener = null;
 let modalArtCardID = null;
 let explainCardID = null;
+// The hash the modal replaced when it opened. The modal is an overlay on a
+// route, not a route of its own, so closing it has to put the reader back on
+// the page they were on — #stats included.
+let hashBeforeModal = "";
 
 // The grid's small image is already cached, so it shows instantly while the
 // large art loads detached; the swap is guarded by card id so a slow earlier
@@ -215,7 +219,10 @@ function renderAbility(ability, highlight) {
 export function openModal(card, { updateHash = true, opener = null, highlight = null } = {}) {
   modalOpener = opener;
   renderModal(card, highlight);
-  if (updateHash) location.hash = `card=${encodeURIComponent(card.id)}`;
+  if (updateHash) {
+    if (!location.hash.startsWith("#card=")) hashBeforeModal = location.hash;
+    location.hash = `card=${encodeURIComponent(card.id)}`;
+  }
   if (!$("card-modal").open) $("card-modal").showModal();
 }
 
@@ -225,7 +232,7 @@ export function closeModal() {
 
 function clearCardHash() {
   if (location.hash.startsWith("#card=")) {
-    history.replaceState(null, "", `${location.pathname}${location.search}`);
+    history.replaceState(null, "", `${location.pathname}${location.search}${hashBeforeModal}`);
   }
 }
 

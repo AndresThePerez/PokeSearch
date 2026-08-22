@@ -85,6 +85,30 @@ export async function fetchExplain(id, q) {
   return res.json();
 }
 
+// fetchStats loads the corpus analytics behind the Stats view. The server
+// computes them once and serves them from memory afterwards, so this is a
+// cheap call — but it still goes through here, because every request this app
+// makes lives in this module.
+export async function fetchStats(debug = false) {
+  const sp = new URLSearchParams();
+  if (debug) sp.set("debug", "1");
+  const query = sp.toString();
+  const res = await fetch(`/api/stats${query ? `?${query}` : ""}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+// fetchTopCard returns the first card under a sort. The Stats view's
+// superlatives line needs the name behind the max-HP number, and a
+// page_size=1 search is the cheapest way to ask for it.
+export async function fetchTopCard(sort) {
+  const sp = new URLSearchParams({ sort, page_size: "1" });
+  const res = await fetch(`/api/search?${sp}`);
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.results[0] ?? null;
+}
+
 export async function refreshHealth() {
   try {
     const res = await fetch("/healthz");

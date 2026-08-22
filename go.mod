@@ -1,6 +1,6 @@
 module github.com/AndresThePerez/pokesearch
 
-go 1.26.4
+go 1.26.6
 
 require github.com/elastic/go-elasticsearch/v8 v8.19.6
 

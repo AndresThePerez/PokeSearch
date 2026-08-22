@@ -365,6 +365,26 @@ func TestSearchHandlerESDown(t *testing.T) {
 	}
 }
 
+// TestESCallTimeout: a wedged ES that never answers must not hang a request —
+// the per-request ES budget cancels it and the handler returns the 503 contract.
+func TestESCallTimeout(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		<-r.Context().Done() // wedged ES: never answers
+		return nil, r.Context().Err()
+	})
+	s, _ := newTestServer(t, rt)
+	s.esTimeout = 50 * time.Millisecond
+
+	start := time.Now()
+	rec := get(t, s, "/api/search?q=pikachu")
+	if rec.Code != 503 {
+		t.Fatalf("status %d, want 503: %s", rec.Code, rec.Body.String())
+	}
+	if elapsed := time.Since(start); elapsed > 8*time.Second {
+		t.Fatalf("request did not time out (took %s)", elapsed)
+	}
+}
+
 func TestSuggestHandler(t *testing.T) {
 	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
 		return esResponse(200, `{"took":2,"suggest":{"card":[{"text":"alak","offset":0,"length":4,

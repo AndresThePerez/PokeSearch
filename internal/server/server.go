@@ -4,6 +4,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -18,11 +19,17 @@ import (
 	"github.com/AndresThePerez/pokesearch/internal/search"
 )
 
+// esRequestTimeout bounds every Elasticsearch round trip a request makes. It
+// is generous next to the 100ms ES SLA — its job is to fail a wedged cluster
+// fast enough that the app's own WriteTimeout never has to.
+const esRequestTimeout = 5 * time.Second
+
 type Server struct {
 	es           *elasticsearch.Client
 	mux          *http.ServeMux
 	logW         io.Writer
 	now          func() time.Time
+	esTimeout    time.Duration
 	setCatalogMu sync.RWMutex
 	setCatalog   []facetBucket
 }
@@ -31,7 +38,7 @@ func New(es *elasticsearch.Client, static fs.FS, logW io.Writer, now func() time
 	if now == nil {
 		now = time.Now
 	}
-	s := &Server{es: es, mux: http.NewServeMux(), logW: logW, now: now}
+	s := &Server{es: es, mux: http.NewServeMux(), logW: logW, now: now, esTimeout: esRequestTimeout}
 	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
 	s.mux.HandleFunc("GET /api/search", s.handleSearch)
 	s.mux.HandleFunc("GET /api/suggest", s.handleSuggest)
@@ -43,6 +50,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
 }
 
+// esCtx derives the per-request Elasticsearch budget from the inbound request
+// context, so a client disconnect and a slow cluster both cancel the call.
+func (s *Server) esCtx(r *http.Request) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(r.Context(), s.esTimeout)
+}
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -50,8 +63,10 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := s.esCtx(r)
+	defer cancel()
 	res, err := s.es.Count(
-		s.es.Count.WithContext(r.Context()),
+		s.es.Count.WithContext(ctx),
 		s.es.Count.WithIndex(esindex.IndexName),
 	)
 	if err != nil {
@@ -283,8 +298,10 @@ func (s *Server) searchES(r *http.Request, dsl map[string]any) (*esSearchRespons
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel := s.esCtx(r)
+	defer cancel()
 	res, err := s.es.Search(
-		s.es.Search.WithContext(r.Context()),
+		s.es.Search.WithContext(ctx),
 		s.es.Search.WithIndex(esindex.IndexName),
 		s.es.Search.WithBody(bytes.NewReader(body)),
 	)
@@ -356,8 +373,10 @@ func (s *Server) suggestES(r *http.Request, dsl map[string]any) ([]string, int, 
 	if err != nil {
 		return nil, 0, err
 	}
+	ctx, cancel := s.esCtx(r)
+	defer cancel()
 	res, err := s.es.Search(
-		s.es.Search.WithContext(r.Context()),
+		s.es.Search.WithContext(ctx),
 		s.es.Search.WithIndex(esindex.IndexName),
 		s.es.Search.WithBody(bytes.NewReader(body)),
 	)

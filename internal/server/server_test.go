@@ -471,6 +471,20 @@ func TestHealthzIndexMissing(t *testing.T) {
 	}
 }
 
+// TestLivez: liveness must never touch ES — the container healthcheck has to
+// answer while the cluster is down, otherwise Docker restarts a healthy app.
+func TestLivez(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		t.Error("/livez must not call ES")
+		return nil, errors.New("connection refused")
+	})
+	s, _ := newTestServer(t, rt)
+	rec := get(t, s, "/livez")
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"status":"alive"`) {
+		t.Errorf("status %d body %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestHealthzESDown(t *testing.T) {
 	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
 		return nil, errors.New("connection refused")

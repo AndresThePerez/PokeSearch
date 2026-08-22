@@ -39,6 +39,7 @@ func New(es *elasticsearch.Client, static fs.FS, logW io.Writer, now func() time
 		now = time.Now
 	}
 	s := &Server{es: es, mux: http.NewServeMux(), logW: logW, now: now, esTimeout: esRequestTimeout}
+	s.mux.HandleFunc("GET /livez", s.handleLivez)
 	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
 	s.mux.HandleFunc("GET /api/search", s.handleSearch)
 	s.mux.HandleFunc("GET /api/suggest", s.handleSuggest)
@@ -60,6 +61,13 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// handleLivez is the cheap liveness probe and the container healthcheck
+// target: process is up and serving. It deliberately never touches ES —
+// /healthz is the ES round-trip, and its response shape is frozen.
+func (s *Server) handleLivez(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"status": "alive"})
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {

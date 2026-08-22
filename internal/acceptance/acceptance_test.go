@@ -27,8 +27,11 @@ const (
 	wantTypes     = 11
 	wantClasses   = 3
 	pageSize      = 24
-	esLatencyMs   = 100
-	fullLatencyMs = 250
+	maxDocsWindow = 9600
+	// Browse reaches 9600/24 pages — a frozen contract, not total/pageSize.
+	wantBrowsePages = maxDocsWindow / pageSize
+	esLatencyMs     = 100
+	fullLatencyMs   = 250
 )
 
 func baseURL() string {
@@ -46,13 +49,14 @@ type bucket struct {
 }
 
 type searchResp struct {
-	Total   int                 `json:"total"`
-	Page    int                 `json:"page"`
-	Pages   int                 `json:"pages"`
-	TookMs  int                 `json:"took_ms"`
-	Results []map[string]any    `json:"results"`
-	Facets  map[string][]bucket `json:"facets"`
-	DSL     map[string]any      `json:"dsl"`
+	Total    int                 `json:"total"`
+	Page     int                 `json:"page"`
+	Pages    int                 `json:"pages"`
+	PageSize int                 `json:"page_size"`
+	TookMs   int                 `json:"took_ms"`
+	Results  []map[string]any    `json:"results"`
+	Facets   map[string][]bucket `json:"facets"`
+	DSL      map[string]any      `json:"dsl"`
 }
 
 func search(t *testing.T, qs string) searchResp {
@@ -280,5 +284,37 @@ func TestPageBoundariesDeterministic(t *testing.T) {
 	}
 	if len(seen) != 2*pageSize {
 		t.Errorf("pages 1-2 yielded %d unique ids, want %d", len(seen), 2*pageSize)
+	}
+}
+
+// page_size (M3, D2) is bounded 1..100 and the reachable window stays at
+// 9,600 docs at every size — which is exactly what keeps browse at 400 pages
+// on the default. The default itself is a Courier fixture: unchanged at 24.
+func TestPageSizeBounds(t *testing.T) {
+	if r := search(t, ""); r.PageSize != pageSize || r.Pages != wantBrowsePages || len(r.Results) != pageSize {
+		t.Errorf("default browse: page_size=%d pages=%d results=%d, want %d/%d/%d",
+			r.PageSize, r.Pages, len(r.Results), pageSize, wantBrowsePages, pageSize)
+	}
+	if r := search(t, "page_size=100"); r.PageSize != 100 || r.Pages != 96 || len(r.Results) != 100 {
+		t.Errorf("page_size=100: page_size=%d pages=%d results=%d, want 100/96/100",
+			r.PageSize, r.Pages, len(r.Results))
+	}
+	if r := search(t, "page_size=1"); r.PageSize != 1 || r.Pages != maxDocsWindow || len(r.Results) != 1 {
+		t.Errorf("page_size=1: page_size=%d pages=%d results=%d, want 1/%d/1",
+			r.PageSize, r.Pages, len(r.Results), maxDocsWindow)
+	}
+	// Out-of-range clamps rather than rejects (D1: a clamp is a contract).
+	if r := search(t, "page_size=500"); r.PageSize != 100 {
+		t.Errorf("page_size=500 must clamp to 100, got %d", r.PageSize)
+	}
+	if r := search(t, "page_size=0"); r.PageSize != 1 {
+		t.Errorf("page_size=0 must clamp to 1, got %d", r.PageSize)
+	}
+	// The page ceiling moves with the size: 9600/100 = 96.
+	if r := search(t, "page_size=100&page=999999"); r.Page != 96 {
+		t.Errorf("page clamp at size 100 = %d, want 96", r.Page)
+	}
+	if r := search(t, "page=999999"); r.Page != wantBrowsePages {
+		t.Errorf("page clamp at default size = %d, want %d", r.Page, wantBrowsePages)
 	}
 }

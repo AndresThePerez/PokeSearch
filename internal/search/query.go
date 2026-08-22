@@ -19,12 +19,12 @@ func BuildQuery(p Params) map[string]any {
 
 	body := map[string]any{
 		"track_total_hits": true,
-		"size":             PageSize,
+		"size":             p.PageSize,
 		"sort":             buildSort(p),
 		"aggs":             buildAggs(p),
 	}
 	if p.Page > 1 {
-		body["from"] = (p.Page - 1) * PageSize
+		body["from"] = (p.Page - 1) * p.PageSize
 	}
 	if p.Q != "" {
 		body["query"] = map[string]any{"bool": buildBool(p)}
@@ -36,12 +36,13 @@ func BuildQuery(p Params) map[string]any {
 }
 
 // isExactIDLookup identifies the deep-link card fetch. It deliberately stays
-// narrow so combining id with filters, pagination, or an explicit sort keeps
-// the full search behavior.
+// narrow so combining id with filters, pagination, an explicit sort, or a
+// non-default page size keeps the full search behavior.
 func isExactIDLookup(p Params) bool {
 	return p.ID != "" && p.Q == "" && p.Supertype == "" && len(p.Types) == 0 &&
 		len(p.Rarity) == 0 && len(p.Series) == 0 && p.SetID == "" &&
-		p.HPMin == nil && p.HPMax == nil && p.Sort == "newest" && p.Order == "" && p.Page == 1
+		p.HPMin == nil && p.HPMax == nil && p.Sort == "newest" && p.Order == "" &&
+		p.Page == 1 && p.PageSize == PageSize
 }
 
 func buildBool(p Params) map[string]any {

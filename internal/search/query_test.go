@@ -103,6 +103,29 @@ func TestBuildQueryPostFilter(t *testing.T) {
 	}
 }
 
+// A non-default page_size drives both size and the from offset.
+func TestBuildQueryPageSize(t *testing.T) {
+	body := BuildQuery(params(t, "q=eevee&page_size=10&page=3"))
+	if body["size"] != 10 || body["from"] != 20 {
+		t.Errorf("paging: from=%v size=%v, want from=20 size=10", body["from"], body["size"])
+	}
+	// Page one at a non-default size still omits from.
+	if body := BuildQuery(params(t, "q=eevee&page_size=100")); body["size"] != 100 || body["from"] != nil {
+		t.Errorf("page one: from=%v size=%v, want from=<nil> size=100", body["from"], body["size"])
+	}
+}
+
+// A non-default page size opts out of the single-doc deep-link fast path —
+// the caller clearly wants a real search response.
+func TestExactIDLookupRequiresDefaultPageSize(t *testing.T) {
+	if body := BuildQuery(params(t, "id=base1-1")); body["aggs"] != nil {
+		t.Error("plain id lookup must stay on the fast path")
+	}
+	if body := BuildQuery(params(t, "id=base1-1&page_size=50")); body["aggs"] == nil {
+		t.Error("id lookup with an explicit page_size must run the full search")
+	}
+}
+
 func TestBuildQueryNoFiltersOmitsPostFilter(t *testing.T) {
 	if body := BuildQuery(params(t, "q=eevee")); body["post_filter"] != nil {
 		t.Errorf("post_filter must be omitted without filters, got %v", body["post_filter"])

@@ -110,9 +110,11 @@ type facetBucket struct {
 }
 
 type searchResponse struct {
-	Total   int                      `json:"total"`
-	Page    int                      `json:"page"`
-	Pages   int                      `json:"pages"`
+	Total    int `json:"total"`
+	Page     int `json:"page"`
+	Pages    int `json:"pages"`
+	PageSize int `json:"page_size"`
+
 	TookMs  int                      `json:"took_ms"`
 	Results []json.RawMessage        `json:"results"`
 	Facets  map[string][]facetBucket `json:"facets"`
@@ -195,9 +197,11 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := searchResponse{
-		Total:   esr.Hits.Total.Value,
-		Page:    p.Page,
-		Pages:   pagesFor(esr.Hits.Total.Value),
+		Total:    esr.Hits.Total.Value,
+		Page:     p.Page,
+		Pages:    pagesFor(esr.Hits.Total.Value, p.PageSize),
+		PageSize: p.PageSize,
+
 		TookMs:  esr.Took,
 		Results: make([]json.RawMessage, 0, len(esr.Hits.Hits)),
 		Facets: map[string][]facetBucket{
@@ -293,12 +297,16 @@ func mergeSetCatalog(catalog []facetBucket, dynamic esAggregation) []facetBucket
 	return buckets
 }
 
-func pagesFor(total int) int {
-	capped := min(total, search.MaxPage*search.PageSize)
+// pagesFor reports how many pages a client can actually reach. It caps at the
+// 9,600-doc window rather than at total, so `pages` deliberately diverges from
+// total/pageSize on large result sets — that divergence is documented in the
+// README, and at the default size it keeps the browse contract at 400 pages.
+func pagesFor(total, pageSize int) int {
+	capped := min(total, search.MaxDocsWindow)
 	if capped == 0 {
 		return 0
 	}
-	return (capped + search.PageSize - 1) / search.PageSize
+	return (capped + pageSize - 1) / pageSize
 }
 
 func (s *Server) searchES(r *http.Request, dsl map[string]any) (*esSearchResponse, error) {

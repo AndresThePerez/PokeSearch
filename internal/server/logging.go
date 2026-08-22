@@ -65,5 +65,8 @@ func logParams(p search.Params) map[string]any {
 	if p.Page > 1 {
 		m["page"] = p.Page
 	}
+	if p.PageSize != search.PageSize {
+		m["page_size"] = p.PageSize
+	}
 	return m
 }

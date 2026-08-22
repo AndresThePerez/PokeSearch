@@ -9,8 +9,23 @@ import (
 	"strings"
 )
 
+// PageSize is the default page size; MinPageSize/MaxPageSize bound what a
+// client may ask for via page_size.
 const PageSize = 24
-const MaxPage = 400 // keeps from+size inside ES's 10k result window
+const MinPageSize, MaxPageSize = 1, 100
+
+// MaxDocsWindow is the deepest reachable document, chosen so from+size stays
+// inside ES's 10k result window at every allowed page size. 9600/24 = 400
+// preserves the browse contract of exactly 400 pages at the default size.
+const MaxDocsWindow = 9600
+
+// MaxPageFor is the highest requestable page at a given page size.
+func MaxPageFor(pageSize int) int {
+	if pageSize < MinPageSize {
+		pageSize = MinPageSize
+	}
+	return MaxDocsWindow / pageSize
+}
 
 // CanonicalTypes are the exactly-11 TCG energy types present in the corpus.
 var CanonicalTypes = []string{
@@ -36,6 +51,7 @@ type Params struct {
 	Sort      string
 	Order     string
 	Page      int
+	PageSize  int // always MinPageSize..MaxPageSize; defaults to PageSize
 	Debug     bool
 }
 
@@ -133,13 +149,17 @@ func ParseParams(v url.Values) (Params, []FieldError) {
 		errs = append(errs, FieldError{"hp_max", "hp_max must be an integer"})
 	}
 
+	// page_size is resolved before page, because it decides the page ceiling.
+	p.PageSize = PageSize
+	if n, ok := atoiStrict(v.Get("page_size")); !ok {
+		errs = append(errs, FieldError{"page_size", "page_size must be an integer"})
+	} else if n != nil {
+		p.PageSize = min(max(*n, MinPageSize), MaxPageSize)
+	}
 	if n, ok := atoiStrict(v.Get("page")); !ok {
 		errs = append(errs, FieldError{"page", "page must be an integer"})
 	} else if n != nil {
-		p.Page = min(max(*n, 1), MaxPage)
-	}
-	if _, ok := atoiStrict(v.Get("page_size")); !ok {
-		errs = append(errs, FieldError{"page_size", "page_size must be an integer"})
+		p.Page = min(max(*n, 1), MaxPageFor(p.PageSize))
 	}
 
 	return p, errs

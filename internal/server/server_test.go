@@ -210,6 +210,52 @@ func TestSearchHandler(t *testing.T) {
 	}
 }
 
+// pagesFor caps at the 9,600-doc reachable window, so the page count moves
+// with page_size while the browse fixture (400 pages at the default) holds.
+func TestPagesForRespectsPageSize(t *testing.T) {
+	cases := []struct{ total, pageSize, want int }{
+		{20324, 24, 400},
+		{20324, 100, 96},
+		{20324, 1, 9600},
+		{61, 24, 3},
+		{0, 24, 0},
+	}
+	for _, tc := range cases {
+		if got := pagesFor(tc.total, tc.pageSize); got != tc.want {
+			t.Errorf("pagesFor(%d, %d) = %d, want %d", tc.total, tc.pageSize, got, tc.want)
+		}
+	}
+}
+
+// The search response echoes the effective page size so a client never has to
+// infer it from len(results).
+func TestSearchResponseEchoesPageSize(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"set_catalog"`)) {
+			return esResponse(200, catalogESBody), nil
+		}
+		return esResponse(200, searchESBody), nil
+	})
+	s, _ := newTestServer(t, rt)
+
+	var resp struct {
+		PageSize int `json:"page_size"`
+	}
+	if err := json.Unmarshal(get(t, s, "/api/search?q=pikachu").Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.PageSize != 24 {
+		t.Errorf("default page_size = %d, want 24", resp.PageSize)
+	}
+	if err := json.Unmarshal(get(t, s, "/api/search?q=pikachu&page_size=10").Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.PageSize != 10 {
+		t.Errorf("page_size=10 echoed as %d", resp.PageSize)
+	}
+}
+
 func TestSearchHandlerEmptyResults(t *testing.T) {
 	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
 		body, _ := io.ReadAll(r.Body)

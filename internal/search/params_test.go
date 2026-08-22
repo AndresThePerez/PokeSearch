@@ -45,10 +45,54 @@ func TestParseParams(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got := ParseParams(v)
+			got, _ := ParseParams(v)
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("ParseParams(%q)\n got %+v\nwant %+v", tc.in, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestParseParamsFieldErrors locks the D1 strict/lenient split: a strict field
+// with a non-empty, invalid value is a client error; comma-list members,
+// unknown keys, and out-of-range numerics stay lenient (clamping is a
+// contract, an alphabetic page is a typo).
+func TestParseParamsFieldErrors(t *testing.T) {
+	cases := []struct{ name, query, field string }{
+		{"bad sort", "sort=bogus", "sort"},
+		{"bad order", "sort=hp&order=sideways", "order"},
+		{"bad supertype", "supertype=wizard", "supertype"},
+		{"bad hp_min", "hp_min=abc", "hp_min"},
+		{"bad hp_max", "hp_max=1e3", "hp_max"},
+		{"bad page", "page=two", "page"},
+		{"bad page_size", "page_size=lots", "page_size"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			v, err := url.ParseQuery(tc.query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, errs := ParseParams(v)
+			if len(errs) != 1 || errs[0].Field != tc.field {
+				t.Fatalf("errs = %+v, want exactly one error on %q", errs, tc.field)
+			}
+			if errs[0].Message == "" {
+				t.Errorf("field error on %q must carry a message", tc.field)
+			}
+		})
+	}
+
+	for _, ok := range []string{
+		"", "q=pikachu&types=Wizard,Fire", "page=999999", "utm_source=x",
+		"sort=hp&order=desc", "supertype=POKEMON", "hp_min=10&hp_max=99999",
+	} {
+		v, err := url.ParseQuery(ok)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, errs := ParseParams(v); len(errs) != 0 {
+			t.Errorf("query %q: unexpected errs %+v", ok, errs)
+		}
 	}
 }

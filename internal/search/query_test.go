@@ -31,7 +31,8 @@ func params(t *testing.T, qs string) Params {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return ParseParams(v)
+	p, _ := ParseParams(v)
+	return p
 }
 
 // With no active filters facets can aggregate directly in the text-query

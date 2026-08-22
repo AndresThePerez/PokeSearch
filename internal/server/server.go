@@ -164,7 +164,7 @@ type esSearchResponse struct {
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
-	p := search.ParseParams(r.URL.Query())
+	p, _ := search.ParseParams(r.URL.Query()) // TODO(Task 7): wire field errors to 400
 	dsl := search.BuildQuery(p)
 	entry := QueryLog{
 		Time:     s.now().UTC().Format(time.RFC3339),
@@ -340,7 +340,7 @@ type esSuggestResponse struct {
 }
 
 func (s *Server) handleSuggest(w http.ResponseWriter, r *http.Request) {
-	p := search.ParseParams(r.URL.Query())
+	p, _ := search.ParseParams(r.URL.Query()) // TODO(Task 7): wire field errors to 400
 	if p.Q == "" {
 		writeJSON(w, http.StatusOK, map[string]any{"suggestions": []string{}})
 		return

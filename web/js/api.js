@@ -6,7 +6,7 @@
 
 import { state, buildParams, writeStateToURL } from "./state.js";
 import { renderResults, setLoading } from "./render.js";
-import { renderInspector, setDegraded, setServiceStatus, debugEnabled } from "./telemetry.js";
+import { renderInspector, setDegraded, setServiceStatus, debugEnabled, recordTiming } from "./telemetry.js";
 import { $ } from "./util.js";
 
 let searchController = null;
@@ -29,8 +29,12 @@ export async function runSearch({ append = false, push = false, fromHistory = fa
     const res = await fetch(`/api/search?${buildParams({ page: true, debug: debugEnabled() })}`, { signal: controller.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    renderResults(data, { append, roundTripMs: performance.now() - startedAt });
+    const roundTripMs = performance.now() - startedAt;
+    renderResults(data, { append, roundTripMs });
     renderInspector(data.dsl, data);
+    // The request id comes off the response header rather than the body: every
+    // response carries it, including the ones with no body worth reading.
+    recordTiming(data.took_ms, roundTripMs, res.headers.get("X-Request-Id"));
     setDegraded(false);
   } catch (err) {
     if (err.name === "AbortError") return;

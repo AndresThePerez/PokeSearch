@@ -37,7 +37,9 @@ func TestEmbeddedMarkupHasRequiredElements(t *testing.T) {
 		"query-inspector", "response-inspector", "copy-dsl", "copy-response",
 		"dsl-json", "response-json", "card-modal", "modal-close",
 		"stats-link", "stats-view", "stats-total", "stats-superlatives",
-		"stats-charts",
+		"stats-charts", "latency-waterfall", "waterfall-es", "waterfall-rest",
+		"wf-es-ms", "wf-rest-ms", "latency-spark", "spark-percentiles",
+		"spark-p50", "spark-p95", "request-id-line", "stat-request-id",
 	}
 	for _, id := range ids {
 		if !strings.Contains(page, `id="`+id+`"`) {

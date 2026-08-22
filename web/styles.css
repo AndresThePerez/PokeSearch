@@ -1367,6 +1367,87 @@ body.route-stats .app-layout { grid-template-columns: minmax(0, 1fr) minmax(340p
   white-space: nowrap;
 }
 
+/* The latency block: where the milliseconds went (waterfall), what the session
+   has looked like (sparkline), and which log line this was (request id). Every
+   number here is also printed as text — the bars are the shape, not the data. */
+.latency-block {
+  margin-top: 1rem;
+  padding-top: .9rem;
+  border-top: 1px solid var(--line);
+}
+
+.latency-block .panel-label:not(:first-child) { margin-top: 1rem; }
+
+#latency-waterfall {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, .05);
+}
+
+#latency-waterfall span {
+  min-width: 2px;
+  border-radius: 3px;
+}
+
+#waterfall-es { background: var(--accent); }
+#waterfall-rest { background: #454b58; }
+
+#latency-legend,
+#spark-percentiles {
+  display: flex;
+  justify-content: space-between;
+  gap: .75rem;
+  margin: .5rem 0 0;
+  color: var(--muted);
+  font-size: .68rem;
+}
+
+#latency-legend b,
+#spark-percentiles b {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+
+#latency-spark {
+  display: block;
+  width: 100%;
+  height: 40px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .03);
+}
+
+.spark-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  /* preserveAspectRatio="none" stretches the viewBox to the rail's width; the
+     stroke must not stretch with it. */
+  vector-effect: non-scaling-stroke;
+}
+
+#request-id-line {
+  display: flex;
+  gap: .4rem;
+  align-items: baseline;
+  margin: .75rem 0 0;
+  color: var(--muted);
+  font-size: .68rem;
+}
+
+#stat-request-id {
+  overflow: hidden;
+  color: #c5c8d0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .sla-block {
   margin-top: 1rem;
   padding-top: .9rem;

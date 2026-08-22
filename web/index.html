@@ -155,6 +155,19 @@
           <div><dt>Active filters</dt><dd id="stat-filters">0</dd></div>
         </dl>
 
+        <div class="latency-block">
+          <p class="panel-label">Last request</p>
+          <div id="latency-waterfall" role="img" aria-label="Latency breakdown">
+            <span id="waterfall-es" title="Elasticsearch"></span>
+            <span id="waterfall-rest" title="App + network + render"></span>
+          </div>
+          <p id="latency-legend"><span>ES <b id="wf-es-ms">—</b></span><span>everything else <b id="wf-rest-ms">—</b></span></p>
+          <p class="panel-label">Session (last 20)</p>
+          <svg id="latency-spark" viewBox="0 0 200 40" preserveAspectRatio="none" role="img" aria-label="Latency history"></svg>
+          <p id="spark-percentiles"><span>p50 <b id="spark-p50">—</b></span><span>p95 <b id="spark-p95">—</b></span></p>
+          <p id="request-id-line">req <code id="stat-request-id">—</code></p>
+        </div>
+
         <div class="sla-block">
           <p class="panel-label">SLA targets</p>
           <ul>

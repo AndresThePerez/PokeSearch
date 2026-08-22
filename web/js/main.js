@@ -2,7 +2,7 @@
 // Every DOM event listener that is not owned by a specific module lives here.
 
 import { $ } from "./util.js";
-import { state, readStateFromURL, effectiveOrder } from "./state.js";
+import { state, readStateFromURL, effectiveOrder, buildParams } from "./state.js";
 import {
   syncControls,
   syncFilterControls,
@@ -11,6 +11,7 @@ import {
 import { runSearch, scheduleSearch, refreshHealth } from "./api.js";
 import { scheduleSuggest, closeSuggestions, handleSuggestKeydown } from "./suggest.js";
 import { bindModalEvents, openDeepLink } from "./modal.js";
+import { lastResponseHadDSL } from "./telemetry.js";
 
 function bindCoreEvents() {
   $("search-input").addEventListener("input", (event) => {
@@ -31,13 +32,13 @@ function bindCoreEvents() {
     state.sort = event.target.value;
     state.order = "";
     syncControls();
-    runSearch();
+    runSearch({ push: true });
   });
 
   $("order-toggle").addEventListener("click", () => {
     state.order = effectiveOrder() === "asc" ? "desc" : "asc";
     syncControls();
-    runSearch();
+    runSearch({ push: true });
   });
 
   $("load-more").addEventListener("click", () => {
@@ -63,6 +64,24 @@ function bindCoreEvents() {
       $("search-input").focus();
     }
   });
+
+  // The DSL only comes back when the panel is open, so opening it after a
+  // search has to fetch once to fill it. Closing fires this too — hence the
+  // open check, which also stops the re-fetch looping.
+  $("query-inspector").addEventListener("toggle", () => {
+    if ($("query-inspector").open && !lastResponseHadDSL()) runSearch();
+  });
+
+  // Back and Forward restore a previous search. A history entry that only
+  // differs by the #card= hash is the modal's, not a search's, and re-running
+  // the identical query for it would be pure waste.
+  window.addEventListener("popstate", () => {
+    const before = buildParams().toString();
+    readStateFromURL();
+    syncControls();
+    syncFilterControls();
+    if (buildParams().toString() !== before) runSearch({ fromHistory: true });
+  });
 }
 
 function bindFilterEvents() {
@@ -70,7 +89,7 @@ function bindFilterEvents() {
     button.addEventListener("click", () => {
       state.supertype = button.dataset.supertype;
       syncFilterControls();
-      runSearch();
+      runSearch({ push: true });
     });
   });
 
@@ -79,26 +98,26 @@ function bindFilterEvents() {
       const type = button.dataset.type;
       state.types = state.types.includes(type) ? state.types.filter((item) => item !== type) : [...state.types, type];
       syncFilterControls();
-      runSearch();
+      runSearch({ push: true });
     });
   });
 
   $("rarity-select").addEventListener("change", (event) => {
     state.rarity = event.target.value;
     syncFilterControls();
-    runSearch();
+    runSearch({ push: true });
   });
 
   $("set-select").addEventListener("change", (event) => {
     state.set = event.target.value;
     syncFilterControls();
-    runSearch();
+    runSearch({ push: true });
   });
 
   $("series-select").addEventListener("change", (event) => {
     state.series = event.target.value;
     syncFilterControls();
-    runSearch();
+    runSearch({ push: true });
   });
 
   $("clear-filters").addEventListener("click", () => {
@@ -108,7 +127,7 @@ function bindFilterEvents() {
     state.rarity = "";
     state.series = "";
     syncFilterControls();
-    runSearch();
+    runSearch({ push: true });
   });
 
   $("filter-toggle").addEventListener("click", () => {
@@ -131,7 +150,7 @@ function init() {
   }
   // render.js cannot import api.js without making the graph cyclic, so the
   // active-filter chips get their search call injected here.
-  setFilterChangeHandler(() => runSearch());
+  setFilterChangeHandler(() => runSearch({ push: true }));
   syncControls();
   syncFilterControls();
   bindCoreEvents();

@@ -560,6 +560,36 @@ main { min-width: 0; }
 
 .card-open.is-loaded img { opacity: 1; }
 
+/* Missing art: the shimmer would loop forever over an empty cell, so stop it
+   and render the card's name over the card-back gradient instead. */
+.card-fallback-name {
+  position: absolute;
+  display: none;
+  inset: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 12% 10%;
+  color: var(--muted);
+  font-size: clamp(11px, 1.1vw, 13px);
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: .01em;
+  text-align: center;
+  text-wrap: balance;
+}
+
+.card-open.art-missing::after { display: none; }
+
+.card-open.art-missing {
+  background:
+    radial-gradient(circle at 50% 34%, rgba(230, 57, 76, .18), transparent 62%),
+    linear-gradient(160deg, var(--surface-raised) 0, var(--surface-input) 100%);
+}
+
+.card-open.art-missing img { display: none; }
+
+.card-open.art-missing .card-fallback-name { display: flex; }
+
 .card-open:hover {
   z-index: 1;
   transform: translateY(-6px) rotate(.35deg);

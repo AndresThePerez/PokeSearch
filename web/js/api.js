@@ -6,15 +6,18 @@
 
 import { state, buildParams, writeStateToURL } from "./state.js";
 import { renderResults, setLoading } from "./render.js";
-import { renderInspector, setDegraded, setServiceStatus } from "./telemetry.js";
+import { renderInspector, setDegraded, setServiceStatus, debugEnabled } from "./telemetry.js";
 import { $ } from "./util.js";
 
 let searchController = null;
 let debounceTimer = null;
 
-export async function runSearch({ append = false } = {}) {
+// push marks a search the user asked for, which earns a history entry.
+// fromHistory marks one Back or Forward produced, which must not write history
+// back — that is how you get a Back button that cannot leave the current entry.
+export async function runSearch({ append = false, push = false, fromHistory = false } = {}) {
   if (!append) state.page = 1;
-  writeStateToURL();
+  if (!fromHistory) writeStateToURL({ push });
   // Only the newest search may paint. An aborted one is not a failure and must
   // not raise the degraded banner.
   searchController?.abort();
@@ -23,7 +26,7 @@ export async function runSearch({ append = false } = {}) {
   searchController = controller;
   setLoading(true, { append });
   try {
-    const res = await fetch(`/api/search?${buildParams({ page: true, debug: true })}`, { signal: controller.signal });
+    const res = await fetch(`/api/search?${buildParams({ page: true, debug: debugEnabled() })}`, { signal: controller.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     renderResults(data, { append, roundTripMs: performance.now() - startedAt });
@@ -39,9 +42,11 @@ export async function runSearch({ append = false } = {}) {
   }
 }
 
+// The debounce already collapses a typing burst into one search, so one burst
+// leaves exactly one history entry — Back steps back a query, not a keystroke.
 export function scheduleSearch() {
   clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(() => runSearch(), 200);
+  debounceTimer = setTimeout(() => runSearch({ push: true }), 200);
 }
 
 // cancelScheduledSearch drops a pending debounce. Picking a suggestion runs a
@@ -53,7 +58,7 @@ export function cancelScheduledSearch() {
 // fetchSuggestions is the network half of autocomplete; suggest.js owns the
 // timer, the AbortController and the list rendering.
 export async function fetchSuggestions(q, signal) {
-  const sp = new URLSearchParams({ q, debug: "1" });
+  const sp = new URLSearchParams({ q });
   const res = await fetch(`/api/suggest?${sp}`, { signal });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
@@ -63,7 +68,7 @@ export async function fetchSuggestions(q, signal) {
 // fetchCardByID backs the #card= deep link when the card is not already in the
 // grid — the id fast path returns exactly one document.
 export async function fetchCardByID(id) {
-  const sp = new URLSearchParams({ id, debug: "1" });
+  const sp = new URLSearchParams({ id });
   const res = await fetch(`/api/search?${sp}`);
   if (!res.ok) return null;
   const data = await res.json();

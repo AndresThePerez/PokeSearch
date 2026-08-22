@@ -5,7 +5,7 @@
 // thing it needs from there — "the user removed a filter, search again" — is
 // injected by main.js through setFilterChangeHandler.
 
-import { $ } from "./util.js";
+import { $, element } from "./util.js";
 import { state, queryText, effectiveSort, effectiveOrder } from "./state.js";
 import { renderStats } from "./telemetry.js";
 
@@ -56,7 +56,12 @@ function renderGrid(cards, { append = false } = {}) {
     image.loading = "lazy";
     image.decoding = "async";
     image.addEventListener("load", () => button.classList.add("is-loaded"), { once: true });
+    // Card art is third-party and occasionally missing. Without this the cell
+    // is a blank rectangle with no way to tell which card it was; the name is
+    // already in the button's aria-label, so show it.
+    image.addEventListener("error", () => button.classList.add("art-missing"), { once: true });
     button.append(image);
+    button.append(element("span", "card-fallback-name", card.name));
     item.append(button);
     return item;
   });

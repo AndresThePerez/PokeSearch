@@ -81,7 +81,9 @@ function pickSuggestion(index) {
   state.order = "";
   $("search-input").value = name;
   closeSuggestions();
-  runSearch();
+  // Picking a completion is its own search, so Back returns to the results the
+  // typed prefix had produced.
+  runSearch({ push: true });
 }
 
 export function closeSuggestions() {

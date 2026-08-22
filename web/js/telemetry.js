@@ -4,8 +4,26 @@
 
 import { $ } from "./util.js";
 
+let hadDSL = false;
+
+// debugEnabled gates the debug=1 request parameter on whether anyone is
+// actually looking. The DSL is the largest part of a search response and it
+// used to be requested on every keystroke, open panel or not.
+export function debugEnabled() {
+  return $("query-inspector").open;
+}
+
+// lastResponseHadDSL lets main.js decide whether opening the panel needs a
+// re-fetch or whether the DSL is already on screen.
+export function lastResponseHadDSL() {
+  return hadDSL;
+}
+
 export function renderInspector(dsl, response) {
-  $("dsl-json").textContent = dsl ? JSON.stringify(dsl, null, 2) : "No query available.";
+  hadDSL = Boolean(dsl);
+  $("dsl-json").textContent = dsl
+    ? JSON.stringify(dsl, null, 2)
+    : "Open this panel to capture the query — the next search will return its DSL.";
   $("response-json").textContent = response ? JSON.stringify(response, null, 2) : "No response available.";
 }
 

@@ -55,9 +55,19 @@ export function buildParams({ page = false, debug = false } = {}) {
   return sp;
 }
 
-export function writeStateToURL() {
+// writeStateToURL mirrors the state into the address bar. A user-initiated
+// change asks for push, so Back and Forward walk the searches they made; a
+// programmatic one replaces, so the history does not fill with steps nobody
+// took. Push is downgraded to replace when the querystring did not actually
+// change, or Back would step through a run of identical entries.
+export function writeStateToURL({ push = false } = {}) {
   const qs = buildParams().toString();
-  history.replaceState(null, "", `${location.pathname}${qs ? `?${qs}` : ""}${location.hash}`);
+  const url = `${location.pathname}${qs ? `?${qs}` : ""}${location.hash}`;
+  if (push && qs !== new URLSearchParams(location.search).toString()) {
+    history.pushState(null, "", url);
+    return;
+  }
+  history.replaceState(null, "", url);
 }
 
 // The server applies the same two defaults; the UI has to know them to render

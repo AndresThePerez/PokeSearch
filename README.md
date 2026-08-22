@@ -4,7 +4,7 @@
 [![Go 1.26](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Pokesearch is a fast search engine over 20,324 English Pokémon TCG cards: a Go API, Elasticsearch relevance and facets, and an embedded vanilla-JavaScript gallery in one containerized binary. Its signature feature is the observability rail — every search shows you the exact Elasticsearch DSL that answered it, the cluster's latency, the browser round trip, and the live SLA targets, while writing that same query to the application log as one replayable JSON line.
+Pokesearch is a fast search engine over 20,324 English Pokémon TCG cards: a Go API, Elasticsearch relevance and facets, and an embedded vanilla ES-module gallery in one containerized binary. Its signature feature is the observability rail — every search shows you the exact Elasticsearch DSL that answered it, the cluster's latency, the browser round trip, and the live SLA targets, while writing that same query to the application log as one replayable JSON line.
 
 ![Pokesearch search results with the observability rail open](docs/media/hero.png)
 
@@ -51,7 +51,7 @@ go vet -tags acceptance ./internal/acceptance
 go test -race ./...
 golangci-lint run ./...
 go run golang.org/x/vuln/cmd/govulncheck@latest ./...
-node --check web/app.js
+for f in web/js/*.js; do node --check "$f"; done
 ```
 
 The acceptance suite is build-tagged and runs against a live stack:
@@ -172,7 +172,7 @@ Every request gets an ID and leaves a trail that connects the browser to the log
 
 ```mermaid
 flowchart TD
-    B["Browser<br/>vanilla JS, zero innerHTML"]
+    B["Browser<br/>vanilla ES modules, zero innerHTML"]
     S["Go server — cmd/server<br/>API + embedded frontend"]
     Q["internal/search<br/>pure DSL builders, golden-tested"]
     E["Elasticsearch 8.15<br/>single node, one shard"]

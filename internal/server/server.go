@@ -483,7 +483,10 @@ type searchResponse struct {
 	Matched [][]string `json:"matched,omitempty"`
 	// Highlights is aligned the same way: field name → <mark>-tagged fragments,
 	// as ES produced them. Also text-query only.
-	Highlights []map[string][]string    `json:"highlights,omitempty"`
+	Highlights []map[string][]string `json:"highlights,omitempty"`
+	// DidYouMean is a corrected spelling of q, present only when the search
+	// found nothing and the suggester had something to offer (D8).
+	DidYouMean string                   `json:"did_you_mean,omitempty"`
 	Facets     map[string][]facetBucket `json:"facets"`
 	DSL        map[string]any           `json:"dsl,omitempty"`
 }
@@ -621,6 +624,12 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	if setCatalog != nil {
 		resp.Facets[search.SetsFacet] = mergeSetCatalog(setCatalog, esr.Aggregations[search.SetsFacet])
+	}
+	// D8: only a zero-result text search asks for a correction. It is the
+	// cheapest response shape there is, and it is the one moment a correction
+	// cannot compete with the autocomplete the user was already offered.
+	if resp.Total == 0 && p.Q != "" {
+		resp.DidYouMean = s.didYouMean(r, p.Q)
 	}
 	if p.Debug {
 		resp.DSL = dsl
@@ -893,6 +902,59 @@ func (s *Server) explainBranch(r *http.Request, id string, b search.Branch) (*es
 			s.es.Explain.WithBody(bytes.NewReader(body)),
 		)
 	})
+}
+
+// esTermSuggestResponse decodes the term suggester. Offset and Length locate
+// the token inside the text ES was given, which is what lets the correction be
+// spliced back into the original query rather than replacing all of it.
+type esTermSuggestResponse struct {
+	Suggest struct {
+		DYM []struct {
+			Offset  int `json:"offset"`
+			Length  int `json:"length"`
+			Options []struct {
+				Text string `json:"text"`
+			} `json:"options"`
+		} `json:"dym"`
+	} `json:"suggest"`
+}
+
+// didYouMean returns a corrected spelling of q, or "" when there is nothing to
+// offer. It is best effort in the strict sense: a suggester failure is logged
+// and then dropped, because the search itself succeeded and turning a valid
+// empty result into a 503 over a spelling hint would be a bad trade.
+func (s *Server) didYouMean(r *http.Request, q string) string {
+	esr, err := esQuery[esTermSuggestResponse](s, r, search.BuildDidYouMean(q))
+	if err != nil {
+		s.log.Warn("did-you-mean suggester failed",
+			"request_id", requestID(r), "q", q, "err", err.Error())
+		return ""
+	}
+
+	// Offsets are character positions in q, so the query is walked as runes:
+	// slicing "ééé pikchu" by byte offset would cut mid-character.
+	runes := []rune(q)
+	var b strings.Builder
+	last, corrected := 0, false
+	for _, entry := range esr.Suggest.DYM {
+		if len(entry.Options) == 0 {
+			continue
+		}
+		end := entry.Offset + entry.Length
+		// Defensive: a token that does not sit cleanly after the previous one
+		// is skipped rather than allowed to panic on a slice.
+		if entry.Offset < last || end > len(runes) {
+			continue
+		}
+		b.WriteString(string(runes[last:entry.Offset]))
+		b.WriteString(entry.Options[0].Text)
+		last, corrected = end, true
+	}
+	if !corrected {
+		return ""
+	}
+	b.WriteString(string(runes[last:]))
+	return b.String()
 }
 
 type esSuggestResponse struct {

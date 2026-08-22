@@ -506,6 +506,25 @@ main { min-width: 0; }
   background: var(--surface);
 }
 
+#empty-message { margin: 0; }
+
+/* The did-you-mean button only exists on a zero-result search (D8), so it can
+   afford to be the most prominent thing on an otherwise empty screen. */
+#did-you-mean {
+  margin-top: 1.1rem;
+  padding: .6rem 1.15rem;
+  border: 1px solid rgba(230, 57, 76, .5);
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: .95rem;
+  background: var(--accent-soft);
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+#did-you-mean:hover { border-color: var(--accent-strong); background: rgba(230, 57, 76, .22); }
+#did-you-mean strong { color: var(--accent-strong); font-weight: 600; }
+
 #results-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));

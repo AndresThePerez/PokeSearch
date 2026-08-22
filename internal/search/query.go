@@ -328,6 +328,32 @@ func orderOr(order, fallback string) string {
 	return fallback
 }
 
+// BuildDidYouMean asks the term suggester for per-token corrections of q.
+//
+// D8: this runs only on a zero-result text search, which is both the cheapest
+// response shape there is and the only moment a correction cannot compete with
+// the autocomplete the user was already being offered.
+//
+// size:0 because the caller wants the suggestions and nothing else. Without
+// it ES answers an implicit match_all with ten fetched documents that are
+// thrown away — on the one request shape that exists because nothing matched.
+func BuildDidYouMean(q string) map[string]any {
+	return map[string]any{
+		"size": 0,
+		"suggest": map[string]any{"dym": map[string]any{
+			"text": q,
+			"term": map[string]any{
+				"field": "name",
+				// popular: only offer a correction that is more common in the
+				// index than what was typed, or a rare misspelling "corrects"
+				// to an equally rare one and helps nobody.
+				"suggest_mode": "popular",
+				"size":         1,
+			},
+		}},
+	}
+}
+
 // SuggestSize is how many completions /api/suggest asks ES for. The frontend
 // slices to the same number, so the two must not drift.
 const SuggestSize = 8

@@ -1303,3 +1303,158 @@ func TestExplainESDown(t *testing.T) {
 		t.Errorf("log line: %v", lg)
 	}
 }
+
+// zeroResultsESBody is a text search that matched nothing — the only shape
+// that triggers a did-you-mean lookup.
+const zeroResultsESBody = `{
+  "took": 2,
+  "hits": {"total": {"value": 0, "relation": "eq"}, "hits": []},
+  "aggregations": {
+    "supertype": {"buckets": []}, "types": {"buckets": []}, "rarity": {"buckets": []},
+    "set_series": {"buckets": []}, "sets": {"buckets": []}
+  }
+}`
+
+// dymRT routes the three request kinds a zero-result search makes: the search
+// itself, the set catalog, and the suggester.
+func dymRT(t *testing.T, suggestStatus int, suggestBody string, suggestCalls *int) roundTripperFunc {
+	t.Helper()
+	return roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		switch {
+		case bytes.Contains(body, []byte(`"dym"`)):
+			*suggestCalls++
+			return esResponse(suggestStatus, suggestBody), nil
+		case bytes.Contains(body, []byte(`"set_catalog"`)):
+			return esResponse(200, catalogESBody), nil
+		default:
+			return esResponse(200, zeroResultsESBody), nil
+		}
+	})
+}
+
+func TestDidYouMeanOnZeroResults(t *testing.T) {
+	calls := 0
+	// Two tokens, one correctable: the reassembly must replace only that one
+	// and keep the rest of the query verbatim.
+	rt := dymRT(t, 200, `{"suggest": {"dym": [
+	  {"text": "charzard", "offset": 0, "length": 8,
+	   "options": [{"text": "charizard", "score": 0.87, "freq": 107}]},
+	  {"text": "zzz", "offset": 9, "length": 3, "options": []}
+	]}}`, &calls)
+	s, _ := newTestServer(t, rt)
+
+	rec := get(t, s, "/api/search?q=charzard+zzz")
+	if rec.Code != 200 {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Total      int    `json:"total"`
+		DidYouMean string `json:"did_you_mean"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Total != 0 || resp.DidYouMean != "charizard zzz" {
+		t.Errorf("total=%d did_you_mean=%q, want 0 / %q", resp.Total, resp.DidYouMean, "charizard zzz")
+	}
+	if calls != 1 {
+		t.Errorf("suggester calls = %d, want 1", calls)
+	}
+}
+
+// A search that found something must not pay for a suggester call at all.
+func TestDidYouMeanSkippedWhenResultsExist(t *testing.T) {
+	calls := 0
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"dym"`)) {
+			calls++
+			return esResponse(200, `{"suggest":{"dym":[]}}`), nil
+		}
+		if bytes.Contains(body, []byte(`"set_catalog"`)) {
+			return esResponse(200, catalogESBody), nil
+		}
+		return esResponse(200, searchESBody), nil
+	})
+	s, _ := newTestServer(t, rt)
+	if body := get(t, s, "/api/search?q=pikuchu").Body.String(); strings.Contains(body, "did_you_mean") {
+		t.Errorf("a search with results must not carry did_you_mean: %s", body)
+	}
+	if calls != 0 {
+		t.Errorf("suggester calls = %d, want 0", calls)
+	}
+}
+
+// Browse cannot produce a correction: there is no query to correct.
+func TestDidYouMeanSkippedForBrowse(t *testing.T) {
+	calls := 0
+	rt := dymRT(t, 200, `{"suggest":{"dym":[]}}`, &calls)
+	s, _ := newTestServer(t, rt)
+	if body := get(t, s, "/api/search?rarity=Nonexistent").Body.String(); strings.Contains(body, "did_you_mean") {
+		t.Errorf("browse must not carry did_you_mean: %s", body)
+	}
+	if calls != 0 {
+		t.Errorf("suggester calls = %d, want 0", calls)
+	}
+}
+
+// No token got a suggestion: the field is absent rather than echoing q back.
+func TestDidYouMeanAbsentWithoutSuggestions(t *testing.T) {
+	calls := 0
+	rt := dymRT(t, 200, `{"suggest": {"dym": [
+	  {"text": "zzzzqqqq", "offset": 0, "length": 8, "options": []}
+	]}}`, &calls)
+	s, _ := newTestServer(t, rt)
+	if body := get(t, s, "/api/search?q=zzzzqqqq").Body.String(); strings.Contains(body, "did_you_mean") {
+		t.Errorf("no suggestion must mean no field: %s", body)
+	}
+	if calls != 1 {
+		t.Errorf("suggester calls = %d, want 1", calls)
+	}
+}
+
+// Best effort: a suggester failure must not turn a perfectly good (if empty)
+// search result into an error.
+func TestDidYouMeanFailureKeepsSearchSuccessful(t *testing.T) {
+	calls := 0
+	rt := dymRT(t, 500, `{"error":{"type":"search_phase_execution_exception"}}`, &calls)
+	s, logBuf := newTestServer(t, rt)
+
+	rec := get(t, s, "/api/search?q=charzard")
+	if rec.Code != 200 {
+		t.Fatalf("status %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "did_you_mean") {
+		t.Errorf("failed suggester must leave the field off: %s", rec.Body.String())
+	}
+	if calls != 1 {
+		t.Errorf("suggester calls = %d, want 1", calls)
+	}
+	// The failure still has to be visible to an operator.
+	if !strings.Contains(logBuf.String(), "did-you-mean") {
+		t.Errorf("the suggester failure must be logged: %s", logBuf.String())
+	}
+}
+
+// Offsets are character offsets in the query ES was given, so a multi-byte
+// query must not be sliced by byte position.
+func TestDidYouMeanMultiByteOffsets(t *testing.T) {
+	calls := 0
+	// q is "ééé pikchu": the token starts at CHARACTER 4. Slicing that by byte
+	// offset would cut one of the two-byte é's in half.
+	rt := dymRT(t, 200, `{"suggest": {"dym": [
+	  {"text": "pikchu", "offset": 4, "length": 6,
+	   "options": [{"text": "pikachu", "score": 0.9, "freq": 221}]}
+	]}}`, &calls)
+	s, _ := newTestServer(t, rt)
+	var resp struct {
+		DidYouMean string `json:"did_you_mean"`
+	}
+	if err := json.Unmarshal(get(t, s, "/api/search?q=%C3%A9%C3%A9%C3%A9+pikchu").Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.DidYouMean != "ééé pikachu" {
+		t.Errorf("did_you_mean = %q, want %q", resp.DidYouMean, "ééé pikachu")
+	}
+}

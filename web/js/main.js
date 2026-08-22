@@ -68,6 +68,18 @@ function bindCoreEvents() {
   // The DSL only comes back when the panel is open, so opening it after a
   // search has to fetch once to fill it. Closing fires this too — hence the
   // open check, which also stops the re-fetch looping.
+  // Taking a correction is a search the user asked for, so it earns a history
+  // entry — Back returns to what they actually typed.
+  $("did-you-mean").addEventListener("click", (event) => {
+    const suggestion = event.currentTarget.dataset.suggestion;
+    if (!suggestion) return;
+    state.q = suggestion;
+    state.sort = "";
+    state.order = "";
+    syncControls();
+    runSearch({ push: true });
+  });
+
   $("query-inspector").addEventListener("toggle", () => {
     if ($("query-inspector").open && !lastResponseHadDSL()) runSearch();
   });

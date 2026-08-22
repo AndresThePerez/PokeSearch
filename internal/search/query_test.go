@@ -332,3 +332,17 @@ func TestBuildSuggest(t *testing.T) {
 		t.Errorf("fuzzy suggest\n got %s\nwant %s", gotF, wantF)
 	}
 }
+
+func TestBuildDidYouMean(t *testing.T) {
+	got := canonV(t, BuildDidYouMean("charzard ex"))
+	want := canonS(t, `{
+	  "size": 0,
+	  "suggest": {"dym": {
+	    "text": "charzard ex",
+	    "term": {"field": "name", "suggest_mode": "popular", "size": 1}
+	  }}
+	}`)
+	if got != want {
+		t.Errorf("did-you-mean DSL\n got %s\nwant %s", got, want)
+	}
+}

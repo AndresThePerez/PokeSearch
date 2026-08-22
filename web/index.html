@@ -116,7 +116,10 @@
 
       <ul id="results-grid" aria-label="Card search results" aria-busy="true"></ul>
 
-      <p id="empty-state" hidden>No cards match your search and filters.</p>
+      <div id="empty-state" hidden>
+        <p id="empty-message">No cards match your search and filters.</p>
+        <button id="did-you-mean" type="button" hidden></button>
+      </div>
       <button id="load-more" type="button" hidden>Load more cards</button>
 
     </main>

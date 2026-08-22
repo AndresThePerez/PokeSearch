@@ -25,6 +25,27 @@ export function setFilterChangeHandler(fn) {
   onFilterChange = fn;
 }
 
+
+// renderDidYouMean offers the server's spelling correction on the empty state.
+// It only ever appears on a zero-result search, so it cannot compete with the
+// autocomplete list the user was being offered while typing.
+//
+// Unlike the filter chips, this button is static markup that is never
+// replaced, so main.js binds its click once at startup and this only has to
+// paint it — no injected handler needed.
+function renderDidYouMean(suggestion) {
+  const button = $("did-you-mean");
+  button.hidden = !suggestion;
+  if (!suggestion) return;
+  button.replaceChildren(
+    document.createTextNode("Did you mean "),
+    element("strong", "", suggestion),
+    document.createTextNode("?"),
+  );
+  button.setAttribute("aria-label", `Search for ${suggestion} instead`);
+  button.dataset.suggestion = suggestion;
+}
+
 export function renderResults(data, { append = false, roundTripMs = 0 } = {}) {
   state.page = data.page;
   renderGrid(data.results, { append, matched: data.matched, highlights: data.highlights });
@@ -32,6 +53,7 @@ export function renderResults(data, { append = false, roundTripMs = 0 } = {}) {
   $("total-count").textContent = `${Number(data.total).toLocaleString()} ${data.total === 1 ? "card" : "cards"}`;
   $("load-more").hidden = data.pages === 0 || data.page >= data.pages;
   $("empty-state").hidden = data.total !== 0;
+  renderDidYouMean(data.did_you_mean);
   $("results-grid").hidden = data.total === 0;
   renderStats(data, roundTripMs);
   syncControls();

@@ -2,7 +2,7 @@
 // link, and focus restoration on close.
 
 import { $, element } from "./util.js";
-import { cardsByID, displayType, imageURL, branchLabel } from "./render.js";
+import { cardsByID, displayType, imageURL, branchLabel, markWithin } from "./render.js";
 import { fetchCardByID, fetchExplain } from "./api.js";
 import { queryText } from "./state.js";
 import { holoTier, attachHolo, setHoloTier, setHoloArtLoaded } from "./holo.js";
@@ -124,7 +124,7 @@ async function loadExplain() {
   }
 }
 
-function renderModal(card) {
+function renderModal(card, highlight) {
   setModalArt(card);
   resetExplain(card);
   $("modal-card-name").textContent = card.name;
@@ -138,13 +138,13 @@ function renderModal(card) {
   if (card.attacks?.length) {
     const section = element("section", "modal-section");
     section.append(element("h3", "modal-section-title", "Attacks"));
-    for (const attack of card.attacks) section.append(renderAttack(attack));
+    for (const attack of card.attacks) section.append(renderAttack(attack, highlight));
     moveSections.push(section);
   }
   if (card.abilities?.length) {
     const section = element("section", "modal-section");
     section.append(element("h3", "modal-section-title", "Abilities"));
-    for (const ability of card.abilities) section.append(renderAbility(ability));
+    for (const ability of card.abilities) section.append(renderAbility(ability, highlight));
     moveSections.push(section);
   }
   $("modal-attacks").replaceChildren(...moveSections);
@@ -157,14 +157,17 @@ function renderModal(card) {
   $("modal-battle-line").replaceChildren(...battle.map((value) => element("span", "battle-chip", value)));
   $("modal-battle-line").hidden = battle.length === 0;
 
-  $("modal-flavor").textContent = card.flavor_text ?? "";
+  const flavor = markWithin(card.flavor_text, highlight?.["flavor_text"]);
+  if (flavor) $("modal-flavor").replaceChildren(...flavor);
+  else $("modal-flavor").textContent = card.flavor_text ?? "";
   $("modal-flavor").hidden = !card.flavor_text;
 }
 
-function renderAttack(attack) {
+function renderAttack(attack, highlight) {
   const row = element("article", "move-row");
   const heading = element("div", "move-heading");
   const name = element("h4", "", attack.name);
+  setMarked(name, attack.name, highlight?.["attacks.name"]);
   const damage = element("strong", "move-damage", attack.damage || "—");
   heading.append(name, damage);
 
@@ -178,22 +181,40 @@ function renderAttack(attack) {
   }
   row.append(heading);
   if (costs.childElementCount) row.append(costs);
-  if (attack.text) row.append(element("p", "", attack.text));
+  if (attack.text) {
+    const text = element("p", "", attack.text);
+    setMarked(text, attack.text, highlight?.["attacks.text"]);
+    row.append(text);
+  }
   return row;
 }
 
-function renderAbility(ability) {
+// setMarked swaps an element's plain text for the highlighted rendering of the
+// same string, when a fragment for it exists. Absent highlights — a deep link
+// opened with no search behind it — leave the plain text exactly as it was.
+function setMarked(node, original, fragments) {
+  const marked = markWithin(original, fragments);
+  if (marked) node.replaceChildren(...marked);
+}
+
+function renderAbility(ability, highlight) {
   const row = element("article", "move-row ability-row");
   const heading = element("div", "move-heading");
-  heading.append(element("h4", "", ability.name), element("span", "ability-kind", ability.type));
+  const name = element("h4", "", ability.name);
+  setMarked(name, ability.name, highlight?.["abilities.name"]);
+  heading.append(name, element("span", "ability-kind", ability.type));
   row.append(heading);
-  if (ability.text) row.append(element("p", "", ability.text));
+  if (ability.text) {
+    const text = element("p", "", ability.text);
+    setMarked(text, ability.text, highlight?.["abilities.text"]);
+    row.append(text);
+  }
   return row;
 }
 
-export function openModal(card, { updateHash = true, opener = null } = {}) {
+export function openModal(card, { updateHash = true, opener = null, highlight = null } = {}) {
   modalOpener = opener;
-  renderModal(card);
+  renderModal(card, highlight);
   if (updateHash) location.hash = `card=${encodeURIComponent(card.id)}`;
   if (!$("card-modal").open) $("card-modal").showModal();
 }
@@ -212,16 +233,19 @@ export async function openDeepLink() {
   if (!location.hash.startsWith("#card=")) return;
   const id = decodeURIComponent(location.hash.slice("#card=".length));
   if (!id) return;
-  let card = cardsByID.get(id);
-  if (!card) {
+  let entry = cardsByID.get(id);
+  if (!entry) {
     try {
-      card = await fetchCardByID(id);
-      if (card) cardsByID.set(card.id, card);
+      const card = await fetchCardByID(id);
+      // A deep-linked card was fetched by id, with no query behind it, so it
+      // has no highlights — the modal falls back to plain text.
+      if (card) entry = { card, highlight: null };
+      if (entry) cardsByID.set(card.id, entry);
     } catch {
       return;
     }
   }
-  if (card) openModal(card, { updateHash: false });
+  if (entry) openModal(entry.card, { updateHash: false, highlight: entry.highlight });
 }
 
 export function bindModalEvents() {
@@ -237,8 +261,8 @@ export function bindModalEvents() {
   $("results-grid").addEventListener("click", (event) => {
     const button = event.target.closest(".card-open");
     if (!button) return;
-    const card = cardsByID.get(button.dataset.id);
-    if (card) openModal(card, { opener: button });
+    const entry = cardsByID.get(button.dataset.id);
+    if (entry) openModal(entry.card, { opener: button, highlight: entry.highlight });
   });
 
   $("modal-why").addEventListener("click", loadExplain);

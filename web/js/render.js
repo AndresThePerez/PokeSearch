@@ -27,7 +27,7 @@ export function setFilterChangeHandler(fn) {
 
 export function renderResults(data, { append = false, roundTripMs = 0 } = {}) {
   state.page = data.page;
-  renderGrid(data.results, { append, matched: data.matched });
+  renderGrid(data.results, { append, matched: data.matched, highlights: data.highlights });
   renderFacets(data.facets);
   $("total-count").textContent = `${Number(data.total).toLocaleString()} ${data.total === 1 ? "card" : "cards"}`;
   $("load-more").hidden = data.pages === 0 || data.page >= data.pages;
@@ -64,12 +64,94 @@ function badgeStrip(names) {
   return strip;
 }
 
-// matched is aligned index-for-index with the results and only present for a
-// text query, so browse renders no strips at all.
-function renderGrid(cards, { append = false, matched } = {}) {
+// markNodes is the ONLY place a <mark> marker is ever interpreted, and it does
+// it by building DOM nodes — innerHTML is never involved, here or anywhere
+// else in the frontend. The marked text goes in as textContent, so a fragment
+// carrying any other markup renders as literal characters rather than as
+// elements. The server chose <mark> as the tag precisely so this parser has
+// exactly one token to know about.
+export function markNodes(fragment) {
+  const nodes = [];
+  let rest = String(fragment);
+  while (rest.length) {
+    const open = rest.indexOf("<mark>");
+    if (open === -1) {
+      nodes.push(document.createTextNode(rest));
+      break;
+    }
+    if (open > 0) nodes.push(document.createTextNode(rest.slice(0, open)));
+    const close = rest.indexOf("</mark>", open);
+    const inner = close === -1 ? rest.slice(open + 6) : rest.slice(open + 6, close);
+    const mark = document.createElement("mark");
+    mark.textContent = inner;
+    nodes.push(mark);
+    rest = close === -1 ? "" : rest.slice(close + 7);
+  }
+  return nodes;
+}
+
+function stripMarks(fragment) {
+  return fragment.replaceAll("<mark>", "").replaceAll("</mark>", "");
+}
+
+// markWithin re-applies a highlight to the full original string. ES returns
+// body text as a short fragment, so rendering the fragment directly in the
+// modal would silently truncate the card's own text; instead the fragment is
+// located inside the original and only the marks are spliced in. A whole-value
+// highlight (the name fields) is the same operation with an offset of zero.
+//
+// Returns null when no fragment belongs to this string — the caller falls back
+// to plain text, which is what a deep-linked card with no search gets.
+export function markWithin(original, fragments) {
+  if (!original || !fragments?.length) return null;
+  for (const fragment of fragments) {
+    const plain = stripMarks(fragment);
+    const at = original.indexOf(plain);
+    if (at === -1 || !plain) continue;
+    const nodes = [];
+    if (at > 0) nodes.push(document.createTextNode(original.slice(0, at)));
+    nodes.push(...markNodes(fragment));
+    const end = at + plain.length;
+    if (end < original.length) nodes.push(document.createTextNode(original.slice(end)));
+    return nodes;
+  }
+  return null;
+}
+
+// Which highlighted field becomes the card's one-line snippet, in priority
+// order. The card's own name is deliberately absent: it is already printed on
+// the card and repeating it under the art explains nothing. An attack or
+// ability *name* is included though — for q=whirlwind that is the only field
+// that matches, and it is exactly the "why is this Pidgey here?" answer.
+const SNIPPET_FIELDS = [
+  ["attacks.name", "Attack"],
+  ["abilities.name", "Ability"],
+  ["attacks.text", "Attack"],
+  ["abilities.text", "Ability"],
+  ["flavor_text", "Flavor"],
+];
+
+function cardSnippet(highlight) {
+  for (const [field, label] of SNIPPET_FIELDS) {
+    const fragment = highlight?.[field]?.[0];
+    if (!fragment) continue;
+    const line = element("p", "card-snippet");
+    line.append(element("i", "snippet-label", label));
+    line.append(...markNodes(fragment));
+    return line;
+  }
+  return null;
+}
+
+// matched and highlights are aligned index-for-index with the results and only
+// present for a text query, so browse renders no strips and no snippets.
+function renderGrid(cards, { append = false, matched, highlights } = {}) {
   const grid = $("results-grid");
   const items = cards.map((card, index) => {
-    cardsByID.set(card.id, card);
+    const highlight = highlights?.[index] ?? null;
+    // The map stores the pair, not the card: the modal needs both, and two
+    // parallel maps keyed by id are two things that can disagree.
+    cardsByID.set(card.id, { card, highlight });
     const branches = matched?.[index] ?? [];
     const item = document.createElement("li");
     item.className = "card-cell";
@@ -97,6 +179,10 @@ function renderGrid(cards, { append = false, matched } = {}) {
     button.append(element("span", "card-fallback-name", card.name));
     if (branches.length) button.append(badgeStrip(branches));
     item.append(button);
+    // The snippet sits under the button, not inside it: the button is the
+    // card's art and keeps its aspect ratio.
+    const snippet = cardSnippet(highlight);
+    if (snippet) item.append(snippet);
     return item;
   });
 

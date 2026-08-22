@@ -590,6 +590,48 @@ main { min-width: 0; }
 
 .card-open.art-missing .card-fallback-name { display: flex; }
 
+/* Highlighted terms. A white background block would fight the dark system and
+   shout louder than the card art; a tinted underline reads as emphasis without
+   becoming the loudest thing on the page. */
+mark {
+  padding: 0 .12em;
+  border-radius: 3px;
+  color: var(--ink);
+  font-weight: 600;
+  background: rgba(230, 57, 76, .22);
+  box-shadow: inset 0 -2px 0 rgba(255, 90, 106, .75);
+}
+
+/* The one-line matched snippet under a card: the answer to "why is this in my
+   results?" for a hit whose card name has nothing to do with the query. */
+.card-snippet {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: .4rem .1rem 0;
+  color: var(--muted);
+  font-size: .72rem;
+  line-height: 1.4;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+}
+
+.snippet-label {
+  margin-right: .35rem;
+  color: var(--accent-strong);
+  font-size: .62rem;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.card-snippet mark {
+  padding: 0;
+  color: var(--ink);
+  background: none;
+  box-shadow: inset 0 -1px 0 rgba(255, 90, 106, .8);
+}
+
 /* Matched-branch badges: the relevance clauses ES reports for this hit. Only
    a text search carries them, so browse renders no strip at all. The strip is
    a child of the card button, so it clips to the card and never intercepts the

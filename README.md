@@ -41,11 +41,49 @@ go vet ./...
 
 | Endpoint | Purpose | Parameters |
 |---|---|---|
+| `GET /livez` | Liveness only — never touches Elasticsearch. Container healthcheck target. | — |
 | `GET /healthz` | Elasticsearch reachability and indexed document count | — |
-| `GET /api/search` | Fuzzy multi-field card search, filters, facets, sorting, and pagination | `q`, `id`, `supertype`, `types`, `set`, `rarity`, `series`, `hp_min`, `hp_max`, `sort`, `order`, `page`, `debug=1` |
+| `GET /api/search` | Fuzzy multi-field card search, filters, facets, sorting, and pagination | `q`, `id`, `supertype`, `types`, `set`, `rarity`, `series`, `hp_min`, `hp_max`, `sort`, `order`, `page`, `page_size`, `debug=1` |
 | `GET /api/suggest` | Deduplicated card-name completion with a fuzzy retry | `q` |
 
-Search responses contain 24 results per page, Elasticsearch's `took_ms`, and live `supertype`, `types`, `rarity`, `set_series`, and readable `sets` facets. The `set` parameter takes an exact set ID; combine it with `q` to search within that set. Add `debug=1` to receive the generated DSL in the response. Every search and suggestion reaching Elasticsearch is also logged as one replayable JSON line.
+Search responses carry Elasticsearch's `took_ms`, the effective `page_size`, and live `supertype`, `types`, `rarity`, `set_series`, and readable `sets` facets. The `set` parameter takes an exact set ID; combine it with `q` to search within that set. Add `debug=1` to receive the generated DSL in the response. Every search and suggestion reaching Elasticsearch is also logged as one replayable JSON line.
+
+`GET /healthz` returns `{"docs":N,"status":"ok"}`. Its shape and its Elasticsearch round-trip are a frozen contract — use `/livez` for cheap liveness.
+
+### Paging
+
+`page_size` is bounded **1–100** and defaults to **24**. Pagination is capped at a reachable window of **9,600 documents** so `from + size` always stays inside Elasticsearch's 10,000-result window:
+
+```text
+pages = ceil(min(total, 9600) / page_size)
+```
+
+`pages` is therefore deliberately **not** `total / page_size` on large result sets: a browse of all 20,324 cards reports `pages: 400` at the default size, `96` at `page_size=100`, and `9600` at `page_size=1`. Out-of-range values clamp rather than fail — `page_size=500` becomes `100`, `page=999999` becomes the last reachable page.
+
+### Errors
+
+Every non-2xx response uses one shape:
+
+```json
+{
+  "error": { "code": "invalid_param", "field": "sort", "message": "sort must be one of relevance|newest|oldest|hp|name" },
+  "request_id": ""
+}
+```
+
+| Code | Status | Meaning |
+|---|---|---|
+| `invalid_param` | `400` | A strict parameter was supplied with an invalid value. `field` names it. |
+| `es_unavailable` | `503` | Elasticsearch could not be reached or returned an error. The cause (including a truncated Elasticsearch error body) goes to the log, never to the client. |
+
+Parameters split into two groups:
+
+| Behaviour | Parameters | On invalid input |
+|---|---|---|
+| **Strict** | `sort`, `order`, `supertype`, `hp_min`, `hp_max`, `page`, `page_size` | `400` with the offending `field`. Rejected before Elasticsearch is called. |
+| **Lenient** | members of the `types`, `rarity`, and `series` comma-lists; unknown query keys | Silently dropped/ignored, `200`. |
+
+Out-of-range integers are clamped, not rejected — a clamp is a contract, an alphabetic `page` is a typo. `GET /api/suggest` reads only `q`, so field errors on its other parameters are ignored rather than returned.
 
 The API and index retain the source dataset's canonical TCG type values. The interface presents `Metal` as **Steel** and `Colorless` as **Normal**, including filter labels, active-filter chips, attack costs, and card details.
 

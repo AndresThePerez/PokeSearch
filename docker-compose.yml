@@ -13,13 +13,37 @@ services:
       interval: 5s
       timeout: 3s
       retries: 30
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "3" }
 
   app:
-    build: .
+    build:
+      context: .
+      # Stamp the build so GET /api/meta can identify it. Unset means "dev",
+      # which is the honest label for a local build:
+      #   VERSION=$(git describe --tags --always) COMMIT=$(git rev-parse --short HEAD) \
+      #   BUILT=$(date -u +%FT%TZ) docker compose up -d --build
+      args:
+        VERSION: ${VERSION:-dev}
+        COMMIT: ${COMMIT:-none}
+        BUILT: ${BUILT:-unknown}
     ports:
       - "${APP_PORT:-8080}:8080"
     environment:
+      # METRICS=1 publishes expvar counters at /debug/vars on the app port.
+      # Never set it in the server topology — the tunnel forwards everything.
       - ES_URL=http://es:9200
+    healthcheck:
+      # The distroless image has no shell: the server binary probes itself.
+      test: ["CMD", "/server", "-ping"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "3" }
     depends_on:
       es:
         condition: service_healthy
@@ -29,7 +53,11 @@ services:
     build: .
     profiles: ["seed"]
     entrypoint: ["/seed"]
-    command: ["-es", "http://es:9200"]
+    # Pinned ref: reproducible reseeds by default (README documents the ref's
+    # expected count, 20,324). Override:
+    #   docker compose run seed -es http://es:9200 -ref <other>
+    command: ["-es", "http://es:9200", "-ref", "0af6250a22495e4a3e9f60ff45fc3fedc2e0563d"]
+    mem_limit: 512m
     depends_on:
       es:
         condition: service_healthy

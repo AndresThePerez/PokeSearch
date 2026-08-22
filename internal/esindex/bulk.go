@@ -8,31 +8,28 @@ import (
 	"github.com/AndresThePerez/pokesearch/internal/tcg"
 )
 
-// BulkBodies encodes docs as _bulk NDJSON bodies of at most chunkSize docs
-// each: an action line {"index":{"_id":...}} then the document line.
-func BulkBodies(docs []tcg.Card, chunkSize int) ([][]byte, error) {
-	if chunkSize < 1 {
-		return nil, fmt.Errorf("chunkSize must be >= 1, got %d", chunkSize)
-	}
-	var bodies [][]byte
-	for start := 0; start < len(docs); start += chunkSize {
-		end := min(start+chunkSize, len(docs))
-		var buf bytes.Buffer
-		for _, d := range docs[start:end] {
-			action, err := json.Marshal(map[string]any{"index": map[string]any{"_id": d.ID}})
-			if err != nil {
-				return nil, err
-			}
-			doc, err := json.Marshal(d)
-			if err != nil {
-				return nil, fmt.Errorf("marshal %s: %w", d.ID, err)
-			}
-			buf.Write(action)
-			buf.WriteByte('\n')
-			buf.Write(doc)
-			buf.WriteByte('\n')
+// BulkBody encodes docs as one _bulk NDJSON body: an action line
+// {"index":{"_id":...}} followed by the document line, per document.
+//
+// Chunking is the caller's job on purpose. The corpus is 20k documents, and
+// encoding every chunk before sending the first one holds the whole corpus in
+// memory twice — once as documents, once as JSON — inside a 512m seed
+// container. One chunk at a time keeps the peak flat.
+func BulkBody(docs []tcg.Card) ([]byte, error) {
+	var buf bytes.Buffer
+	for _, d := range docs {
+		action, err := json.Marshal(map[string]any{"index": map[string]any{"_id": d.ID}})
+		if err != nil {
+			return nil, err
 		}
-		bodies = append(bodies, buf.Bytes())
+		doc, err := json.Marshal(d)
+		if err != nil {
+			return nil, fmt.Errorf("marshal %s: %w", d.ID, err)
+		}
+		buf.Write(action)
+		buf.WriteByte('\n')
+		buf.Write(doc)
+		buf.WriteByte('\n')
 	}
-	return bodies, nil
+	return buf.Bytes(), nil
 }

@@ -31,7 +31,8 @@ func params(t *testing.T, qs string) Params {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return ParseParams(v)
+	p, _ := ParseParams(v)
+	return p
 }
 
 // With no active filters facets can aggregate directly in the text-query
@@ -61,20 +62,115 @@ func TestBuildQueryFullText(t *testing.T) {
 	  "track_total_hits": true, "size": 24,
 	  "query": {"bool": {
 	    "should": [
-	      {"term": {"name.kw": {"value": "pikuchu", "boost": 8}}},
+	      {"term": {"name.kw": {"value": "pikuchu", "boost": 8, "_name": "exact"}}},
 	      {"multi_match": {"query": "Pikuchu", "type": "bool_prefix",
-	        "fields": ["name.sayt", "name.sayt._2gram", "name.sayt._3gram"], "boost": 4}},
-	      {"match": {"name": {"query": "Pikuchu", "fuzziness": "AUTO", "boost": 3}}},
+	        "fields": ["name.sayt", "name.sayt._2gram", "name.sayt._3gram"], "boost": 4,
+	        "_name": "prefix"}},
+	      {"match": {"name": {"query": "Pikuchu", "fuzziness": "AUTO", "boost": 3,
+	        "_name": "fuzzy-name"}}},
 	      {"multi_match": {"query": "Pikuchu", "type": "best_fields", "fuzziness": "AUTO",
 	        "fields": ["attacks.name^2", "abilities.name^2", "attacks.text", "abilities.text",
-	                   "flavor_text", "set_name^1.5", "artist"]}}
+	                   "flavor_text", "set_name^1.5", "artist"], "_name": "text"}}
 	    ]
 	  }},
 	  "sort": ["_score", {"id": "asc"}],
+	  "highlight": `+highlightJSON+`,
 	  "aggs": `+noFilterAggsJSON+`}`)
 	if got != want {
 		t.Errorf("full-text DSL\n got %s\nwant %s", got, want)
 	}
+}
+
+// The highlight block, server-side <mark> tagging over the fields a text query
+// can actually match. Names come back whole (number_of_fragments 0); body text
+// comes back as one short fragment, which is all a one-line snippet can show.
+const highlightJSON = `{
+  "pre_tags": ["<mark>"],
+  "post_tags": ["</mark>"],
+  "fields": {
+    "name":           {"number_of_fragments": 0},
+    "attacks.name":   {"number_of_fragments": 0},
+    "abilities.name": {"number_of_fragments": 0},
+    "attacks.text":   {"fragment_size": 120, "number_of_fragments": 1},
+    "abilities.text": {"fragment_size": 120, "number_of_fragments": 1},
+    "flavor_text":    {"fragment_size": 120, "number_of_fragments": 1}
+  },
+  "highlight_query": {"multi_match": {
+    "query": "Pikuchu", "type": "best_fields",
+    "fields": ["name", "attacks.name", "abilities.name",
+               "attacks.text", "abilities.text", "flavor_text"]
+  }}
+}`
+
+// Highlighting is for text queries only. Browse has no query to highlight and
+// the exact-ID fast path is a single-document fetch — asking either for
+// highlights buys nothing and costs a per-hit re-analysis of the source.
+func TestHighlightOnlyForTextQueries(t *testing.T) {
+	if _, ok := BuildQuery(params(t, "q=charizard"))["highlight"]; !ok {
+		t.Error("a text query must carry a highlight block")
+	}
+	for _, qs := range []string{"", "supertype=pokemon", "types=Fire&sort=hp", "id=base1-1", "id=base1-1&types=Fire"} {
+		if _, ok := BuildQuery(params(t, qs))["highlight"]; ok {
+			t.Errorf("%q must not carry a highlight block", qs)
+		}
+	}
+	// A query that is only whitespace is not a text query.
+	if _, ok := BuildQuery(params(t, "q=+++"))["highlight"]; ok {
+		t.Error("a whitespace-only q must not carry a highlight block")
+	}
+}
+
+// The four branch names are a published contract: ES echoes them per hit as
+// matched_queries, /api/explain scores them one at a time, and the grid renders
+// them as badges. Branch.Name and the clause's own _name must never diverge.
+func TestBranchesAreNamed(t *testing.T) {
+	branches := Branches("Pikuchu")
+	want := []string{"exact", "prefix", "fuzzy-name", "text"}
+	if len(branches) != len(want) {
+		t.Fatalf("got %d branches, want %d", len(branches), len(want))
+	}
+	for i, b := range branches {
+		if b.Name != want[i] {
+			t.Errorf("branch %d name = %q, want %q", i, b.Name, want[i])
+		}
+		if got := branchName(t, b.Query); got != b.Name {
+			t.Errorf("branch %q carries _name %q", b.Name, got)
+		}
+	}
+	// Every should clause of a text query is a named branch, in order.
+	should := BuildQuery(params(t, "q=Pikuchu"))["query"].(map[string]any)["bool"].(map[string]any)["should"].([]any)
+	if len(should) != len(branches) {
+		t.Fatalf("should has %d clauses, want %d", len(should), len(branches))
+	}
+	for i, clause := range should {
+		if got := branchName(t, clause.(map[string]any)); got != want[i] {
+			t.Errorf("should[%d] _name = %q, want %q", i, got, want[i])
+		}
+	}
+}
+
+// branchName digs out the single _name key wherever it sits in a clause.
+func branchName(t *testing.T, clause map[string]any) string {
+	t.Helper()
+	for _, v := range clause {
+		options, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		if name, ok := options["_name"].(string); ok {
+			return name
+		}
+		// term/match nest one level deeper: {"term": {"name.kw": {…}}}.
+		for _, inner := range options {
+			if opts, ok := inner.(map[string]any); ok {
+				if name, ok := opts["_name"].(string); ok {
+					return name
+				}
+			}
+		}
+	}
+	t.Fatalf("clause carries no _name: %v", clause)
+	return ""
 }
 
 // Filters must land in post_filter — never in the query — so aggregations keep
@@ -99,6 +195,29 @@ func TestBuildQueryPostFilter(t *testing.T) {
 	}
 	if body["from"] != 48 || body["size"] != PageSize {
 		t.Errorf("paging: from=%v size=%v", body["from"], body["size"])
+	}
+}
+
+// A non-default page_size drives both size and the from offset.
+func TestBuildQueryPageSize(t *testing.T) {
+	body := BuildQuery(params(t, "q=eevee&page_size=10&page=3"))
+	if body["size"] != 10 || body["from"] != 20 {
+		t.Errorf("paging: from=%v size=%v, want from=20 size=10", body["from"], body["size"])
+	}
+	// Page one at a non-default size still omits from.
+	if body := BuildQuery(params(t, "q=eevee&page_size=100")); body["size"] != 100 || body["from"] != nil {
+		t.Errorf("page one: from=%v size=%v, want from=<nil> size=100", body["from"], body["size"])
+	}
+}
+
+// A non-default page size opts out of the single-doc deep-link fast path —
+// the caller clearly wants a real search response.
+func TestExactIDLookupRequiresDefaultPageSize(t *testing.T) {
+	if body := BuildQuery(params(t, "id=base1-1")); body["aggs"] != nil {
+		t.Error("plain id lookup must stay on the fast path")
+	}
+	if body := BuildQuery(params(t, "id=base1-1&page_size=50")); body["aggs"] == nil {
+		t.Error("id lookup with an explicit page_size must run the full search")
 	}
 }
 
@@ -211,5 +330,74 @@ func TestBuildSuggest(t *testing.T) {
 	    "fuzzy": {"fuzziness": "AUTO"}}}}}`)
 	if gotF != wantF {
 		t.Errorf("fuzzy suggest\n got %s\nwant %s", gotF, wantF)
+	}
+}
+
+// The corpus's own shape, in one request: two numeric distributions (prints
+// per year, HP bands), the facet breakdowns, and the maximum HP. Nothing in it
+// depends on a request, which is what makes it cacheable for the process
+// lifetime.
+//
+// The breakdown aggregations are asserted here with the field names and terms
+// sizes the facet registry carries, because that is where BuildStatsQuery
+// reads them from — a stats chart must not be able to aggregate a different
+// field, or a shorter terms size, than the filter rail describing the same
+// corpus. supertype therefore has no explicit size: the registry does not give
+// it one (three values sit well inside the ES default).
+func TestBuildStatsQuery(t *testing.T) {
+	got := canonV(t, BuildStatsQuery())
+	want := canonS(t, `{
+	  "track_total_hits": true, "size": 0,
+	  "aggs": {
+	    "per_year": {"date_histogram": {"field": "release_date",
+	      "calendar_interval": "year", "min_doc_count": 0}},
+	    "hp": {"histogram": {"field": "hp", "interval": 30, "min_doc_count": 0}},
+	    "max_hp": {"max": {"field": "hp"}},
+	    "types":     {"terms": {"field": "types", "size": 11}},
+	    "supertype": {"terms": {"field": "supertype"}},
+	    "rarity":    {"terms": {"field": "rarity", "size": 100}},
+	    "series":    {"terms": {"field": "set_series", "size": 20}}
+	  }
+	}`)
+	if got != want {
+		t.Errorf("stats DSL\n got %s\nwant %s", got, want)
+	}
+}
+
+// Every stats breakdown must resolve to a registered facet, and must aggregate
+// byte-for-byte what that facet aggregates. This is the drift alarm: renaming a
+// facet or lowering its terms size can no longer leave the Stats view quietly
+// describing a different corpus than the filter rail.
+func TestStatsBreakdownsFollowFacetRegistry(t *testing.T) {
+	aggs := BuildStatsQuery()["aggs"].(map[string]any)
+	for _, sf := range statsFacets {
+		def, ok := facetByName(sf.Facet)
+		if !ok {
+			t.Errorf("stats breakdown %q names facet %q, which is not registered", sf.Key, sf.Facet)
+			continue
+		}
+		got := canonV(t, aggs[sf.Key])
+		want := canonV(t, map[string]any{"terms": termsOf(def)})
+		if got != want {
+			t.Errorf("stats breakdown %q\n got %s\nwant %s", sf.Key, got, want)
+		}
+	}
+	// The sets facet is deliberately not charted; 173 bars is a list.
+	if _, ok := aggs[SetsFacet]; ok {
+		t.Error("stats must not aggregate the sets facet")
+	}
+}
+
+func TestBuildDidYouMean(t *testing.T) {
+	got := canonV(t, BuildDidYouMean("charzard ex"))
+	want := canonS(t, `{
+	  "size": 0,
+	  "suggest": {"dym": {
+	    "text": "charzard ex",
+	    "term": {"field": "name", "suggest_mode": "popular", "size": 1}
+	  }}
+	}`)
+	if got != want {
+		t.Errorf("did-you-mean DSL\n got %s\nwant %s", got, want)
 	}
 }

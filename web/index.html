@@ -27,7 +27,10 @@
       <ul id="suggest-list" role="listbox" hidden></ul>
     </div>
 
-    <p class="archive-note">20,324 English cards<br><span>173 sets · 1999—today</span></p>
+    <div class="header-aside">
+      <p class="archive-note">20,324 English cards<br><span>173 sets · 1999—today</span></p>
+      <a class="stats-link" id="stats-link" href="#stats">Archive stats</a>
+    </div>
   </header>
 
   <div class="app-layout">
@@ -109,6 +112,15 @@
         </div>
       </div>
 
+      <section id="stats-view" hidden aria-label="Corpus statistics">
+        <div class="stats-header">
+          <p class="eyebrow">The archive, measured</p>
+          <h2 id="stats-total">The archive in aggregate</h2>
+          <p id="stats-superlatives"></p>
+        </div>
+        <div id="stats-charts"></div>
+      </section>
+
       <div id="degraded-banner" role="alert" hidden>
         <strong>The archive is taking a breather.</strong>
         <span>Search is temporarily unavailable. Check the connection and try again.</span>
@@ -116,7 +128,10 @@
 
       <ul id="results-grid" aria-label="Card search results" aria-busy="true"></ul>
 
-      <p id="empty-state" hidden>No cards match your search and filters.</p>
+      <div id="empty-state" hidden>
+        <p id="empty-message">No cards match your search and filters.</p>
+        <button id="did-you-mean" type="button" hidden></button>
+      </div>
       <button id="load-more" type="button" hidden>Load more cards</button>
 
     </main>
@@ -139,6 +154,19 @@
           <div><dt>Result page</dt><dd id="stat-page">—</dd></div>
           <div><dt>Active filters</dt><dd id="stat-filters">0</dd></div>
         </dl>
+
+        <div class="latency-block">
+          <p class="panel-label">Last request</p>
+          <div id="latency-waterfall" role="img" aria-label="Latency breakdown">
+            <span id="waterfall-es" title="Elasticsearch"></span>
+            <span id="waterfall-rest" title="App + network + render"></span>
+          </div>
+          <p id="latency-legend"><span>ES <b id="wf-es-ms">—</b></span><span>everything else <b id="wf-rest-ms">—</b></span></p>
+          <p class="panel-label">Session (last 20)</p>
+          <svg id="latency-spark" viewBox="0 0 200 40" preserveAspectRatio="none" role="img" aria-label="Latency history"></svg>
+          <p id="spark-percentiles"><span>p50 <b id="spark-p50">—</b></span><span>p95 <b id="spark-p95">—</b></span></p>
+          <p id="request-id-line">req <code id="stat-request-id">—</code></p>
+        </div>
 
         <div class="sla-block">
           <p class="panel-label">SLA targets</p>
@@ -177,12 +205,19 @@
   <dialog id="card-modal" aria-labelledby="modal-card-name">
     <div class="modal-shell">
       <button id="modal-close" type="button" aria-label="Close">×</button>
-      <div class="modal-art"><img id="modal-image" alt=""></div>
+      <div class="modal-art holo" id="modal-art">
+        <span class="holo-card">
+          <img id="modal-image" alt="">
+          <span class="holo-shine" aria-hidden="true"></span>
+        </span>
+      </div>
       <div class="modal-details">
         <p class="eyebrow">Archive specimen</p>
         <h2 id="modal-card-name"></h2>
         <p id="modal-set-line"></p>
         <p id="modal-meta-line"></p>
+        <button id="modal-why" type="button" aria-controls="modal-explain" aria-expanded="false" hidden>Why this card?</button>
+        <div id="modal-explain" aria-live="polite" hidden></div>
         <div id="modal-attacks"></div>
         <div id="modal-battle-line"></div>
         <p id="modal-flavor"></p>
@@ -190,6 +225,6 @@
     </div>
   </dialog>
 
-  <script src="/app.js" defer></script>
+  <script type="module" src="/js/main.js"></script>
 </body>
 </html>

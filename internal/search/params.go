@@ -9,8 +9,23 @@ import (
 	"strings"
 )
 
+// PageSize is the default page size; MinPageSize/MaxPageSize bound what a
+// client may ask for via page_size.
 const PageSize = 24
-const MaxPage = 400 // keeps from+size inside ES's 10k result window
+const MinPageSize, MaxPageSize = 1, 100
+
+// MaxDocsWindow is the deepest reachable document, chosen so from+size stays
+// inside ES's 10k result window at every allowed page size. 9600/24 = 400
+// preserves the browse contract of exactly 400 pages at the default size.
+const MaxDocsWindow = 9600
+
+// MaxPageFor is the highest requestable page at a given page size.
+func MaxPageFor(pageSize int) int {
+	if pageSize < MinPageSize {
+		pageSize = MinPageSize
+	}
+	return MaxDocsWindow / pageSize
+}
 
 // CanonicalTypes are the exactly-11 TCG energy types present in the corpus.
 var CanonicalTypes = []string{
@@ -36,39 +51,49 @@ type Params struct {
 	Sort      string
 	Order     string
 	Page      int
+	PageSize  int // always MinPageSize..MaxPageSize; defaults to PageSize
 	Debug     bool
 }
 
-// ParseParams validates url.Values per the Design Spec: invalid values are
-// dropped, never rejected.
-func ParseParams(v url.Values) Params {
+// FieldError names one rejected request parameter. It is the payload of the
+// M3 error contract's 400 responses.
+type FieldError struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
+}
+
+// ParseParams validates url.Values and returns the canonicalized Params
+// alongside any field errors.
+//
+// Superseding the M1 Design Spec's "invalid values are dropped, never
+// rejected" rule (see Design Spec Milestone 3 §A2, decision D1), the strict
+// fields — sort, order, supertype, and the numerics hp_min/hp_max/page/
+// page_size — report a FieldError when supplied non-empty and invalid, and the
+// caller turns that into a 400. Everything else stays lenient: unknown query
+// keys are ignored, and unknown members of the types/rarity/series comma-lists
+// are dropped. Out-of-range integers are clamped rather than rejected — a
+// clamp is a contract, an alphabetic page is a typo.
+func ParseParams(v url.Values) (Params, []FieldError) {
+	var errs []FieldError
 	p := Params{
 		Q:      strings.TrimSpace(v.Get("q")),
 		ID:     strings.TrimSpace(v.Get("id")),
 		Rarity: splitList(v.Get("rarity")),
 		Series: splitList(v.Get("series")),
 		SetID:  strings.TrimSpace(v.Get("set")),
-		HPMin:  atoiPtr(v.Get("hp_min")),
-		HPMax:  atoiPtr(v.Get("hp_max")),
 		Page:   1,
 		Debug:  v.Get("debug") == "1",
 	}
-	if canon, ok := canonicalSupertypes[strings.ToLower(strings.TrimSpace(v.Get("supertype")))]; ok {
-		p.Supertype = canon
-	}
-	seen := map[string]bool{}
-	for _, item := range splitList(v.Get("types")) {
-		for _, canon := range CanonicalTypes {
-			if strings.EqualFold(item, canon) && !seen[canon] {
-				p.Types = append(p.Types, canon)
-				seen[canon] = true
-			}
+
+	if raw := v.Get("sort"); raw != "" {
+		switch raw {
+		case "relevance", "newest", "oldest", "hp", "name":
+			p.Sort = raw
+		default:
+			errs = append(errs, FieldError{"sort", "sort must be one of relevance|newest|oldest|hp|name"})
 		}
 	}
-	switch v.Get("sort") {
-	case "relevance", "newest", "oldest", "hp", "name":
-		p.Sort = v.Get("sort")
-	default:
+	if p.Sort == "" {
 		if p.Q != "" {
 			p.Sort = "relevance"
 		} else {
@@ -84,13 +109,60 @@ func ParseParams(v url.Values) Params {
 	case "name":
 		p.Order = "asc"
 	}
-	if o := v.Get("order"); (o == "asc" || o == "desc") && p.Order != "" {
-		p.Order = o
+	// order is validated always but applied only to hp/name sorts, so
+	// order=asc alongside sort=newest stays valid-and-ignored.
+	if raw := v.Get("order"); raw != "" {
+		switch {
+		case raw != "asc" && raw != "desc":
+			errs = append(errs, FieldError{"order", "order must be one of asc|desc"})
+		case p.Order != "":
+			p.Order = raw
+		}
 	}
-	if n, err := strconv.Atoi(v.Get("page")); err == nil {
-		p.Page = min(max(n, 1), MaxPage)
+
+	if raw := strings.TrimSpace(v.Get("supertype")); raw != "" {
+		if canon, ok := canonicalSupertypes[strings.ToLower(raw)]; ok {
+			p.Supertype = canon
+		} else {
+			errs = append(errs, FieldError{"supertype", "supertype must be one of pokemon|trainer|energy"})
+		}
 	}
-	return p
+
+	seen := map[string]bool{}
+	for _, item := range splitList(v.Get("types")) {
+		for _, canon := range CanonicalTypes {
+			if strings.EqualFold(item, canon) && !seen[canon] {
+				p.Types = append(p.Types, canon)
+				seen[canon] = true
+			}
+		}
+	}
+
+	if n, ok := atoiStrict(v.Get("hp_min")); ok {
+		p.HPMin = n
+	} else {
+		errs = append(errs, FieldError{"hp_min", "hp_min must be an integer"})
+	}
+	if n, ok := atoiStrict(v.Get("hp_max")); ok {
+		p.HPMax = n
+	} else {
+		errs = append(errs, FieldError{"hp_max", "hp_max must be an integer"})
+	}
+
+	// page_size is resolved before page, because it decides the page ceiling.
+	p.PageSize = PageSize
+	if n, ok := atoiStrict(v.Get("page_size")); !ok {
+		errs = append(errs, FieldError{"page_size", "page_size must be an integer"})
+	} else if n != nil {
+		p.PageSize = min(max(*n, MinPageSize), MaxPageSize)
+	}
+	if n, ok := atoiStrict(v.Get("page")); !ok {
+		errs = append(errs, FieldError{"page", "page must be an integer"})
+	} else if n != nil {
+		p.Page = min(max(*n, 1), MaxPageFor(p.PageSize))
+	}
+
+	return p, errs
 }
 
 func splitList(s string) []string {
@@ -103,10 +175,17 @@ func splitList(s string) []string {
 	return out
 }
 
-func atoiPtr(s string) *int {
-	n, err := strconv.Atoi(strings.TrimSpace(s))
-	if err != nil {
-		return nil
+// atoiStrict parses an optional integer parameter. An absent or empty value is
+// valid-and-unset (nil, true); a non-integer value is a client error
+// (nil, false). Range clamping is the caller's business.
+func atoiStrict(s string) (*int, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, true
 	}
-	return &n
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return nil, false
+	}
+	return &n, true
 }

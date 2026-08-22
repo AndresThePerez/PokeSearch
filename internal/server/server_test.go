@@ -4,15 +4,20 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v8"
+
+	"github.com/AndresThePerez/pokesearch/internal/version"
 )
 
 // roundTripperFunc fakes ES. Responses must carry X-Elastic-Product or the v8
@@ -34,6 +39,14 @@ func esResponse(status int, body string) *http.Response {
 
 func newTestServer(t *testing.T, rt http.RoundTripper) (*Server, *bytes.Buffer) {
 	t.Helper()
+	var logBuf bytes.Buffer
+	return newTestServerLogging(t, rt, &logBuf), &logBuf
+}
+
+// newTestServerLogging is newTestServer with an explicit log sink — concurrent
+// tests pass io.Discard because a bytes.Buffer is not safe under -race.
+func newTestServerLogging(t *testing.T, rt http.RoundTripper, logW io.Writer) *Server {
+	t.Helper()
 	es, err := elasticsearch.NewClient(elasticsearch.Config{
 		Addresses: []string{"http://fake-es:9200"},
 		Transport: rt,
@@ -41,19 +54,83 @@ func newTestServer(t *testing.T, rt http.RoundTripper) (*Server, *bytes.Buffer) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	var logBuf bytes.Buffer
 	static := fstest.MapFS{
 		"index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>Pokesearch</title>")},
 	}
 	fixed := func() time.Time { return time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC) }
-	return New(es, static, &logBuf, fixed), &logBuf
+	return New(es, static, logW, fixed)
 }
 
 func get(t *testing.T, s *Server, path string) *httptest.ResponseRecorder {
 	t.Helper()
+	return getWith(t, s, path, nil)
+}
+
+// getWith is get with inbound request headers — the observability middleware
+// is the only thing in the server that reads them.
+func getWith(t *testing.T, s *Server, path string, headers map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest("GET", path, nil)
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 	rec := httptest.NewRecorder()
-	s.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
+	s.ServeHTTP(rec, req)
 	return rec
+}
+
+// logLines decodes the test log sink. Two line kinds share it: the
+// hand-marshalled QueryLog (carries "endpoint") and slog's access line
+// (msg="access").
+func logLines(t *testing.T, buf *bytes.Buffer) []map[string]any {
+	t.Helper()
+	var out []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+		if line == "" {
+			continue
+		}
+		var m map[string]any
+		if err := json.Unmarshal([]byte(line), &m); err != nil {
+			t.Fatalf("undecodable log line %q: %v", line, err)
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// oneLine returns the single access (or single non-access) log line, failing
+// when the sink holds a different number of them.
+func oneLine(t *testing.T, buf *bytes.Buffer, access bool) map[string]any {
+	t.Helper()
+	var found []map[string]any
+	for _, m := range logLines(t, buf) {
+		if (m["msg"] == "access") == access {
+			found = append(found, m)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("want exactly 1 line (access=%v), got %d:\n%s", access, len(found), buf.String())
+	}
+	return found[0]
+}
+
+func accessLine(t *testing.T, buf *bytes.Buffer) map[string]any { return oneLine(t, buf, true) }
+func queryLine(t *testing.T, buf *bytes.Buffer) map[string]any  { return oneLine(t, buf, false) }
+
+// facetLen reports how many buckets a successful search response carries for
+// the named facet.
+func facetLen(t *testing.T, rec *httptest.ResponseRecorder, name string) int {
+	t.Helper()
+	if rec.Code != 200 {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Facets map[string][]map[string]any `json:"facets"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	return len(resp.Facets[name])
 }
 
 // Two real docs (base1-1 Alakazam, ex11-12 Mewtwo delta) inside a real-shaped
@@ -96,6 +173,47 @@ const catalogESBody = `{
         {"_source": {"set_name": "Delta Species", "release_date": "2005-10-31"}}
       ]}}}
     ]}
+  }
+}`
+
+// Three hits carrying what ES reports for named relevance clauses: two, one,
+// and none (a hit pulled in by a filter rather than by the text query).
+const matchedESBody = `{
+  "took": 3,
+  "hits": {
+    "total": {"value": 3, "relation": "eq"},
+    "hits": [
+      {"_id": "base1-4", "_source": {"id": "base1-4", "name": "Charizard"},
+        "matched_queries": ["fuzzy-name", "exact"]},
+      {"_id": "base1-9", "_source": {"id": "base1-9", "name": "Magmar"},
+        "matched_queries": ["text"]},
+      {"_id": "base1-7", "_source": {"id": "base1-7", "name": "Hitmonchan"}}
+    ]
+  },
+  "aggregations": {
+    "supertype": {"buckets": []}, "types": {"buckets": []}, "rarity": {"buckets": []},
+    "set_series": {"buckets": []}, "sets": {"buckets": []}
+  }
+}`
+
+// Three hits carrying what ES returns for a highlight block: a body-text
+// fragment, a whole highlighted name, and a hit with no highlight at all.
+const highlightESBody = `{
+  "took": 5,
+  "hits": {
+    "total": {"value": 3, "relation": "eq"},
+    "hits": [
+      {"_id": "base1-8", "_source": {"id": "base1-8", "name": "Machop"},
+        "highlight": {"attacks.text": ["\u2026discard your hand: this attack does <mark>100x</mark> damage\u2026"]}},
+      {"_id": "base1-57", "_source": {"id": "base1-57", "name": "Whirlwind Pidgey"},
+        "highlight": {"name": ["<mark>Whirlwind</mark> Pidgey"],
+                      "flavor_text": ["a gust of <mark>wind</mark>"]}},
+      {"_id": "base1-7", "_source": {"id": "base1-7", "name": "Hitmonchan"}}
+    ]
+  },
+  "aggregations": {
+    "supertype": {"buckets": []}, "types": {"buckets": []}, "rarity": {"buckets": []},
+    "set_series": {"buckets": []}, "sets": {"buckets": []}
   }
 }`
 
@@ -161,17 +279,15 @@ func TestSearchHandler(t *testing.T) {
 		t.Errorf("set catalog calls = %d, want 1", catalogCalls)
 	}
 
-	line := strings.TrimSpace(logBuf.String())
-	if strings.Count(line, "\n") != 0 || line == "" {
-		t.Fatalf("want exactly 1 log line, got %q", logBuf.String())
-	}
-	var lg map[string]any
-	if err := json.Unmarshal([]byte(line), &lg); err != nil {
-		t.Fatal(err)
-	}
+	lg := queryLine(t, logBuf)
 	if lg["endpoint"] != "search" || lg["took_ms"] != float64(4) || lg["total"] != float64(61) ||
-		lg["status"] != float64(200) || lg["time"] != "2026-07-06T12:00:00Z" {
+		lg["status"] != float64(200) || lg["time"] != "2026-07-06T12:00:00.000Z" {
 		t.Errorf("log line: %v", lg)
+	}
+	// The query line and the response header name the same request, so a user
+	// report ("id 3f2a…") lands on the exact DSL that answered it.
+	if id := rec.Header().Get("X-Request-Id"); id == "" || lg["request_id"] != id {
+		t.Errorf("query log request_id = %v, header = %q", lg["request_id"], id)
 	}
 	p := lg["params"].(map[string]any)
 	if p["q"] != "pikuchu" || p["sort"] != "relevance" || p["set"] != "base1" {
@@ -182,6 +298,52 @@ func TestSearchHandler(t *testing.T) {
 	}
 	if _, ok := p["page"]; ok {
 		t.Errorf("page=1 must be omitted from log params: %v", p)
+	}
+}
+
+// pagesFor caps at the 9,600-doc reachable window, so the page count moves
+// with page_size while the browse fixture (400 pages at the default) holds.
+func TestPagesForRespectsPageSize(t *testing.T) {
+	cases := []struct{ total, pageSize, want int }{
+		{20324, 24, 400},
+		{20324, 100, 96},
+		{20324, 1, 9600},
+		{61, 24, 3},
+		{0, 24, 0},
+	}
+	for _, tc := range cases {
+		if got := pagesFor(tc.total, tc.pageSize); got != tc.want {
+			t.Errorf("pagesFor(%d, %d) = %d, want %d", tc.total, tc.pageSize, got, tc.want)
+		}
+	}
+}
+
+// The search response echoes the effective page size so a client never has to
+// infer it from len(results).
+func TestSearchResponseEchoesPageSize(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"set_catalog"`)) {
+			return esResponse(200, catalogESBody), nil
+		}
+		return esResponse(200, searchESBody), nil
+	})
+	s, _ := newTestServer(t, rt)
+
+	var resp struct {
+		PageSize int `json:"page_size"`
+	}
+	if err := json.Unmarshal(get(t, s, "/api/search?q=pikachu").Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.PageSize != 24 {
+		t.Errorf("default page_size = %d, want 24", resp.PageSize)
+	}
+	if err := json.Unmarshal(get(t, s, "/api/search?q=pikachu&page_size=10").Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.PageSize != 10 {
+		t.Errorf("page_size=10 echoed as %d", resp.PageSize)
 	}
 }
 
@@ -222,6 +384,282 @@ func TestSearchHandlerEmptyResults(t *testing.T) {
 	}
 }
 
+// matched is the per-hit list of relevance branches ES reports as having
+// matched. It is aligned index-for-index with results, and it only exists for
+// a text query — browse has no named clauses to match.
+func TestSearchMatchedBranches(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"set_catalog"`)) {
+			return esResponse(200, catalogESBody), nil
+		}
+		return esResponse(200, matchedESBody), nil
+	})
+	s, _ := newTestServer(t, rt)
+
+	var resp struct {
+		Results []map[string]any `json:"results"`
+		Matched [][]string       `json:"matched"`
+	}
+	rec := get(t, s, "/api/search?q=charizard")
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Matched) != len(resp.Results) {
+		t.Fatalf("matched has %d entries for %d results", len(resp.Matched), len(resp.Results))
+	}
+	// ES reports matched_queries in no particular order (the fixture's first hit
+	// is scrambled); the response sorts them into registry order so the badge
+	// strip is stable and the contract is deterministic.
+	want := [][]string{{"exact", "fuzzy-name"}, {"text"}, {}}
+	for i, branches := range want {
+		if strings.Join(resp.Matched[i], ",") != strings.Join(branches, ",") {
+			t.Errorf("matched[%d] = %v, want %v", i, resp.Matched[i], branches)
+		}
+	}
+	// A hit ES reported no branch for must still be an array, never null: the
+	// frontend iterates it without a guard.
+	if !strings.Contains(rec.Body.String(), `[["exact","fuzzy-name"],["text"],[]]`) {
+		t.Errorf("matched must serialize as aligned arrays: %s", rec.Body.String())
+	}
+
+	if body := get(t, s, "/api/search").Body.String(); strings.Contains(body, `"matched"`) {
+		t.Errorf("browse response must omit matched: %s", body)
+	}
+}
+
+// Highlights are aligned with results the same way matched is, and exist only
+// for text queries. The fragments are ES's, already <mark>-tagged.
+func TestSearchHighlights(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"set_catalog"`)) {
+			return esResponse(200, catalogESBody), nil
+		}
+		return esResponse(200, highlightESBody), nil
+	})
+	s, _ := newTestServer(t, rt)
+
+	var resp struct {
+		Results    []map[string]any      `json:"results"`
+		Highlights []map[string][]string `json:"highlights"`
+	}
+	rec := get(t, s, "/api/search?q=whirlwind")
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Highlights) != len(resp.Results) {
+		t.Fatalf("highlights has %d entries for %d results", len(resp.Highlights), len(resp.Results))
+	}
+	if got := resp.Highlights[0]["attacks.text"]; len(got) != 1 ||
+		got[0] != "…discard your hand: this attack does <mark>100x</mark> damage…" {
+		t.Errorf("hit 0 attacks.text = %v", got)
+	}
+	if got := resp.Highlights[1]["name"]; len(got) != 1 || got[0] != "<mark>Whirlwind</mark> Pidgey" {
+		t.Errorf("hit 1 name = %v", got)
+	}
+	// A hit ES returned no highlight for still gets an entry, so the two
+	// arrays stay index-for-index aligned.
+	if resp.Highlights[2] == nil || len(resp.Highlights[2]) != 0 {
+		t.Errorf("hit 2 must be an empty object, got %v", resp.Highlights[2])
+	}
+	if !strings.Contains(rec.Body.String(), `,{}]`) {
+		t.Errorf("an absent highlight must serialize as {}, not null: %s", rec.Body.String())
+	}
+
+	if body := get(t, s, "/api/search").Body.String(); strings.Contains(body, `"highlights"`) {
+		t.Errorf("browse response must omit highlights: %s", body)
+	}
+}
+
+// A real-shaped /api/stats aggregation reply: a date_histogram whose buckets
+// carry key_as_string, a numeric histogram, a max metric, and the four facet
+// breakdowns.
+const statsESBody = `{
+  "took": 12,
+  "hits": {"total": {"value": 20324, "relation": "eq"}, "hits": []},
+  "aggregations": {
+    "per_year": {"buckets": [
+      {"key_as_string": "1999-01-01T00:00:00.000Z", "key": 915148800000, "doc_count": 271},
+      {"key_as_string": "2000-01-01T00:00:00.000Z", "key": 946684800000, "doc_count": 0},
+      {"key_as_string": "2026-01-01T00:00:00.000Z", "key": 1767225600000, "doc_count": 412}
+    ]},
+    "hp": {"buckets": [
+      {"key": 0.0, "doc_count": 3175},
+      {"key": 30.0, "doc_count": 1998},
+      {"key": 360.0, "doc_count": 12}
+    ]},
+    "max_hp": {"value": 380.0},
+    "types":     {"buckets": [{"key": "Water", "doc_count": 2331}, {"key": "Fire", "doc_count": 1502}]},
+    "supertype": {"buckets": [{"key": "Pokémon", "doc_count": 17149}, {"key": "Trainer", "doc_count": 2783}]},
+    "rarity":    {"buckets": [{"key": "Common", "doc_count": 5203}]},
+    "series":    {"buckets": [{"key": "Base", "doc_count": 1234}, {"key": "Sword & Shield", "doc_count": 3210}]}
+  }
+}`
+
+// emptyStatsESBody is the same shape against an unseeded index: no documents,
+// no buckets, and a null max.
+const emptyStatsESBody = `{
+  "took": 1,
+  "hits": {"total": {"value": 0, "relation": "eq"}, "hits": []},
+  "aggregations": {
+    "per_year": {"buckets": []}, "hp": {"buckets": []}, "max_hp": {"value": null},
+    "types": {"buckets": []}, "supertype": {"buckets": []},
+    "rarity": {"buckets": []}, "series": {"buckets": []}
+  }
+}`
+
+type statsResp struct {
+	Total   int `json:"total"`
+	MaxHP   int `json:"max_hp"`
+	PerYear []struct {
+		Year  string `json:"year"`
+		Count int    `json:"count"`
+	} `json:"per_year"`
+	HP []struct {
+		From  int `json:"from"`
+		Count int `json:"count"`
+	} `json:"hp"`
+	Types     []map[string]any `json:"types"`
+	Supertype []map[string]any `json:"supertype"`
+	Rarity    []map[string]any `json:"rarity"`
+	Series    []map[string]any `json:"series"`
+	TookMs    int              `json:"took_ms"`
+	DSL       map[string]any   `json:"dsl"`
+	RequestID string           `json:"request_id"`
+}
+
+func decodeStatsResp(t *testing.T, rec *httptest.ResponseRecorder) statsResp {
+	t.Helper()
+	if rec.Code != 200 {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var out statsResp
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode stats: %v\n%s", err, rec.Body.String())
+	}
+	return out
+}
+
+func TestStatsHandler(t *testing.T) {
+	var esReqBody []byte
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		esReqBody, _ = io.ReadAll(r.Body)
+		return esResponse(200, statsESBody), nil
+	})
+	s, logBuf := newTestServer(t, rt)
+
+	got := decodeStatsResp(t, get(t, s, "/api/stats"))
+	if got.Total != 20324 || got.MaxHP != 380 || got.TookMs != 12 {
+		t.Errorf("total=%d max_hp=%d took_ms=%d, want 20324/380/12", got.Total, got.MaxHP, got.TookMs)
+	}
+	// A date_histogram bucket is a year label, not an epoch millisecond value,
+	// and an empty year survives (that is the shape the chart is about).
+	if len(got.PerYear) != 3 || got.PerYear[0].Year != "1999" || got.PerYear[0].Count != 271 ||
+		got.PerYear[1].Count != 0 || got.PerYear[2].Year != "2026" {
+		t.Errorf("per_year = %+v", got.PerYear)
+	}
+	if len(got.HP) != 3 || got.HP[0].From != 0 || got.HP[1].From != 30 || got.HP[2].From != 360 ||
+		got.HP[1].Count != 1998 {
+		t.Errorf("hp = %+v", got.HP)
+	}
+	for name, buckets := range map[string][]map[string]any{
+		"types": got.Types, "supertype": got.Supertype, "rarity": got.Rarity, "series": got.Series,
+	} {
+		if len(buckets) == 0 {
+			t.Errorf("%s breakdown is empty", name)
+			continue
+		}
+		if buckets[0]["value"] == "" || buckets[0]["count"] == nil {
+			t.Errorf("%s bucket = %v, want {value,count}", name, buckets[0])
+		}
+	}
+	if got.RequestID == "" {
+		t.Error("response must carry request_id")
+	}
+	if got.DSL != nil {
+		t.Errorf("dsl must be omitted without debug=1: %v", got.DSL)
+	}
+	if !bytes.Contains(esReqBody, []byte(`"calendar_interval"`)) {
+		t.Errorf("ES body is not the stats aggregation: %s", esReqBody)
+	}
+
+	line := queryLine(t, logBuf)
+	if line["endpoint"] != "stats" || line["total"] != float64(20324) || line["status"] != float64(200) {
+		t.Errorf("query log = %v", line)
+	}
+	if line["dsl"] == nil {
+		t.Error("query log must carry the stats DSL")
+	}
+}
+
+func TestStatsDebugReturnsDSL(t *testing.T) {
+	s, _ := newTestServer(t, roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		return esResponse(200, statsESBody), nil
+	}))
+	got := decodeStatsResp(t, get(t, s, "/api/stats?debug=1"))
+	if got.DSL["aggs"] == nil {
+		t.Errorf("debug=1 must return the aggregation DSL, got %v", got.DSL)
+	}
+}
+
+// The corpus is immutable between reseeds, so the aggregation is computed once
+// and served from memory afterwards — the same discipline as the set catalog.
+func TestStatsCachedAcrossRequests(t *testing.T) {
+	calls := 0
+	s, _ := newTestServer(t, roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		calls++
+		return esResponse(200, statsESBody), nil
+	}))
+	first := decodeStatsResp(t, get(t, s, "/api/stats"))
+	second := decodeStatsResp(t, get(t, s, "/api/stats"))
+	if calls != 1 {
+		t.Errorf("ES called %d times across two /api/stats requests, want 1", calls)
+	}
+	if first.Total != second.Total || len(second.PerYear) != len(first.PerYear) {
+		t.Errorf("cached response differs: %+v vs %+v", first, second)
+	}
+}
+
+// An unseeded index must be served, never cached: the first request after
+// seeding has to heal it without a restart (Task 1's discipline).
+func TestStatsEmptyIndexNotCached(t *testing.T) {
+	calls := 0
+	s, _ := newTestServer(t, roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			return esResponse(200, emptyStatsESBody), nil
+		}
+		return esResponse(200, statsESBody), nil
+	}))
+	if empty := decodeStatsResp(t, get(t, s, "/api/stats")); empty.Total != 0 || empty.MaxHP != 0 {
+		t.Errorf("empty index: total=%d max_hp=%d, want 0/0", empty.Total, empty.MaxHP)
+	}
+	if seeded := decodeStatsResp(t, get(t, s, "/api/stats")); seeded.Total != 20324 {
+		t.Errorf("after seeding: total=%d, want 20324 — an empty corpus must never be cached", seeded.Total)
+	}
+	if calls != 2 {
+		t.Errorf("ES called %d times, want 2", calls)
+	}
+}
+
+func TestStatsESDown(t *testing.T) {
+	s, logBuf := newTestServer(t, roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("connection refused")
+	}))
+	rec := get(t, s, "/api/stats")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status %d, want 503: %s", rec.Code, rec.Body.String())
+	}
+	body := decodeError(t, rec)
+	if body.Error.Code != codeESUnavailable || body.RequestID == "" {
+		t.Errorf("error envelope = %+v", body)
+	}
+	if line := queryLine(t, logBuf); line["status"] != float64(503) || line["error"] == nil {
+		t.Errorf("query log must carry the ES cause: %v", line)
+	}
+}
+
 func TestSetCatalogCachedAcrossSearches(t *testing.T) {
 	hotCalls := 0
 	catalogCalls := 0
@@ -243,6 +681,61 @@ func TestSetCatalogCachedAcrossSearches(t *testing.T) {
 	if hotCalls != 2 || catalogCalls != 1 {
 		t.Errorf("hot/catalog calls = %d/%d, want 2/1", hotCalls, catalogCalls)
 	}
+}
+
+// TestSetCatalogEmptyNotCached: the first search runs against an unseeded index
+// (the catalog agg returns zero buckets); once the fake starts returning
+// buckets — i.e. after a seed — the next search must show the populated
+// catalog. Caching the empty result would wedge the facet until a restart.
+func TestSetCatalogEmptyNotCached(t *testing.T) {
+	var seeded atomic.Bool
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"set_catalog"`)) {
+			if seeded.Load() {
+				return esResponse(200, catalogESBody), nil
+			}
+			return esResponse(200, `{"took":1,"hits":{"total":{"value":0},"hits":[]},
+			  "aggregations":{"set_catalog":{"buckets":[]}}}`), nil
+		}
+		return esResponse(200, searchESBody), nil
+	})
+	s, _ := newTestServer(t, rt)
+
+	if got := facetLen(t, get(t, s, "/api/search?q=pikachu"), "sets"); got != 0 {
+		t.Fatalf("pre-seed sets facet = %d, want 0", got)
+	}
+	seeded.Store(true)
+	if got := facetLen(t, get(t, s, "/api/search?q=pikachu"), "sets"); got == 0 {
+		t.Fatal("post-seed sets facet still empty — the empty catalog was cached")
+	}
+}
+
+// TestSetCatalogConcurrentColdStart: N parallel cold-start searches must not
+// deadlock and must all complete. Meaningful under -race.
+func TestSetCatalogConcurrentColdStart(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"set_catalog"`)) {
+			return esResponse(200, catalogESBody), nil
+		}
+		return esResponse(200, searchESBody), nil
+	})
+	s := newTestServerLogging(t, rt, io.Discard)
+
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rec := httptest.NewRecorder()
+			s.ServeHTTP(rec, httptest.NewRequest("GET", "/api/search?q=pikachu", nil))
+			if rec.Code != 200 {
+				t.Errorf("status %d", rec.Code)
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 func TestExactIDLookupSkipsAggregationsAndCatalog(t *testing.T) {
@@ -271,17 +764,148 @@ func TestExactIDLookupSkipsAggregationsAndCatalog(t *testing.T) {
 	}
 }
 
+// errorBody decodes the M3 error contract:
+//
+//	{"error":{"code":...,"field":...,"message":...},"request_id":"..."}
+type errorBody struct {
+	Error struct {
+		Code    string `json:"code"`
+		Field   string `json:"field"`
+		Message string `json:"message"`
+	} `json:"error"`
+	RequestID string `json:"request_id"`
+}
+
+func decodeError(t *testing.T, rec *httptest.ResponseRecorder) errorBody {
+	t.Helper()
+	var body errorBody
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error body %q: %v", rec.Body.String(), err)
+	}
+	return body
+}
+
 func TestSearchHandlerESDown(t *testing.T) {
 	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
 		return nil, errors.New("connection refused")
 	})
 	s, logBuf := newTestServer(t, rt)
 	rec := get(t, s, "/api/search?q=x")
-	if rec.Code != 503 || !strings.Contains(rec.Body.String(), "elasticsearch unavailable") {
-		t.Errorf("status %d body %s", rec.Code, rec.Body.String())
+	if rec.Code != 503 {
+		t.Errorf("status %d, want 503", rec.Code)
+	}
+	body := decodeError(t, rec)
+	if body.Error.Code != "es_unavailable" || body.Error.Message != "elasticsearch unavailable" {
+		t.Errorf("503 body = %+v", body.Error)
 	}
 	if !strings.Contains(logBuf.String(), `"status":503`) {
 		t.Errorf("failure must still log: %q", logBuf.String())
+	}
+}
+
+// Strict params (D1) are a client error, reported with the offending field.
+func TestSearchHandlerInvalidParams(t *testing.T) {
+	for _, tc := range []struct{ query, field string }{
+		{"sort=bogus", "sort"},
+		{"supertype=wizard", "supertype"},
+		{"hp_min=abc", "hp_min"},
+		{"page=two", "page"},
+		{"page_size=lots", "page_size"},
+	} {
+		t.Run(tc.query, func(t *testing.T) {
+			rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+				t.Error("invalid params must be rejected before ES is called")
+				return esResponse(200, searchESBody), nil
+			})
+			s, logBuf := newTestServer(t, rt)
+			rec := get(t, s, "/api/search?"+tc.query)
+			if rec.Code != 400 {
+				t.Fatalf("status %d, want 400: %s", rec.Code, rec.Body.String())
+			}
+			body := decodeError(t, rec)
+			if body.Error.Code != "invalid_param" || body.Error.Field != tc.field || body.Error.Message == "" {
+				t.Errorf("400 body = %+v, want invalid_param on %q", body.Error, tc.field)
+			}
+			if !strings.Contains(logBuf.String(), `"status":400`) {
+				t.Errorf("rejection must log: %q", logBuf.String())
+			}
+		})
+	}
+}
+
+// Lenient inputs (D1) keep returning 200: unknown comma-list members are
+// dropped, out-of-range integers clamp, unknown keys are ignored.
+func TestSearchHandlerLenientParams(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"set_catalog"`)) {
+			return esResponse(200, catalogESBody), nil
+		}
+		return esResponse(200, searchESBody), nil
+	})
+	s, _ := newTestServer(t, rt)
+	for _, query := range []string{
+		"types=Wizard", "types=Wizard,Fire", "page=999999", "utm_source=x",
+		"rarity=NotARarity", "series=Nope", "sort=hp&order=desc", "supertype=POKEMON",
+	} {
+		if rec := get(t, s, "/api/search?"+query); rec.Code != 200 {
+			t.Errorf("%s: status %d, want 200: %s", query, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+// /api/suggest reads only q, so field errors on other params are ignored
+// there rather than turned into a 400.
+func TestSuggestIgnoresOtherFieldErrors(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return esResponse(200, `{"took":2,"suggest":{"card":[{"text":"pika","offset":0,"length":4,
+		  "options":[{"text":"Pikachu","_id":"base1-58"}]}]}}`), nil
+	})
+	s, _ := newTestServer(t, rt)
+	rec := get(t, s, "/api/suggest?sort=bogus&q=pika")
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Pikachu") {
+		t.Errorf("status %d body %s", rec.Code, rec.Body.String())
+	}
+}
+
+// An ES error body is folded into the returned error so the log can tell a
+// mapping error from a down cluster, while the client body stays generic.
+func TestSearchESErrorBodyLogged(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return esResponse(400, `{"error":{"type":"search_phase_execution_exception",
+		  "reason":"No mapping found for [nope] in order to sort on"}}`), nil
+	})
+	s, logBuf := newTestServer(t, rt)
+	rec := get(t, s, "/api/search?q=x")
+	if rec.Code != 503 {
+		t.Fatalf("status %d, want 503", rec.Code)
+	}
+	if body := decodeError(t, rec); body.Error.Code != "es_unavailable" ||
+		strings.Contains(body.Error.Message, "mapping") {
+		t.Errorf("client body must stay generic, got %+v", body.Error)
+	}
+	if !strings.Contains(logBuf.String(), "search_phase_execution_exception") {
+		t.Errorf("ES error body must reach the log: %q", logBuf.String())
+	}
+}
+
+// TestESCallTimeout: a wedged ES that never answers must not hang a request —
+// the per-request ES budget cancels it and the handler returns the 503 contract.
+func TestESCallTimeout(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		<-r.Context().Done() // wedged ES: never answers
+		return nil, r.Context().Err()
+	})
+	s, _ := newTestServer(t, rt)
+	s.esTimeout = 50 * time.Millisecond
+
+	start := time.Now()
+	rec := get(t, s, "/api/search?q=pikachu")
+	if rec.Code != 503 {
+		t.Fatalf("status %d, want 503: %s", rec.Code, rec.Body.String())
+	}
+	if elapsed := time.Since(start); elapsed > 8*time.Second {
+		t.Fatalf("request did not time out (took %s)", elapsed)
 	}
 }
 
@@ -371,6 +995,20 @@ func TestHealthzIndexMissing(t *testing.T) {
 	}
 }
 
+// TestLivez: liveness must never touch ES — the container healthcheck has to
+// answer while the cluster is down, otherwise Docker restarts a healthy app.
+func TestLivez(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		t.Error("/livez must not call ES")
+		return nil, errors.New("connection refused")
+	})
+	s, _ := newTestServer(t, rt)
+	rec := get(t, s, "/livez")
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"status":"alive"`) {
+		t.Errorf("status %d body %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestHealthzESDown(t *testing.T) {
 	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
 		return nil, errors.New("connection refused")
@@ -389,5 +1027,624 @@ func TestStaticServing(t *testing.T) {
 	rec := get(t, s, "/")
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Pokesearch") {
 		t.Errorf("static /: %d %q", rec.Code, rec.Body.String())
+	}
+}
+
+// metaRT fakes the two calls /api/meta makes: the doc count and the index
+// mapping that carries the seed provenance. mappingBody of "" means the
+// mapping has no _meta — the state the live index is in until its next reseed.
+func metaRT(mappingCalls *int, mappingBody string) roundTripperFunc {
+	return func(r *http.Request) (*http.Response, error) {
+		switch {
+		case strings.Contains(r.URL.Path, "_mapping"):
+			*mappingCalls++
+			if mappingBody == "" {
+				return esResponse(200, `{"cards":{"mappings":{}}}`), nil
+			}
+			return esResponse(200, mappingBody), nil
+		case strings.Contains(r.URL.Path, "_count"):
+			return esResponse(200, `{"count":20324}`), nil
+		}
+		return nil, errors.New("unexpected ES call: " + r.URL.Path)
+	}
+}
+
+const seedMetaBody = `{"cards":{"mappings":{"_meta":{"seed_ref":"abc","seeded_at":"2026-01-01T00:00:00Z"}}}}`
+
+// /api/meta answers "which build is this, and which corpus is it serving" —
+// the question every bug report and every Courier run has to pin down.
+func TestMetaEndpoint(t *testing.T) {
+	mappingCalls := 0
+	s, _ := newTestServer(t, metaRT(&mappingCalls, seedMetaBody))
+	rec := getWith(t, s, "/api/meta", map[string]string{"X-Request-Id": "trace-meta"})
+	if rec.Code != 200 {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Version string `json:"version"`
+		Commit  string `json:"commit"`
+		Built   string `json:"built"`
+		Docs    int    `json:"docs"`
+		Seed    *struct {
+			Ref      string `json:"ref"`
+			SeededAt string `json:"seeded_at"`
+		} `json:"seed"`
+		RequestID string `json:"request_id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Version != version.Version || resp.Commit != version.Commit || resp.Built != version.Built {
+		t.Errorf("build identity = %+v", resp)
+	}
+	if resp.Docs != 20324 {
+		t.Errorf("docs = %d, want 20324", resp.Docs)
+	}
+	if resp.Seed == nil || resp.Seed.Ref != "abc" || resp.Seed.SeededAt != "2026-01-01T00:00:00Z" {
+		t.Errorf("seed = %+v", resp.Seed)
+	}
+	if resp.RequestID != "trace-meta" {
+		t.Errorf("request_id = %q", resp.RequestID)
+	}
+
+	// The mapping is immutable between reseeds, so it is fetched once.
+	if rec := get(t, s, "/api/meta"); rec.Code != 200 {
+		t.Fatalf("second call: %d", rec.Code)
+	}
+	if mappingCalls != 1 {
+		t.Errorf("_mapping calls = %d, want 1 (cached)", mappingCalls)
+	}
+}
+
+// An index seeded before _meta stamping existed reports seed: null. That is
+// the live production index's state until its next reseed — documented
+// behaviour, not a failure.
+func TestMetaWithoutSeedProvenance(t *testing.T) {
+	mappingCalls := 0
+	s, _ := newTestServer(t, metaRT(&mappingCalls, ""))
+
+	for range 2 {
+		rec := get(t, s, "/api/meta")
+		if rec.Code != 200 {
+			t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), `"seed":null`) {
+			t.Errorf("missing _meta must report seed:null, got %s", rec.Body.String())
+		}
+	}
+	// Absence is never cached — the first /api/meta after a reseed must see the
+	// new stamp, exactly like the set catalog.
+	if mappingCalls != 2 {
+		t.Errorf("_mapping calls = %d, want 2 (absence must not be cached)", mappingCalls)
+	}
+}
+
+// /api/meta needs ES for both docs and provenance, so an unreachable cluster
+// is the standard 503 contract rather than a half-populated 200.
+func TestMetaESDown(t *testing.T) {
+	s, _ := newTestServer(t, roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return nil, errors.New("connection refused")
+	}))
+	rec := get(t, s, "/api/meta")
+	if rec.Code != 503 {
+		t.Fatalf("status %d, want 503", rec.Code)
+	}
+	if body := decodeError(t, rec); body.Error.Code != "es_unavailable" {
+		t.Errorf("503 body = %+v", body.Error)
+	}
+}
+
+// Metrics are opt-in: /debug/vars must not exist unless the operator asked for
+// it, because the production tunnel forwards every path it is given.
+func TestDebugVarsRequiresOptIn(t *testing.T) {
+	s, _ := newTestServer(t, roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		t.Error("/debug/vars must not call ES")
+		return nil, nil
+	}))
+	rec := get(t, s, "/debug/vars")
+	if rec.Code != 404 {
+		t.Fatalf("status %d, want 404 — metrics must be off by default: %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "pokesearch_http") {
+		t.Errorf("counters leaked without EnableMetrics: %s", rec.Body.String())
+	}
+}
+
+// With metrics on, /debug/vars serves the stdlib expvar document and the
+// per-route/per-status counters the access middleware maintains.
+func TestDebugVarsCounters(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"set_catalog"`)) {
+			return esResponse(200, catalogESBody), nil
+		}
+		return esResponse(200, searchESBody), nil
+	})
+	s, _ := newTestServer(t, rt)
+	s.EnableMetrics()
+
+	if rec := get(t, s, "/api/search?q=pikachu"); rec.Code != 200 {
+		t.Fatalf("search: %d", rec.Code)
+	}
+	if rec := get(t, s, "/api/search?sort=bogus"); rec.Code != 400 {
+		t.Fatalf("bad search: %d", rec.Code)
+	}
+
+	rec := get(t, s, "/debug/vars")
+	if rec.Code != 200 {
+		t.Fatalf("status %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var doc struct {
+		HTTP map[string]int `json:"pokesearch_http"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
+		t.Fatalf("expvar document must be JSON: %v\n%s", err, rec.Body.String())
+	}
+	if doc.HTTP["search_200"] < 1 {
+		t.Errorf("search_200 = %d, want >= 1 (counters: %v)", doc.HTTP["search_200"], doc.HTTP)
+	}
+	if doc.HTTP["search_400"] < 1 {
+		t.Errorf("search_400 = %d, want >= 1 (counters: %v)", doc.HTTP["search_400"], doc.HTTP)
+	}
+}
+
+// routeLabel keeps the counter map bounded: an arbitrary URL path must never
+// become an arbitrary expvar key, or a crawler turns the metrics map into a
+// memory leak.
+func TestRouteLabel(t *testing.T) {
+	for path, want := range map[string]string{
+		"/api/search":       "search",
+		"/api/suggest":      "suggest",
+		"/api/explain":      "explain",
+		"/api/stats":        "stats",
+		"/api/meta":         "meta",
+		"/healthz":          "healthz",
+		"/livez":            "livez",
+		"/debug/vars":       "metrics",
+		"/":                 "static",
+		"/styles.css":       "static",
+		"/../../etc/passwd": "static",
+	} {
+		if got := routeLabel(path); got != want {
+			t.Errorf("routeLabel(%q) = %q, want %q", path, got, want)
+		}
+	}
+}
+
+// Every response carries X-Request-Id. An inbound id is honoured — X-Request-Id
+// first, then Cloudflare's Cf-Ray — so one trace spans edge, app log and
+// client. An implausible id is replaced rather than repaired: it would
+// otherwise be echoed into a response header and into every log line.
+func TestRequestIDHeader(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		headers map[string]string
+		want    string // "" means "generated, must not equal the inbound value"
+	}{
+		{name: "generated"},
+		{name: "echoes X-Request-Id", headers: map[string]string{"X-Request-Id": "abc123"}, want: "abc123"},
+		{name: "falls back to Cf-Ray", headers: map[string]string{"Cf-Ray": "8f0a1b2c3d4e5f60-FRA"}, want: "8f0a1b2c3d4e5f60-FRA"},
+		{name: "prefers X-Request-Id over Cf-Ray",
+			headers: map[string]string{"X-Request-Id": "abc123", "Cf-Ray": "8f0a-FRA"}, want: "abc123"},
+		{name: "rejects a hostile id", headers: map[string]string{"X-Request-Id": "id with spaces"}},
+		{name: "rejects an oversized id", headers: map[string]string{"X-Request-Id": strings.Repeat("a", 65)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, _ := newTestServer(t, roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+				t.Error("/livez must not call ES")
+				return nil, nil
+			}))
+			rec := getWith(t, s, "/livez", tc.headers)
+			got := rec.Header().Get("X-Request-Id")
+			if got == "" {
+				t.Fatal("every response must carry X-Request-Id")
+			}
+			if tc.want != "" && got != tc.want {
+				t.Fatalf("X-Request-Id = %q, want %q", got, tc.want)
+			}
+			if tc.want == "" {
+				for _, v := range tc.headers {
+					if got == v {
+						t.Fatalf("inbound id %q must not be echoed", v)
+					}
+				}
+			}
+		})
+	}
+}
+
+// The error envelope's request_id is the same id as the header, which is what
+// makes "here is my request id" a usable bug report.
+func TestErrorBodyCarriesRequestID(t *testing.T) {
+	s, _ := newTestServer(t, roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		t.Error("invalid params must be rejected before ES is called")
+		return nil, nil
+	}))
+	rec := getWith(t, s, "/api/search?sort=bogus", map[string]string{"X-Request-Id": "trace-42"})
+	if rec.Code != 400 {
+		t.Fatalf("status %d, want 400", rec.Code)
+	}
+	if body := decodeError(t, rec); body.RequestID != "trace-42" ||
+		rec.Header().Get("X-Request-Id") != "trace-42" {
+		t.Errorf("request_id = %q, header = %q", body.RequestID, rec.Header().Get("X-Request-Id"))
+	}
+}
+
+// A static asset produces an access line and no QueryLog line: the query log
+// is for requests that actually reach Elasticsearch.
+func TestAccessLogLine(t *testing.T) {
+	s, logBuf := newTestServer(t, roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		t.Error("static must not call ES")
+		return nil, nil
+	}))
+	rec := get(t, s, "/")
+
+	line := accessLine(t, logBuf)
+	if line["method"] != "GET" || line["path"] != "/" || line["status"] != float64(200) {
+		t.Errorf("access line: %v", line)
+	}
+	if line["bytes"] == nil || line["bytes"] == float64(0) {
+		t.Errorf("access line must count response bytes: %v", line["bytes"])
+	}
+	if _, ok := line["dur_ms"]; !ok {
+		t.Errorf("access line must carry dur_ms: %v", line)
+	}
+	if id := rec.Header().Get("X-Request-Id"); line["request_id"] != id {
+		t.Errorf("access request_id = %v, header = %q", line["request_id"], id)
+	}
+	// The access line's clock has to match the query line's, or correlating
+	// the two by timestamp means reasoning about time zones.
+	ts, ok := line["time"].(string)
+	if !ok {
+		t.Fatalf("access line time: %v", line["time"])
+	}
+	if _, err := time.Parse(logTimeFormat, ts); err != nil {
+		t.Errorf("access time %q is not UTC millisecond format: %v", ts, err)
+	}
+	for _, m := range logLines(t, logBuf) {
+		if _, ok := m["endpoint"]; ok {
+			t.Errorf("a static request must not write a QueryLog line: %v", m)
+		}
+	}
+}
+
+// Search writes both lines, and they name the same request — that correlation
+// is the whole point of threading the id through.
+func TestAccessLogCorrelatesWithQueryLog(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"set_catalog"`)) {
+			return esResponse(200, catalogESBody), nil
+		}
+		return esResponse(200, searchESBody), nil
+	})
+	s, logBuf := newTestServer(t, rt)
+	getWith(t, s, "/api/search?q=pikachu", map[string]string{"X-Request-Id": "trace-7"})
+
+	access, query := accessLine(t, logBuf), queryLine(t, logBuf)
+	if access["request_id"] != "trace-7" || query["request_id"] != "trace-7" {
+		t.Errorf("access %v / query %v", access["request_id"], query["request_id"])
+	}
+	if access["path"] != "/api/search" || access["status"] != float64(200) {
+		t.Errorf("access line: %v", access)
+	}
+}
+
+// explainRT scripts _explain per branch: the fake reads which relevance clause
+// the body carries and answers with that branch's score, so the assembled
+// response can be checked branch by branch.
+func explainRT(t *testing.T, calls *[]string, scores map[string]float64) roundTripperFunc {
+	t.Helper()
+	return roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		var name string
+		switch {
+		case bytes.Contains(body, []byte(`"name.kw"`)):
+			name = "exact"
+		case bytes.Contains(body, []byte(`"bool_prefix"`)):
+			name = "prefix"
+		case bytes.Contains(body, []byte(`"fuzziness"`)) && bytes.Contains(body, []byte(`"match"`)):
+			name = "fuzzy-name"
+		case bytes.Contains(body, []byte(`"best_fields"`)):
+			name = "text"
+		default:
+			t.Errorf("unrecognised explain body: %s", body)
+			return esResponse(400, `{"error":"?"}`), nil
+		}
+		*calls = append(*calls, r.URL.Path+" "+name)
+		score, matched := scores[name]
+		if !matched {
+			return esResponse(200, `{"matched":false,"explanation":{"value":0.0,"description":"no match"}}`), nil
+		}
+		return esResponse(200, fmt.Sprintf(
+			`{"matched":true,"explanation":{"value":%v,"description":"sum of:"}}`, score)), nil
+	})
+}
+
+func TestExplainHandler(t *testing.T) {
+	var calls []string
+	rt := explainRT(t, &calls, map[string]float64{"exact": 33.2, "prefix": 6.1, "fuzzy-name": 2.4})
+	s, logBuf := newTestServer(t, rt)
+
+	rec := get(t, s, "/api/explain?id=base1-4&q=charizard")
+	if rec.Code != 200 {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		ID       string  `json:"id"`
+		Q        string  `json:"q"`
+		Found    bool    `json:"found"`
+		Score    float64 `json:"score"`
+		Branches []struct {
+			Name    string  `json:"name"`
+			Matched bool    `json:"matched"`
+			Score   float64 `json:"score"`
+		} `json:"branches"`
+		RequestID string `json:"request_id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.ID != "base1-4" || resp.Q != "charizard" || !resp.Found {
+		t.Errorf("identity: %+v", resp)
+	}
+	// One _explain per branch, in registry order, all against the same doc.
+	if len(calls) != 4 {
+		t.Fatalf("explain calls = %v", calls)
+	}
+	for i, want := range []string{"exact", "prefix", "fuzzy-name", "text"} {
+		if calls[i] != "/cards/_explain/base1-4 "+want {
+			t.Errorf("call %d = %q, want branch %q on /cards/_explain/base1-4", i, calls[i], want)
+		}
+		if resp.Branches[i].Name != want {
+			t.Errorf("branch %d = %q, want %q", i, resp.Branches[i].Name, want)
+		}
+	}
+	// A bool should sums its matched clauses, so the score is the sum of the
+	// matched branches and nothing else.
+	if resp.Score != 41.7 {
+		t.Errorf("score = %v, want 41.7 (33.2 + 6.1 + 2.4)", resp.Score)
+	}
+	if !resp.Branches[0].Matched || resp.Branches[0].Score != 33.2 {
+		t.Errorf("exact branch: %+v", resp.Branches[0])
+	}
+	if resp.Branches[3].Matched || resp.Branches[3].Score != 0 {
+		t.Errorf("unmatched text branch must score 0: %+v", resp.Branches[3])
+	}
+	if id := rec.Header().Get("X-Request-Id"); id == "" || resp.RequestID != id {
+		t.Errorf("request_id = %q, header = %q", resp.RequestID, id)
+	}
+	lg := queryLine(t, logBuf)
+	if lg["endpoint"] != "explain" || lg["status"] != float64(200) {
+		t.Errorf("log line: %v", lg)
+	}
+}
+
+// An id ES has never heard of is a legitimate answer, not an error: every
+// branch simply fails to match.
+func TestExplainUnknownDocument(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return esResponse(404, `{"_index":"cards","_id":"nope-1","found":false}`), nil
+	})
+	s, _ := newTestServer(t, rt)
+	rec := get(t, s, "/api/explain?id=nope-1&q=charizard")
+	if rec.Code != 200 {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Found    bool    `json:"found"`
+		Score    float64 `json:"score"`
+		Branches []struct {
+			Matched bool    `json:"matched"`
+			Score   float64 `json:"score"`
+		} `json:"branches"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Found || resp.Score != 0 || len(resp.Branches) != 4 {
+		t.Errorf("unknown doc: %+v", resp)
+	}
+	for i, b := range resp.Branches {
+		if b.Matched || b.Score != 0 {
+			t.Errorf("branch %d must be unmatched at 0: %+v", i, b)
+		}
+	}
+}
+
+func TestExplainRequiresIDAndQuery(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		t.Error("must not reach ES without both parameters")
+		return esResponse(200, `{}`), nil
+	})
+	s, _ := newTestServer(t, rt)
+	cases := []struct{ path, field string }{
+		{"/api/explain?q=charizard", "id"},
+		{"/api/explain?id=base1-4", "q"},
+		{"/api/explain?id=&q=", "id"},
+		{"/api/explain?id=base1-4&q=%20%20", "q"},
+	}
+	for _, c := range cases {
+		rec := get(t, s, c.path)
+		if rec.Code != 400 {
+			t.Errorf("%s: status %d, want 400", c.path, rec.Code)
+			continue
+		}
+		if body := decodeError(t, rec); body.Error.Code != codeInvalidParam || body.Error.Field != c.field {
+			t.Errorf("%s: error %+v, want field %q", c.path, body.Error, c.field)
+		}
+	}
+}
+
+func TestExplainESDown(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return nil, errors.New("connection refused")
+	})
+	s, logBuf := newTestServer(t, rt)
+	rec := get(t, s, "/api/explain?id=base1-4&q=charizard")
+	if rec.Code != 503 {
+		t.Fatalf("status %d, want 503: %s", rec.Code, rec.Body.String())
+	}
+	if body := decodeError(t, rec); body.Error.Code != codeESUnavailable {
+		t.Errorf("error body: %+v", body)
+	}
+	if lg := queryLine(t, logBuf); lg["endpoint"] != "explain" || lg["status"] != float64(503) {
+		t.Errorf("log line: %v", lg)
+	}
+}
+
+// zeroResultsESBody is a text search that matched nothing — the only shape
+// that triggers a did-you-mean lookup.
+const zeroResultsESBody = `{
+  "took": 2,
+  "hits": {"total": {"value": 0, "relation": "eq"}, "hits": []},
+  "aggregations": {
+    "supertype": {"buckets": []}, "types": {"buckets": []}, "rarity": {"buckets": []},
+    "set_series": {"buckets": []}, "sets": {"buckets": []}
+  }
+}`
+
+// dymRT routes the three request kinds a zero-result search makes: the search
+// itself, the set catalog, and the suggester.
+func dymRT(t *testing.T, suggestStatus int, suggestBody string, suggestCalls *int) roundTripperFunc {
+	t.Helper()
+	return roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		switch {
+		case bytes.Contains(body, []byte(`"dym"`)):
+			*suggestCalls++
+			return esResponse(suggestStatus, suggestBody), nil
+		case bytes.Contains(body, []byte(`"set_catalog"`)):
+			return esResponse(200, catalogESBody), nil
+		default:
+			return esResponse(200, zeroResultsESBody), nil
+		}
+	})
+}
+
+func TestDidYouMeanOnZeroResults(t *testing.T) {
+	calls := 0
+	// Two tokens, one correctable: the reassembly must replace only that one
+	// and keep the rest of the query verbatim.
+	rt := dymRT(t, 200, `{"suggest": {"dym": [
+	  {"text": "charzard", "offset": 0, "length": 8,
+	   "options": [{"text": "charizard", "score": 0.87, "freq": 107}]},
+	  {"text": "zzz", "offset": 9, "length": 3, "options": []}
+	]}}`, &calls)
+	s, _ := newTestServer(t, rt)
+
+	rec := get(t, s, "/api/search?q=charzard+zzz")
+	if rec.Code != 200 {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Total      int    `json:"total"`
+		DidYouMean string `json:"did_you_mean"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Total != 0 || resp.DidYouMean != "charizard zzz" {
+		t.Errorf("total=%d did_you_mean=%q, want 0 / %q", resp.Total, resp.DidYouMean, "charizard zzz")
+	}
+	if calls != 1 {
+		t.Errorf("suggester calls = %d, want 1", calls)
+	}
+}
+
+// A search that found something must not pay for a suggester call at all.
+func TestDidYouMeanSkippedWhenResultsExist(t *testing.T) {
+	calls := 0
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"dym"`)) {
+			calls++
+			return esResponse(200, `{"suggest":{"dym":[]}}`), nil
+		}
+		if bytes.Contains(body, []byte(`"set_catalog"`)) {
+			return esResponse(200, catalogESBody), nil
+		}
+		return esResponse(200, searchESBody), nil
+	})
+	s, _ := newTestServer(t, rt)
+	if body := get(t, s, "/api/search?q=pikuchu").Body.String(); strings.Contains(body, "did_you_mean") {
+		t.Errorf("a search with results must not carry did_you_mean: %s", body)
+	}
+	if calls != 0 {
+		t.Errorf("suggester calls = %d, want 0", calls)
+	}
+}
+
+// Browse cannot produce a correction: there is no query to correct.
+func TestDidYouMeanSkippedForBrowse(t *testing.T) {
+	calls := 0
+	rt := dymRT(t, 200, `{"suggest":{"dym":[]}}`, &calls)
+	s, _ := newTestServer(t, rt)
+	if body := get(t, s, "/api/search?rarity=Nonexistent").Body.String(); strings.Contains(body, "did_you_mean") {
+		t.Errorf("browse must not carry did_you_mean: %s", body)
+	}
+	if calls != 0 {
+		t.Errorf("suggester calls = %d, want 0", calls)
+	}
+}
+
+// No token got a suggestion: the field is absent rather than echoing q back.
+func TestDidYouMeanAbsentWithoutSuggestions(t *testing.T) {
+	calls := 0
+	rt := dymRT(t, 200, `{"suggest": {"dym": [
+	  {"text": "zzzzqqqq", "offset": 0, "length": 8, "options": []}
+	]}}`, &calls)
+	s, _ := newTestServer(t, rt)
+	if body := get(t, s, "/api/search?q=zzzzqqqq").Body.String(); strings.Contains(body, "did_you_mean") {
+		t.Errorf("no suggestion must mean no field: %s", body)
+	}
+	if calls != 1 {
+		t.Errorf("suggester calls = %d, want 1", calls)
+	}
+}
+
+// Best effort: a suggester failure must not turn a perfectly good (if empty)
+// search result into an error.
+func TestDidYouMeanFailureKeepsSearchSuccessful(t *testing.T) {
+	calls := 0
+	rt := dymRT(t, 500, `{"error":{"type":"search_phase_execution_exception"}}`, &calls)
+	s, logBuf := newTestServer(t, rt)
+
+	rec := get(t, s, "/api/search?q=charzard")
+	if rec.Code != 200 {
+		t.Fatalf("status %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "did_you_mean") {
+		t.Errorf("failed suggester must leave the field off: %s", rec.Body.String())
+	}
+	if calls != 1 {
+		t.Errorf("suggester calls = %d, want 1", calls)
+	}
+	// The failure still has to be visible to an operator.
+	if !strings.Contains(logBuf.String(), "did-you-mean") {
+		t.Errorf("the suggester failure must be logged: %s", logBuf.String())
+	}
+}
+
+// Offsets are character offsets in the query ES was given, so a multi-byte
+// query must not be sliced by byte position.
+func TestDidYouMeanMultiByteOffsets(t *testing.T) {
+	calls := 0
+	// q is "ééé pikchu": the token starts at CHARACTER 4. Slicing that by byte
+	// offset would cut one of the two-byte é's in half.
+	rt := dymRT(t, 200, `{"suggest": {"dym": [
+	  {"text": "pikchu", "offset": 4, "length": 6,
+	   "options": [{"text": "pikachu", "score": 0.9, "freq": 221}]}
+	]}}`, &calls)
+	s, _ := newTestServer(t, rt)
+	var resp struct {
+		DidYouMean string `json:"did_you_mean"`
+	}
+	if err := json.Unmarshal(get(t, s, "/api/search?q=%C3%A9%C3%A9%C3%A9+pikchu").Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.DidYouMean != "ééé pikachu" {
+		t.Errorf("did_you_mean = %q, want %q", resp.DidYouMean, "ééé pikachu")
 	}
 }

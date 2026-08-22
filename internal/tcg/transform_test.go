@@ -93,7 +93,16 @@ func mustDecode(t *testing.T, raw string) SourceCard {
 }
 
 func TestParseDamage(t *testing.T) {
-	cases := map[string]int{"": 0, "30": 30, "80": 80, "10+": 10, "100×": 100, "120-": 120, "10×": 10}
+	cases := map[string]int{
+		"": 0, "30": 30, "80": 80, "10+": 10, "100×": 100, "120-": 120, "10×": 10,
+		// Found by FuzzParseDamage: a digit run too long for the index's
+		// integer field must report "no numeric damage", not a truncated or
+		// overflowed number ES would reject at bulk time.
+		"999999999999999999999999": 0,
+		"9999999999":               0,
+		"2147483647":               2147483647,
+		"007":                      7,
+	}
 	for in, want := range cases {
 		if got := ParseDamage(in); got != want {
 			t.Errorf("ParseDamage(%q) = %d, want %d", in, got, want)

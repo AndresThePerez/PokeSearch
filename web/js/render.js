@@ -27,7 +27,7 @@ export function setFilterChangeHandler(fn) {
 
 export function renderResults(data, { append = false, roundTripMs = 0 } = {}) {
   state.page = data.page;
-  renderGrid(data.results, { append });
+  renderGrid(data.results, { append, matched: data.matched });
   renderFacets(data.facets);
   $("total-count").textContent = `${Number(data.total).toLocaleString()} ${data.total === 1 ? "card" : "cards"}`;
   $("load-more").hidden = data.pages === 0 || data.page >= data.pages;
@@ -37,10 +37,40 @@ export function renderResults(data, { append = false, roundTripMs = 0 } = {}) {
   syncControls();
 }
 
-function renderGrid(cards, { append = false } = {}) {
+// The four relevance branches, in the order the server reports them, mapped to
+// what fits on a badge. Keys are search.Branches' names — they arrive from the
+// API, so a new branch shows up under its raw name rather than vanishing.
+const BRANCH_LABELS = {
+  exact: "exact",
+  prefix: "prefix",
+  "fuzzy-name": "fuzzy",
+  text: "text",
+};
+
+function branchLabel(name) {
+  return BRANCH_LABELS[name] ?? name;
+}
+
+// badgeStrip renders which relevance clauses ES says matched this card. It is
+// aria-hidden because the same information goes into the button's accessible
+// name as a sentence — four loose words read out per card is not an
+// improvement over one.
+function badgeStrip(names) {
+  const strip = element("span", "match-badges");
+  strip.setAttribute("aria-hidden", "true");
+  for (const name of names) {
+    strip.append(element("i", `match-badge match-${name}`, branchLabel(name)));
+  }
+  return strip;
+}
+
+// matched is aligned index-for-index with the results and only present for a
+// text query, so browse renders no strips at all.
+function renderGrid(cards, { append = false, matched } = {}) {
   const grid = $("results-grid");
-  const items = cards.map((card) => {
+  const items = cards.map((card, index) => {
     cardsByID.set(card.id, card);
+    const branches = matched?.[index] ?? [];
     const item = document.createElement("li");
     item.className = "card-cell";
 
@@ -48,7 +78,10 @@ function renderGrid(cards, { append = false } = {}) {
     button.type = "button";
     button.className = "card-open";
     button.dataset.id = card.id;
-    button.setAttribute("aria-label", `Open ${card.name} from ${card.set_name}`);
+    const label = `Open ${card.name} from ${card.set_name}`;
+    button.setAttribute("aria-label", branches.length
+      ? `${label}. Matched ${branches.map(branchLabel).join(", ")}`
+      : label);
 
     const image = document.createElement("img");
     image.src = imageURL(card, "small");
@@ -62,6 +95,7 @@ function renderGrid(cards, { append = false } = {}) {
     image.addEventListener("error", () => button.classList.add("art-missing"), { once: true });
     button.append(image);
     button.append(element("span", "card-fallback-name", card.name));
+    if (branches.length) button.append(badgeStrip(branches));
     item.append(button);
     return item;
   });

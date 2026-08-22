@@ -62,13 +62,15 @@ func TestBuildQueryFullText(t *testing.T) {
 	  "track_total_hits": true, "size": 24,
 	  "query": {"bool": {
 	    "should": [
-	      {"term": {"name.kw": {"value": "pikuchu", "boost": 8}}},
+	      {"term": {"name.kw": {"value": "pikuchu", "boost": 8, "_name": "exact"}}},
 	      {"multi_match": {"query": "Pikuchu", "type": "bool_prefix",
-	        "fields": ["name.sayt", "name.sayt._2gram", "name.sayt._3gram"], "boost": 4}},
-	      {"match": {"name": {"query": "Pikuchu", "fuzziness": "AUTO", "boost": 3}}},
+	        "fields": ["name.sayt", "name.sayt._2gram", "name.sayt._3gram"], "boost": 4,
+	        "_name": "prefix"}},
+	      {"match": {"name": {"query": "Pikuchu", "fuzziness": "AUTO", "boost": 3,
+	        "_name": "fuzzy-name"}}},
 	      {"multi_match": {"query": "Pikuchu", "type": "best_fields", "fuzziness": "AUTO",
 	        "fields": ["attacks.name^2", "abilities.name^2", "attacks.text", "abilities.text",
-	                   "flavor_text", "set_name^1.5", "artist"]}}
+	                   "flavor_text", "set_name^1.5", "artist"], "_name": "text"}}
 	    ]
 	  }},
 	  "sort": ["_score", {"id": "asc"}],
@@ -76,6 +78,59 @@ func TestBuildQueryFullText(t *testing.T) {
 	if got != want {
 		t.Errorf("full-text DSL\n got %s\nwant %s", got, want)
 	}
+}
+
+// The four branch names are a published contract: ES echoes them per hit as
+// matched_queries, /api/explain scores them one at a time, and the grid renders
+// them as badges. Branch.Name and the clause's own _name must never diverge.
+func TestBranchesAreNamed(t *testing.T) {
+	branches := Branches("Pikuchu")
+	want := []string{"exact", "prefix", "fuzzy-name", "text"}
+	if len(branches) != len(want) {
+		t.Fatalf("got %d branches, want %d", len(branches), len(want))
+	}
+	for i, b := range branches {
+		if b.Name != want[i] {
+			t.Errorf("branch %d name = %q, want %q", i, b.Name, want[i])
+		}
+		if got := branchName(t, b.Query); got != b.Name {
+			t.Errorf("branch %q carries _name %q", b.Name, got)
+		}
+	}
+	// Every should clause of a text query is a named branch, in order.
+	should := BuildQuery(params(t, "q=Pikuchu"))["query"].(map[string]any)["bool"].(map[string]any)["should"].([]any)
+	if len(should) != len(branches) {
+		t.Fatalf("should has %d clauses, want %d", len(should), len(branches))
+	}
+	for i, clause := range should {
+		if got := branchName(t, clause.(map[string]any)); got != want[i] {
+			t.Errorf("should[%d] _name = %q, want %q", i, got, want[i])
+		}
+	}
+}
+
+// branchName digs out the single _name key wherever it sits in a clause.
+func branchName(t *testing.T, clause map[string]any) string {
+	t.Helper()
+	for _, v := range clause {
+		options, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		if name, ok := options["_name"].(string); ok {
+			return name
+		}
+		// term/match nest one level deeper: {"term": {"name.kw": {…}}}.
+		for _, inner := range options {
+			if opts, ok := inner.(map[string]any); ok {
+				if name, ok := opts["_name"].(string); ok {
+					return name
+				}
+			}
+		}
+	}
+	t.Fatalf("clause carries no _name: %v", clause)
+	return ""
 }
 
 // Filters must land in post_filter — never in the query — so aggregations keep

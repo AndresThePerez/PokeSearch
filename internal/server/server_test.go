@@ -175,6 +175,26 @@ const catalogESBody = `{
   }
 }`
 
+// Three hits carrying what ES reports for named relevance clauses: two, one,
+// and none (a hit pulled in by a filter rather than by the text query).
+const matchedESBody = `{
+  "took": 3,
+  "hits": {
+    "total": {"value": 3, "relation": "eq"},
+    "hits": [
+      {"_id": "base1-4", "_source": {"id": "base1-4", "name": "Charizard"},
+        "matched_queries": ["fuzzy-name", "exact"]},
+      {"_id": "base1-9", "_source": {"id": "base1-9", "name": "Magmar"},
+        "matched_queries": ["text"]},
+      {"_id": "base1-7", "_source": {"id": "base1-7", "name": "Hitmonchan"}}
+    ]
+  },
+  "aggregations": {
+    "supertype": {"buckets": []}, "types": {"buckets": []}, "rarity": {"buckets": []},
+    "set_series": {"buckets": []}, "sets": {"buckets": []}
+  }
+}`
+
 func TestSearchHandler(t *testing.T) {
 	var esReqBody []byte
 	catalogCalls := 0
@@ -339,6 +359,50 @@ func TestSearchHandlerEmptyResults(t *testing.T) {
 	if sets := resp.Facets["sets"]; len(sets) != 2 || sets[0]["label"] != "Base" || sets[0]["count"] != float64(0) ||
 		sets[1]["label"] != "Delta Species" || sets[1]["count"] != float64(0) {
 		t.Errorf("zero-result set catalog: %v", resp.Facets["sets"])
+	}
+}
+
+// matched is the per-hit list of relevance branches ES reports as having
+// matched. It is aligned index-for-index with results, and it only exists for
+// a text query — browse has no named clauses to match.
+func TestSearchMatchedBranches(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"set_catalog"`)) {
+			return esResponse(200, catalogESBody), nil
+		}
+		return esResponse(200, matchedESBody), nil
+	})
+	s, _ := newTestServer(t, rt)
+
+	var resp struct {
+		Results []map[string]any `json:"results"`
+		Matched [][]string       `json:"matched"`
+	}
+	rec := get(t, s, "/api/search?q=charizard")
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Matched) != len(resp.Results) {
+		t.Fatalf("matched has %d entries for %d results", len(resp.Matched), len(resp.Results))
+	}
+	// ES reports matched_queries in no particular order (the fixture's first hit
+	// is scrambled); the response sorts them into registry order so the badge
+	// strip is stable and the contract is deterministic.
+	want := [][]string{{"exact", "fuzzy-name"}, {"text"}, {}}
+	for i, branches := range want {
+		if strings.Join(resp.Matched[i], ",") != strings.Join(branches, ",") {
+			t.Errorf("matched[%d] = %v, want %v", i, resp.Matched[i], branches)
+		}
+	}
+	// A hit ES reported no branch for must still be an array, never null: the
+	// frontend iterates it without a guard.
+	if !strings.Contains(rec.Body.String(), `[["exact","fuzzy-name"],["text"],[]]`) {
+		t.Errorf("matched must serialize as aligned arrays: %s", rec.Body.String())
+	}
+
+	if body := get(t, s, "/api/search").Body.String(); strings.Contains(body, `"matched"`) {
+		t.Errorf("browse response must omit matched: %s", body)
 	}
 }
 

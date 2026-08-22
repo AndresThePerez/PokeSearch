@@ -45,42 +45,78 @@ func isExactIDLookup(p Params) bool {
 		p.Page == 1 && p.PageSize == PageSize
 }
 
+// Branch is one relevance clause of the text query, carrying the name ES
+// reports it under. The names travel three ways: ES echoes the ones a hit
+// matched as matched_queries, /api/explain scores each branch on its own, and
+// the grid renders them as badges — so "why did this card rank here" is
+// answerable from the response alone.
+type Branch struct {
+	Name  string         // also the clause's _name
+	Query map[string]any // the complete should clause
+}
+
+// Branches is the relevance registry, the sibling of Facets: one list, read by
+// the query builder and by /api/explain, so the two can never rank a card by
+// different clauses. The boosts encode an ordering — an exact name beats a
+// prefix beats a fuzzy name beats a body-text hit — not measured weights; the
+// fourth branch deliberately carries no boost and takes ES's implicit 1.
+func Branches(q string) []Branch {
+	exact := map[string]any{
+		"value": strings.ToLower(q),
+		"boost": 8,
+	}
+	prefix := map[string]any{
+		"query": q,
+		"type":  "bool_prefix",
+		"fields": []any{
+			"name.sayt",
+			"name.sayt._2gram",
+			"name.sayt._3gram",
+		},
+		"boost": 4,
+	}
+	fuzzy := map[string]any{
+		"query":     q,
+		"fuzziness": "AUTO",
+		"boost":     3,
+	}
+	text := map[string]any{
+		"query":     q,
+		"type":      "best_fields",
+		"fuzziness": "AUTO",
+		"fields": []any{
+			"attacks.name^2",
+			"abilities.name^2",
+			"attacks.text",
+			"abilities.text",
+			"flavor_text",
+			"set_name^1.5",
+			"artist",
+		},
+	}
+	return []Branch{
+		named("exact", exact, map[string]any{"term": map[string]any{"name.kw": exact}}),
+		named("prefix", prefix, map[string]any{"multi_match": prefix}),
+		named("fuzzy-name", fuzzy, map[string]any{"match": map[string]any{"name": fuzzy}}),
+		named("text", text, map[string]any{"multi_match": text}),
+	}
+}
+
+// named stamps the branch name into the clause's own options map — the same
+// map the clause already holds — so Branch.Name and the DSL's _name are one
+// value written once and cannot drift apart.
+func named(name string, options, clause map[string]any) Branch {
+	options["_name"] = name
+	return Branch{Name: name, Query: clause}
+}
+
 func buildBool(p Params) map[string]any {
-	return map[string]any{"should": []any{
-		map[string]any{"term": map[string]any{"name.kw": map[string]any{
-			"value": strings.ToLower(p.Q),
-			"boost": 8,
-		}}},
-		map[string]any{"multi_match": map[string]any{
-			"query": p.Q,
-			"type":  "bool_prefix",
-			"fields": []any{
-				"name.sayt",
-				"name.sayt._2gram",
-				"name.sayt._3gram",
-			},
-			"boost": 4,
-		}},
-		map[string]any{"match": map[string]any{"name": map[string]any{
-			"query":     p.Q,
-			"fuzziness": "AUTO",
-			"boost":     3,
-		}}},
-		map[string]any{"multi_match": map[string]any{
-			"query":     p.Q,
-			"type":      "best_fields",
-			"fuzziness": "AUTO",
-			"fields": []any{
-				"attacks.name^2",
-				"abilities.name^2",
-				"attacks.text",
-				"abilities.text",
-				"flavor_text",
-				"set_name^1.5",
-				"artist",
-			},
-		}},
-	}}
+	branches := Branches(p.Q)
+	should := make([]any, 0, len(branches))
+	for _, b := range branches {
+		should = append(should, b.Query)
+	}
+	return map[string]any{"should": should}
 }
 
 // FacetDef is one entry of the single facet registry. Three things used to

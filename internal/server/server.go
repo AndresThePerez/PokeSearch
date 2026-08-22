@@ -15,6 +15,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -435,6 +436,26 @@ func (s *Server) loadSeedMeta(r *http.Request) (*seedMeta, error) {
 	return cached, nil
 }
 
+// branchOrder is the position of each relevance branch in search.Branches.
+// The order does not depend on the query, so it is computed once.
+var branchOrder = func() map[string]int {
+	order := make(map[string]int)
+	for i, b := range search.Branches("") {
+		order[b.Name] = i
+	}
+	return order
+}()
+
+// branchRank sorts a hit's matched branches into registry order — strongest
+// first. ES reports matched_queries in no defined order, and a badge strip
+// that reshuffles between two identical searches reads as a bug.
+func branchRank(name string) int {
+	if i, ok := branchOrder[name]; ok {
+		return i
+	}
+	return len(branchOrder)
+}
+
 type facetBucket struct {
 	Value       string `json:"value"`
 	Label       string `json:"label,omitempty"`
@@ -448,8 +469,12 @@ type searchResponse struct {
 	Pages    int `json:"pages"`
 	PageSize int `json:"page_size"`
 
-	TookMs  int                      `json:"took_ms"`
-	Results []json.RawMessage        `json:"results"`
+	TookMs  int               `json:"took_ms"`
+	Results []json.RawMessage `json:"results"`
+	// Matched is aligned index-for-index with Results: the relevance branches
+	// (search.Branches) ES reports each hit as having matched. Present only for
+	// a text query — browse has no named clauses, so there is nothing to report.
+	Matched [][]string               `json:"matched,omitempty"`
 	Facets  map[string][]facetBucket `json:"facets"`
 	DSL     map[string]any           `json:"dsl,omitempty"`
 }
@@ -493,6 +518,9 @@ type esSearchResponse struct {
 		} `json:"total"`
 		Hits []struct {
 			Source json.RawMessage `json:"_source"`
+			// MatchedQueries is what the _name keys on the relevance branches buy:
+			// ES names, per hit, which of them matched.
+			MatchedQueries []string `json:"matched_queries"`
 		} `json:"hits"`
 	} `json:"hits"`
 	Aggregations map[string]esAggregation `json:"aggregations"`
@@ -542,8 +570,23 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		Results: make([]json.RawMessage, 0, len(esr.Hits.Hits)),
 		Facets:  make(map[string][]facetBucket, len(search.Facets)),
 	}
+	if p.Q != "" {
+		resp.Matched = make([][]string, 0, len(esr.Hits.Hits))
+	}
 	for _, hit := range esr.Hits.Hits {
 		resp.Results = append(resp.Results, hit.Source)
+		if p.Q == "" {
+			continue
+		}
+		// A hit can match no named branch (a filter brought it in). It still
+		// gets an entry, empty rather than null, so the two arrays stay aligned
+		// and the client never has to guard the inner value.
+		branches := hit.MatchedQueries
+		if branches == nil {
+			branches = []string{}
+		}
+		slices.SortFunc(branches, func(a, b string) int { return branchRank(a) - branchRank(b) })
+		resp.Matched = append(resp.Matched, branches)
 	}
 	// Every registered facet is always present in the response, empty or not —
 	// the UI renders a fixed set of controls and must never have to guess.

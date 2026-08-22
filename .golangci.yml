@@ -1,0 +1,32 @@
+# Deterministic lint set: the same five linters run locally and in CI, so a
+# green local run means a green CI run. Kept deliberately small — these are the
+# checks that catch real defects rather than style opinions.
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck # an ignored error is the bug class this project can least afford
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+  settings:
+    errcheck:
+      # Closing a body we only READ from has no actionable error: the bytes are
+      # already decoded, and there is nothing to retry or report. This project
+      # has no write-side Close (where a failure would mean lost data), so the
+      # exclusion cannot hide the case that matters. Narrowed to the two reader
+      # types actually involved rather than silencing Close everywhere.
+      exclude-functions:
+        - (io.ReadCloser).Close
+        - (*compress/gzip.Reader).Close
+
+formatters:
+  enable:
+    - gofmt
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

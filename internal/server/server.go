@@ -52,7 +52,7 @@ func New(es *elasticsearch.Client, static fs.FS, logW io.Writer, now func() time
 	// One serialized sink for both line kinds: the hand-marshalled QueryLog
 	// writes directly, slog writes the access lines, and neither may interleave
 	// with the other mid-line under concurrency.
-	var sink io.Writer = io.Discard
+	sink := io.Discard
 	if logW != nil {
 		sink = &syncWriter{w: logW}
 	}

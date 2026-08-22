@@ -1,0 +1,68 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          # Read the toolchain from go.mod so CI and the workstation can never
+          # drift apart silently.
+          go-version-file: go.mod
+      - run: go build ./...
+      - run: go vet ./...
+      # The acceptance suite is build-tagged, so vet it explicitly — otherwise
+      # it can stop compiling without anything noticing until a manual run.
+      - run: go vet -tags acceptance ./internal/acceptance
+      - run: go test -race ./...
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.13.1
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax-check every shipped JS file
+        shell: bash
+        run: |
+          shopt -s globstar nullglob
+          files=(web/**/*.js)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "no JS files found under web/ — the glob is wrong, not the code"
+            exit 1
+          fi
+          for f in "${files[@]}"; do
+            echo "node --check $f"
+            node --check "$f"
+          done
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image with build identity stamped in
+        shell: bash
+        run: |
+          docker build \
+            --build-arg VERSION="${GITHUB_REF_NAME}" \
+            --build-arg COMMIT="${GITHUB_SHA:0:7}" \
+            --build-arg BUILT="$(date -u +%FT%TZ)" \
+            -t pokesearch:ci .
+      - name: The runtime image must not run as root
+        shell: bash
+        run: |
+          user="$(docker inspect --format '{{.Config.User}}' pokesearch:ci)"
+          echo "image user: ${user:-<root>}"
+          [ -n "$user" ] && [ "$user" != "root" ] && [ "$user" != "0" ]

@@ -180,7 +180,8 @@ func do(res *esapi.Response, err error) error {
 		raw, _ := io.ReadAll(res.Body)
 		return fmt.Errorf("ES %s: %s", res.Status(), truncate(string(raw), 500))
 	}
-	io.Copy(io.Discard, res.Body)
+	// Drain so the connection can be reused; a read failure here is moot.
+	_, _ = io.Copy(io.Discard, res.Body)
 	return nil
 }
 

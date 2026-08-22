@@ -45,13 +45,13 @@ func Transform(sc SourceCard, set SourceSet) Card {
 		})
 	}
 	for _, ab := range sc.Abilities {
-		c.Abilities = append(c.Abilities, Ability{Name: ab.Name, Type: ab.Type, Text: ab.Text})
+		c.Abilities = append(c.Abilities, Ability(ab))
 	}
 	for _, w := range sc.Weaknesses {
-		c.Weaknesses = append(c.Weaknesses, Value{Type: w.Type, Value: w.Value})
+		c.Weaknesses = append(c.Weaknesses, Value(w))
 	}
 	for _, r := range sc.Resistances {
-		c.Resistances = append(c.Resistances, Value{Type: r.Type, Value: r.Value})
+		c.Resistances = append(c.Resistances, Value(r))
 	}
 	return c
 }

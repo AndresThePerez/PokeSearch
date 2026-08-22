@@ -1,0 +1,64 @@
+# Manual only. This workflow downloads the ~7MB pokemon-tcg-data tarball,
+# seeds a throwaway Elasticsearch, and indexes 20,324 documents — it takes
+# minutes, not seconds, which is exactly why it is not on push.
+name: acceptance
+
+on: workflow_dispatch
+
+permissions:
+  contents: read
+
+env:
+  # Pin the project name so container names are predictable regardless of the
+  # checkout directory.
+  COMPOSE_PROJECT_NAME: pokesearch
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Start the stack
+        run: docker compose up -d --build
+
+      - name: Wait for the app to report healthy
+        shell: bash
+        run: |
+          for _ in $(seq 1 60); do
+            status="$(docker inspect --format '{{.State.Health.Status}}' pokesearch-app-1 2>/dev/null || echo starting)"
+            echo "app: $status"
+            if [ "$status" = healthy ]; then exit 0; fi
+            sleep 5
+          done
+          echo "app never became healthy"
+          docker compose ps
+          docker compose logs --tail 200
+          exit 1
+
+      # The pinned ref in docker-compose.yml is what makes the corpus
+      # cardinalities below reproducible.
+      - name: Seed the corpus
+        run: docker compose --profile seed run --rm seed
+
+      - name: Confirm the expected corpus size
+        shell: bash
+        run: |
+          docs="$(curl -sf http://localhost:8080/healthz | python3 -c 'import json,sys; print(json.load(sys.stdin)["docs"])')"
+          echo "indexed docs: $docs"
+          [ "$docs" = "20324" ]
+
+      - name: Acceptance matrix
+        run: POKESEARCH_URL=http://localhost:8080 go test -tags acceptance -count=1 -v ./internal/acceptance
+
+      - name: Stack logs on failure
+        if: failure()
+        run: docker compose logs --tail 200
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

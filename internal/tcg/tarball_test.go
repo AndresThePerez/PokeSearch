@@ -38,7 +38,7 @@ func TestParseArchiveAndDocs(t *testing.T) {
 	// Note: map iteration order varies, and GitHub tarballs list cards/
 	// before sets/ anyway — ParseArchive must not depend on entry order.
 	buf := buildTarball(t, map[string]string{
-		"pokemon-tcg-data-master/README.md":          "# ignored",
+		"pokemon-tcg-data-master/README.md":           "# ignored",
 		"pokemon-tcg-data-master/cards/en/base1.json": "[" + alakazamJSON + "]",
 		"pokemon-tcg-data-master/cards/en/ex11.json":  "[" + mewtwoDeltaJSON + "]",
 		"pokemon-tcg-data-master/sets/en.json":        setsJSON,

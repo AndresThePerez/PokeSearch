@@ -8,8 +8,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -28,7 +29,8 @@ func main() {
 	force := flag.Bool("force", false, "delete and recreate a populated index")
 	flag.Parse()
 	if err := run(*esURL, *ref, *force); err != nil {
-		log.Fatalf("seed: %v", err)
+		slog.Error("seed failed", "err", err)
+		os.Exit(1)
 	}
 }
 
@@ -59,24 +61,24 @@ func run(esURL, ref string, force bool) error {
 			return fmt.Errorf("inspect index: %w", err)
 		}
 		if existing.Count > 0 && !force {
-			fmt.Printf("index %q already populated (count %d) — nothing to do (use -force to reseed)\n",
-				esindex.IndexName, existing.Count)
+			slog.Info("index already populated — nothing to do (use -force to reseed)",
+				"index", esindex.IndexName, "count", existing.Count)
 			return nil
 		}
 		if err := do(es.Indices.Delete([]string{esindex.IndexName})); err != nil {
 			return fmt.Errorf("delete index: %w", err)
 		}
 		if existing.Count == 0 {
-			fmt.Printf("deleted empty index %q before seeding\n", esindex.IndexName)
+			slog.Info("deleted empty index before seeding", "index", esindex.IndexName)
 		} else {
-			fmt.Printf("deleted existing index %q (-force)\n", esindex.IndexName)
+			slog.Info("deleted existing index (-force)", "index", esindex.IndexName)
 		}
 	} else if res.StatusCode != http.StatusNotFound {
 		return fmt.Errorf("inspect index: ES %s: %s", res.Status(), truncate(string(body), 500))
 	}
 
 	url := "https://codeload.github.com/AndresThePerez/pokemon-tcg-data/tar.gz/" + ref
-	fmt.Printf("fetching %s\n", url)
+	slog.Info("fetching corpus", "url", url)
 	resp, err := http.Get(url)
 	if err != nil {
 		return fmt.Errorf("download: %w", err)
@@ -93,7 +95,7 @@ func run(esURL, ref string, force bool) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("parsed %d sets, %d cards\n", len(archive.Sets), len(docs))
+	slog.Info("parsed corpus", "sets", len(archive.Sets), "cards", len(docs))
 
 	if err := do(es.Indices.Create(esindex.IndexName,
 		es.Indices.Create.WithBody(strings.NewReader(esindex.Mapping)))); err != nil {
@@ -118,7 +120,7 @@ func run(esURL, ref string, force bool) error {
 		if res.IsError() || strings.Contains(string(raw), `"errors":true`) {
 			return fmt.Errorf("bulk chunk %d failed: %s", i, truncate(string(raw), 500))
 		}
-		fmt.Printf("bulk %d/%d\n", i+1, len(bodies))
+		slog.Info("bulk indexed", "chunk", i+1, "chunks", len(bodies))
 	}
 
 	if err := do(es.Indices.PutSettings(strings.NewReader(`{"index":{"refresh_interval":"30s"}}`),
@@ -149,8 +151,8 @@ func run(esURL, ref string, force bool) error {
 	if count.Count != len(docs) {
 		return fmt.Errorf("count mismatch: indexed %d, _count says %d", len(docs), count.Count)
 	}
-	fmt.Printf("seeded %d cards into %q in %s (ref %s)\n",
-		count.Count, esindex.IndexName, time.Since(start).Round(time.Millisecond), ref)
+	slog.Info("seeded", "cards", count.Count, "index", esindex.IndexName,
+		"took", time.Since(start).Round(time.Millisecond).String(), "ref", ref)
 	return nil
 }
 

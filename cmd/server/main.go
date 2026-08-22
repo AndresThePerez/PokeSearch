@@ -7,7 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -57,7 +57,8 @@ func main() {
 		metrics: os.Getenv("METRICS") == "1",
 	}
 	if err := run(ctx, cfg); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatal(err)
+		slog.Error("pokesearch stopped", "err", err)
+		os.Exit(1)
 	}
 }
 
@@ -81,7 +82,7 @@ func run(ctx context.Context, cfg config) error {
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()
-	log.Printf("pokesearch listening on :%s (es %s)", cfg.port, cfg.esURL)
+	slog.Info("pokesearch listening", "port", cfg.port, "es", cfg.esURL)
 
 	select {
 	case err := <-errCh:

@@ -5,11 +5,14 @@ package server
 import (
 	"bytes"
 	"context"
+	cryptorand "crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -28,7 +31,9 @@ const esRequestTimeout = 5 * time.Second
 type Server struct {
 	es           *elasticsearch.Client
 	mux          *http.ServeMux
+	handler      http.Handler
 	logW         io.Writer
+	log          *slog.Logger
 	now          func() time.Time
 	esTimeout    time.Duration
 	setCatalogMu sync.RWMutex
@@ -39,17 +44,136 @@ func New(es *elasticsearch.Client, static fs.FS, logW io.Writer, now func() time
 	if now == nil {
 		now = time.Now
 	}
-	s := &Server{es: es, mux: http.NewServeMux(), logW: logW, now: now, esTimeout: esRequestTimeout}
+	// One serialized sink for both line kinds: the hand-marshalled QueryLog
+	// writes directly, slog writes the access lines, and neither may interleave
+	// with the other mid-line under concurrency.
+	var sink io.Writer = io.Discard
+	if logW != nil {
+		sink = &syncWriter{w: logW}
+	}
+
+	s := &Server{
+		es:        es,
+		mux:       http.NewServeMux(),
+		logW:      sink,
+		log:       slog.New(slog.NewJSONHandler(sink, logHandlerOptions())),
+		now:       now,
+		esTimeout: esRequestTimeout,
+	}
 	s.mux.HandleFunc("GET /livez", s.handleLivez)
 	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
 	s.mux.HandleFunc("GET /api/search", s.handleSearch)
 	s.mux.HandleFunc("GET /api/suggest", s.handleSuggest)
 	s.mux.Handle("GET /", http.FileServerFS(static))
+	// Wrapped once: every route — including anything registered later, such as
+	// EnableMetrics' /debug/vars — inherits the request ID and the access line.
+	s.handler = s.withObservability(s.mux)
 	return s
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s.mux.ServeHTTP(w, r)
+	s.handler.ServeHTTP(w, r)
+}
+
+// syncWriter serializes writes to the log sink. Without it two concurrent
+// requests can interleave a QueryLog line with an access line and produce a
+// stdout stream no JSON reader can parse.
+type syncWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (s *syncWriter) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.w.Write(p)
+}
+
+type ctxRequestID struct{}
+
+// requestID returns the id the observability middleware assigned to this
+// request, or "" for a request that never went through it.
+func requestID(r *http.Request) string {
+	id, _ := r.Context().Value(ctxRequestID{}).(string)
+	return id
+}
+
+// maxRequestIDLen bounds an inbound id. It is echoed into a response header
+// and into every log line the request produces, so a client must not be able
+// to make either unbounded.
+const maxRequestIDLen = 64
+
+// acceptRequestID takes an inbound trace id only when it looks like one — a
+// Cloudflare Cf-Ray, a UUID, a hex token. Anything else (control characters,
+// header-splitting attempts, novels) is rejected rather than repaired, and the
+// caller generates a fresh id instead.
+func acceptRequestID(id string) string {
+	if id == "" || len(id) > maxRequestIDLen {
+		return ""
+	}
+	for i := range len(id) {
+		switch c := id[i]; {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case c == '-', c == '_', c == '.', c == ':':
+		default:
+			return ""
+		}
+	}
+	return id
+}
+
+func newRequestID() string {
+	var b [8]byte
+	// crypto/rand.Read never returns an error; it panics if the OS source fails.
+	_, _ = cryptorand.Read(b[:])
+	return hex.EncodeToString(b[:])
+}
+
+// withObservability gives every request an id (honouring the edge's, when the
+// edge sent one), echoes it back, threads it into the request context for the
+// QueryLog and the error envelope, and writes one access line per request.
+func (s *Server) withObservability(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := acceptRequestID(r.Header.Get("X-Request-Id"))
+		if id == "" {
+			id = acceptRequestID(r.Header.Get("Cf-Ray"))
+		}
+		if id == "" {
+			id = newRequestID()
+		}
+		w.Header().Set("X-Request-Id", id)
+
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		start := s.now()
+		next.ServeHTTP(rec, r.WithContext(context.WithValue(r.Context(), ctxRequestID{}, id)))
+
+		s.log.LogAttrs(r.Context(), slog.LevelInfo, "access",
+			slog.String("method", r.Method),
+			slog.String("path", r.URL.Path),
+			slog.Int("status", rec.status),
+			slog.Int("bytes", rec.bytes),
+			slog.Int64("dur_ms", s.now().Sub(start).Milliseconds()),
+			slog.String("request_id", id))
+	})
+}
+
+// statusRecorder captures what the handler actually sent, so the access line
+// can report a status and a size the handler never told anyone about.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+	bytes  int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *statusRecorder) Write(b []byte) (int, error) {
+	n, err := r.ResponseWriter.Write(b)
+	r.bytes += n
+	return n, err
 }
 
 // esCtx derives the per-request Elasticsearch budget from the inbound request
@@ -86,8 +210,8 @@ type errorEnvelope struct {
 //
 //	{"error":{"code":...,"field":...,"message":...},"request_id":"..."}
 //
-// request_id is an empty string until the request-ID middleware lands; the
-// field is present from the start so the shape never changes again.
+// request_id is the id the observability middleware assigned, which is also
+// the value of the response's X-Request-Id header.
 func (s *Server) writeError(w http.ResponseWriter, r *http.Request, status int, code, field, message string) {
 	writeJSON(w, status, errorEnvelope{
 		Error:     errorDetail{Code: code, Field: field, Message: message},
@@ -103,13 +227,9 @@ func (s *Server) writeES503(w http.ResponseWriter, r *http.Request, entry QueryL
 	if cause != nil {
 		entry.Error = cause.Error()
 	}
-	writeLog(s.logW, entry)
+	s.writeLog(entry)
 	s.writeError(w, r, http.StatusServiceUnavailable, codeESUnavailable, "", "elasticsearch unavailable")
 }
-
-// requestID is a placeholder until the observability middleware lands; it
-// keeps writeError's signature and the response shape final from now on.
-func requestID(_ *http.Request) string { return "" }
 
 // esErrorBodyLimit caps how much of an ES error body reaches the log. Enough
 // to identify a mapping error, not enough to flood a log on a bad day.
@@ -230,19 +350,16 @@ type esSearchResponse struct {
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	p, ferrs := search.ParseParams(r.URL.Query())
 	dsl := search.BuildQuery(p)
-	entry := QueryLog{
-		Time:     s.now().UTC().Format(time.RFC3339),
-		Endpoint: "search",
-		Params:   logParams(p),
-		DSL:      dsl,
-	}
+	entry := s.queryLog(r, "search")
+	entry.Params = logParams(p)
+	entry.DSL = dsl
 
 	// Strict params are rejected before ES is touched: a typo must not cost a
 	// cluster round trip, and it must not return a plausible-looking answer.
 	if len(ferrs) > 0 {
 		entry.Status = http.StatusBadRequest
 		entry.Error = ferrs[0].Message
-		writeLog(s.logW, entry)
+		s.writeLog(entry)
 		s.writeError(w, r, http.StatusBadRequest, codeInvalidParam, ferrs[0].Field, ferrs[0].Message)
 		return
 	}
@@ -302,7 +419,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	entry.TookMs = esr.Took
 	entry.Total = esr.Hits.Total.Value
 	entry.Status = http.StatusOK
-	writeLog(s.logW, entry)
+	s.writeLog(entry)
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -425,12 +542,9 @@ func (s *Server) handleSuggest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dsl := search.BuildSuggest(p.Q, false)
-	entry := QueryLog{
-		Time:     s.now().UTC().Format(time.RFC3339),
-		Endpoint: "suggest",
-		Params:   map[string]any{"q": p.Q},
-		DSL:      dsl,
-	}
+	entry := s.queryLog(r, "suggest")
+	entry.Params = map[string]any{"q": p.Q}
+	entry.DSL = dsl
 
 	names, took, err := s.suggestES(r, dsl)
 	if err == nil && len(names) == 0 {
@@ -448,7 +562,7 @@ func (s *Server) handleSuggest(w http.ResponseWriter, r *http.Request) {
 	entry.TookMs = took
 	entry.Total = len(names)
 	entry.Status = http.StatusOK
-	writeLog(s.logW, entry)
+	s.writeLog(entry)
 	writeJSON(w, http.StatusOK, map[string]any{"suggestions": names})
 }
 

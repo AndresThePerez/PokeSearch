@@ -60,10 +60,59 @@ func newTestServerLogging(t *testing.T, rt http.RoundTripper, logW io.Writer) *S
 
 func get(t *testing.T, s *Server, path string) *httptest.ResponseRecorder {
 	t.Helper()
+	return getWith(t, s, path, nil)
+}
+
+// getWith is get with inbound request headers — the observability middleware
+// is the only thing in the server that reads them.
+func getWith(t *testing.T, s *Server, path string, headers map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest("GET", path, nil)
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 	rec := httptest.NewRecorder()
-	s.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
+	s.ServeHTTP(rec, req)
 	return rec
 }
+
+// logLines decodes the test log sink. Two line kinds share it: the
+// hand-marshalled QueryLog (carries "endpoint") and slog's access line
+// (msg="access").
+func logLines(t *testing.T, buf *bytes.Buffer) []map[string]any {
+	t.Helper()
+	var out []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+		if line == "" {
+			continue
+		}
+		var m map[string]any
+		if err := json.Unmarshal([]byte(line), &m); err != nil {
+			t.Fatalf("undecodable log line %q: %v", line, err)
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// oneLine returns the single access (or single non-access) log line, failing
+// when the sink holds a different number of them.
+func oneLine(t *testing.T, buf *bytes.Buffer, access bool) map[string]any {
+	t.Helper()
+	var found []map[string]any
+	for _, m := range logLines(t, buf) {
+		if (m["msg"] == "access") == access {
+			found = append(found, m)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("want exactly 1 line (access=%v), got %d:\n%s", access, len(found), buf.String())
+	}
+	return found[0]
+}
+
+func accessLine(t *testing.T, buf *bytes.Buffer) map[string]any { return oneLine(t, buf, true) }
+func queryLine(t *testing.T, buf *bytes.Buffer) map[string]any  { return oneLine(t, buf, false) }
 
 // facetLen reports how many buckets a successful search response carries for
 // the named facet.
@@ -186,17 +235,15 @@ func TestSearchHandler(t *testing.T) {
 		t.Errorf("set catalog calls = %d, want 1", catalogCalls)
 	}
 
-	line := strings.TrimSpace(logBuf.String())
-	if strings.Count(line, "\n") != 0 || line == "" {
-		t.Fatalf("want exactly 1 log line, got %q", logBuf.String())
-	}
-	var lg map[string]any
-	if err := json.Unmarshal([]byte(line), &lg); err != nil {
-		t.Fatal(err)
-	}
+	lg := queryLine(t, logBuf)
 	if lg["endpoint"] != "search" || lg["took_ms"] != float64(4) || lg["total"] != float64(61) ||
-		lg["status"] != float64(200) || lg["time"] != "2026-07-06T12:00:00Z" {
+		lg["status"] != float64(200) || lg["time"] != "2026-07-06T12:00:00.000Z" {
 		t.Errorf("log line: %v", lg)
+	}
+	// The query line and the response header name the same request, so a user
+	// report ("id 3f2a…") lands on the exact DSL that answered it.
+	if id := rec.Header().Get("X-Request-Id"); id == "" || lg["request_id"] != id {
+		t.Errorf("query log request_id = %v, header = %q", lg["request_id"], id)
 	}
 	p := lg["params"].(map[string]any)
 	if p["q"] != "pikuchu" || p["sort"] != "relevance" || p["set"] != "base1" {
@@ -660,5 +707,124 @@ func TestStaticServing(t *testing.T) {
 	rec := get(t, s, "/")
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Pokesearch") {
 		t.Errorf("static /: %d %q", rec.Code, rec.Body.String())
+	}
+}
+
+// Every response carries X-Request-Id. An inbound id is honoured — X-Request-Id
+// first, then Cloudflare's Cf-Ray — so one trace spans edge, app log and
+// client. An implausible id is replaced rather than repaired: it would
+// otherwise be echoed into a response header and into every log line.
+func TestRequestIDHeader(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		headers map[string]string
+		want    string // "" means "generated, must not equal the inbound value"
+	}{
+		{name: "generated"},
+		{name: "echoes X-Request-Id", headers: map[string]string{"X-Request-Id": "abc123"}, want: "abc123"},
+		{name: "falls back to Cf-Ray", headers: map[string]string{"Cf-Ray": "8f0a1b2c3d4e5f60-FRA"}, want: "8f0a1b2c3d4e5f60-FRA"},
+		{name: "prefers X-Request-Id over Cf-Ray",
+			headers: map[string]string{"X-Request-Id": "abc123", "Cf-Ray": "8f0a-FRA"}, want: "abc123"},
+		{name: "rejects a hostile id", headers: map[string]string{"X-Request-Id": "id with spaces"}},
+		{name: "rejects an oversized id", headers: map[string]string{"X-Request-Id": strings.Repeat("a", 65)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, _ := newTestServer(t, roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+				t.Error("/livez must not call ES")
+				return nil, nil
+			}))
+			rec := getWith(t, s, "/livez", tc.headers)
+			got := rec.Header().Get("X-Request-Id")
+			if got == "" {
+				t.Fatal("every response must carry X-Request-Id")
+			}
+			if tc.want != "" && got != tc.want {
+				t.Fatalf("X-Request-Id = %q, want %q", got, tc.want)
+			}
+			if tc.want == "" {
+				for _, v := range tc.headers {
+					if got == v {
+						t.Fatalf("inbound id %q must not be echoed", v)
+					}
+				}
+			}
+		})
+	}
+}
+
+// The error envelope's request_id is the same id as the header, which is what
+// makes "here is my request id" a usable bug report.
+func TestErrorBodyCarriesRequestID(t *testing.T) {
+	s, _ := newTestServer(t, roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		t.Error("invalid params must be rejected before ES is called")
+		return nil, nil
+	}))
+	rec := getWith(t, s, "/api/search?sort=bogus", map[string]string{"X-Request-Id": "trace-42"})
+	if rec.Code != 400 {
+		t.Fatalf("status %d, want 400", rec.Code)
+	}
+	if body := decodeError(t, rec); body.RequestID != "trace-42" ||
+		rec.Header().Get("X-Request-Id") != "trace-42" {
+		t.Errorf("request_id = %q, header = %q", body.RequestID, rec.Header().Get("X-Request-Id"))
+	}
+}
+
+// A static asset produces an access line and no QueryLog line: the query log
+// is for requests that actually reach Elasticsearch.
+func TestAccessLogLine(t *testing.T) {
+	s, logBuf := newTestServer(t, roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		t.Error("static must not call ES")
+		return nil, nil
+	}))
+	rec := get(t, s, "/")
+
+	line := accessLine(t, logBuf)
+	if line["method"] != "GET" || line["path"] != "/" || line["status"] != float64(200) {
+		t.Errorf("access line: %v", line)
+	}
+	if line["bytes"] == nil || line["bytes"] == float64(0) {
+		t.Errorf("access line must count response bytes: %v", line["bytes"])
+	}
+	if _, ok := line["dur_ms"]; !ok {
+		t.Errorf("access line must carry dur_ms: %v", line)
+	}
+	if id := rec.Header().Get("X-Request-Id"); line["request_id"] != id {
+		t.Errorf("access request_id = %v, header = %q", line["request_id"], id)
+	}
+	// The access line's clock has to match the query line's, or correlating
+	// the two by timestamp means reasoning about time zones.
+	ts, ok := line["time"].(string)
+	if !ok {
+		t.Fatalf("access line time: %v", line["time"])
+	}
+	if _, err := time.Parse(logTimeFormat, ts); err != nil {
+		t.Errorf("access time %q is not UTC millisecond format: %v", ts, err)
+	}
+	for _, m := range logLines(t, logBuf) {
+		if _, ok := m["endpoint"]; ok {
+			t.Errorf("a static request must not write a QueryLog line: %v", m)
+		}
+	}
+}
+
+// Search writes both lines, and they name the same request — that correlation
+// is the whole point of threading the id through.
+func TestAccessLogCorrelatesWithQueryLog(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"set_catalog"`)) {
+			return esResponse(200, catalogESBody), nil
+		}
+		return esResponse(200, searchESBody), nil
+	})
+	s, logBuf := newTestServer(t, rt)
+	getWith(t, s, "/api/search?q=pikachu", map[string]string{"X-Request-Id": "trace-7"})
+
+	access, query := accessLine(t, logBuf), queryLine(t, logBuf)
+	if access["request_id"] != "trace-7" || query["request_id"] != "trace-7" {
+		t.Errorf("access %v / query %v", access["request_id"], query["request_id"])
+	}
+	if access["path"] != "/api/search" || access["status"] != float64(200) {
+		t.Errorf("access line: %v", access)
 	}
 }

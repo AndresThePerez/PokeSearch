@@ -34,6 +34,11 @@ const (
 	wantBrowsePages = maxDocsWindow / pageSize
 	esLatencyMs     = 100
 	fullLatencyMs   = 250
+	// Corpus superlatives the Stats view reports: the highest HP printed and
+	// the two ends of the release timeline.
+	wantMaxHP     = 380
+	wantFirstYear = "1999"
+	wantLastYear  = "2026"
 )
 
 func baseURL() string {
@@ -379,6 +384,114 @@ func TestPageSizeBounds(t *testing.T) {
 	}
 	if r := search(t, "page=999999"); r.Page != wantBrowsePages {
 		t.Errorf("page clamp at default size = %d, want %d", r.Page, wantBrowsePages)
+	}
+}
+
+type statsResp struct {
+	Total   int `json:"total"`
+	MaxHP   int `json:"max_hp"`
+	PerYear []struct {
+		Year  string `json:"year"`
+		Count int    `json:"count"`
+	} `json:"per_year"`
+	HP []struct {
+		From  int `json:"from"`
+		Count int `json:"count"`
+	} `json:"hp"`
+	Types     []bucket `json:"types"`
+	Supertype []bucket `json:"supertype"`
+	Rarity    []bucket `json:"rarity"`
+	Series    []bucket `json:"series"`
+	TookMs    int      `json:"took_ms"`
+}
+
+func getStats(t *testing.T) statsResp {
+	t.Helper()
+	started := time.Now()
+	res, err := http.Get(baseURL() + "/api/stats")
+	if err != nil {
+		t.Fatalf("GET /api/stats: %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != 200 {
+		t.Fatalf("GET /api/stats: status %d", res.StatusCode)
+	}
+	var out statsResp
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		t.Fatalf("GET /api/stats: decode: %v", err)
+	}
+	if out.TookMs > esLatencyMs {
+		t.Errorf("/api/stats: ES took %dms, target <%dms", out.TookMs, esLatencyMs)
+	}
+	if elapsed := time.Since(started).Milliseconds(); elapsed > fullLatencyMs {
+		t.Errorf("/api/stats: round trip %dms, target <%dms", elapsed, fullLatencyMs)
+	}
+	return out
+}
+
+// The Stats view (M3/B4) describes the same pinned corpus the facets do, so its
+// cardinalities are the same frozen numbers — asserted here because the charts
+// are the one place a silently truncated aggregation would look plausible.
+func TestStatsCorpusShape(t *testing.T) {
+	r := getStats(t)
+	if r.Total != wantDocs || r.MaxHP != wantMaxHP {
+		t.Errorf("total = %d, max_hp = %d, want %d/%d", r.Total, r.MaxHP, wantDocs, wantMaxHP)
+	}
+	for name, got := range map[string]int{
+		"types": len(r.Types), "supertype": len(r.Supertype),
+		"rarity": len(r.Rarity), "series": len(r.Series),
+	} {
+		want := map[string]int{
+			"types": wantTypes, "supertype": wantClasses,
+			"rarity": wantRarities, "series": wantSeries,
+		}[name]
+		if got != want {
+			t.Errorf("stats %s has %d buckets, want %d", name, got, want)
+		}
+	}
+
+	// Every card has exactly one supertype and belongs to exactly one series,
+	// so those two breakdowns must account for the whole corpus. types, rarity
+	// and hp deliberately do not: a Trainer has no type or HP, and a handful of
+	// cards carry no rarity at all.
+	for name, buckets := range map[string][]bucket{"supertype": r.Supertype, "series": r.Series} {
+		sum := 0
+		for _, b := range buckets {
+			sum += b.Count
+		}
+		if sum != wantDocs {
+			t.Errorf("stats %s counts sum to %d, want %d", name, sum, wantDocs)
+		}
+	}
+
+	// The timeline runs 1999 → 2026 with no year missing: min_doc_count 0 keeps
+	// the empty years, and a gap would silently rescale the chart's x axis.
+	if len(r.PerYear) == 0 {
+		t.Fatal("per_year is empty")
+	}
+	if r.PerYear[0].Year != wantFirstYear || r.PerYear[len(r.PerYear)-1].Year != wantLastYear {
+		t.Errorf("per_year spans %s..%s, want %s..%s",
+			r.PerYear[0].Year, r.PerYear[len(r.PerYear)-1].Year, wantFirstYear, wantLastYear)
+	}
+	yearSum := 0
+	for i, b := range r.PerYear {
+		yearSum += b.Count
+		if want := fmt.Sprint(1999 + i); b.Year != want {
+			t.Errorf("per_year[%d] = %s, want %s (no year may be dropped)", i, b.Year, want)
+		}
+	}
+	if yearSum != wantDocs {
+		t.Errorf("per_year counts sum to %d, want %d", yearSum, wantDocs)
+	}
+
+	// HP bands are contiguous from 0 and reach the corpus maximum.
+	for i, b := range r.HP {
+		if want := i * 30; b.From != want {
+			t.Errorf("hp[%d] starts at %d, want %d", i, b.From, want)
+		}
+	}
+	if last := r.HP[len(r.HP)-1].From; last != (wantMaxHP/30)*30 {
+		t.Errorf("hp bands stop at %d, want the band holding max HP %d", last, wantMaxHP)
 	}
 }
 

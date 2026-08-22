@@ -472,6 +472,194 @@ func TestSearchHighlights(t *testing.T) {
 	}
 }
 
+// A real-shaped /api/stats aggregation reply: a date_histogram whose buckets
+// carry key_as_string, a numeric histogram, a max metric, and the four facet
+// breakdowns.
+const statsESBody = `{
+  "took": 12,
+  "hits": {"total": {"value": 20324, "relation": "eq"}, "hits": []},
+  "aggregations": {
+    "per_year": {"buckets": [
+      {"key_as_string": "1999-01-01T00:00:00.000Z", "key": 915148800000, "doc_count": 271},
+      {"key_as_string": "2000-01-01T00:00:00.000Z", "key": 946684800000, "doc_count": 0},
+      {"key_as_string": "2026-01-01T00:00:00.000Z", "key": 1767225600000, "doc_count": 412}
+    ]},
+    "hp": {"buckets": [
+      {"key": 0.0, "doc_count": 3175},
+      {"key": 30.0, "doc_count": 1998},
+      {"key": 360.0, "doc_count": 12}
+    ]},
+    "max_hp": {"value": 380.0},
+    "types":     {"buckets": [{"key": "Water", "doc_count": 2331}, {"key": "Fire", "doc_count": 1502}]},
+    "supertype": {"buckets": [{"key": "Pokémon", "doc_count": 17149}, {"key": "Trainer", "doc_count": 2783}]},
+    "rarity":    {"buckets": [{"key": "Common", "doc_count": 5203}]},
+    "series":    {"buckets": [{"key": "Base", "doc_count": 1234}, {"key": "Sword & Shield", "doc_count": 3210}]}
+  }
+}`
+
+// emptyStatsESBody is the same shape against an unseeded index: no documents,
+// no buckets, and a null max.
+const emptyStatsESBody = `{
+  "took": 1,
+  "hits": {"total": {"value": 0, "relation": "eq"}, "hits": []},
+  "aggregations": {
+    "per_year": {"buckets": []}, "hp": {"buckets": []}, "max_hp": {"value": null},
+    "types": {"buckets": []}, "supertype": {"buckets": []},
+    "rarity": {"buckets": []}, "series": {"buckets": []}
+  }
+}`
+
+type statsResp struct {
+	Total   int `json:"total"`
+	MaxHP   int `json:"max_hp"`
+	PerYear []struct {
+		Year  string `json:"year"`
+		Count int    `json:"count"`
+	} `json:"per_year"`
+	HP []struct {
+		From  int `json:"from"`
+		Count int `json:"count"`
+	} `json:"hp"`
+	Types     []map[string]any `json:"types"`
+	Supertype []map[string]any `json:"supertype"`
+	Rarity    []map[string]any `json:"rarity"`
+	Series    []map[string]any `json:"series"`
+	TookMs    int              `json:"took_ms"`
+	DSL       map[string]any   `json:"dsl"`
+	RequestID string           `json:"request_id"`
+}
+
+func decodeStatsResp(t *testing.T, rec *httptest.ResponseRecorder) statsResp {
+	t.Helper()
+	if rec.Code != 200 {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var out statsResp
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode stats: %v\n%s", err, rec.Body.String())
+	}
+	return out
+}
+
+func TestStatsHandler(t *testing.T) {
+	var esReqBody []byte
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		esReqBody, _ = io.ReadAll(r.Body)
+		return esResponse(200, statsESBody), nil
+	})
+	s, logBuf := newTestServer(t, rt)
+
+	got := decodeStatsResp(t, get(t, s, "/api/stats"))
+	if got.Total != 20324 || got.MaxHP != 380 || got.TookMs != 12 {
+		t.Errorf("total=%d max_hp=%d took_ms=%d, want 20324/380/12", got.Total, got.MaxHP, got.TookMs)
+	}
+	// A date_histogram bucket is a year label, not an epoch millisecond value,
+	// and an empty year survives (that is the shape the chart is about).
+	if len(got.PerYear) != 3 || got.PerYear[0].Year != "1999" || got.PerYear[0].Count != 271 ||
+		got.PerYear[1].Count != 0 || got.PerYear[2].Year != "2026" {
+		t.Errorf("per_year = %+v", got.PerYear)
+	}
+	if len(got.HP) != 3 || got.HP[0].From != 0 || got.HP[1].From != 30 || got.HP[2].From != 360 ||
+		got.HP[1].Count != 1998 {
+		t.Errorf("hp = %+v", got.HP)
+	}
+	for name, buckets := range map[string][]map[string]any{
+		"types": got.Types, "supertype": got.Supertype, "rarity": got.Rarity, "series": got.Series,
+	} {
+		if len(buckets) == 0 {
+			t.Errorf("%s breakdown is empty", name)
+			continue
+		}
+		if buckets[0]["value"] == "" || buckets[0]["count"] == nil {
+			t.Errorf("%s bucket = %v, want {value,count}", name, buckets[0])
+		}
+	}
+	if got.RequestID == "" {
+		t.Error("response must carry request_id")
+	}
+	if got.DSL != nil {
+		t.Errorf("dsl must be omitted without debug=1: %v", got.DSL)
+	}
+	if !bytes.Contains(esReqBody, []byte(`"calendar_interval"`)) {
+		t.Errorf("ES body is not the stats aggregation: %s", esReqBody)
+	}
+
+	line := queryLine(t, logBuf)
+	if line["endpoint"] != "stats" || line["total"] != float64(20324) || line["status"] != float64(200) {
+		t.Errorf("query log = %v", line)
+	}
+	if line["dsl"] == nil {
+		t.Error("query log must carry the stats DSL")
+	}
+}
+
+func TestStatsDebugReturnsDSL(t *testing.T) {
+	s, _ := newTestServer(t, roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		return esResponse(200, statsESBody), nil
+	}))
+	got := decodeStatsResp(t, get(t, s, "/api/stats?debug=1"))
+	if got.DSL["aggs"] == nil {
+		t.Errorf("debug=1 must return the aggregation DSL, got %v", got.DSL)
+	}
+}
+
+// The corpus is immutable between reseeds, so the aggregation is computed once
+// and served from memory afterwards — the same discipline as the set catalog.
+func TestStatsCachedAcrossRequests(t *testing.T) {
+	calls := 0
+	s, _ := newTestServer(t, roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		calls++
+		return esResponse(200, statsESBody), nil
+	}))
+	first := decodeStatsResp(t, get(t, s, "/api/stats"))
+	second := decodeStatsResp(t, get(t, s, "/api/stats"))
+	if calls != 1 {
+		t.Errorf("ES called %d times across two /api/stats requests, want 1", calls)
+	}
+	if first.Total != second.Total || len(second.PerYear) != len(first.PerYear) {
+		t.Errorf("cached response differs: %+v vs %+v", first, second)
+	}
+}
+
+// An unseeded index must be served, never cached: the first request after
+// seeding has to heal it without a restart (Task 1's discipline).
+func TestStatsEmptyIndexNotCached(t *testing.T) {
+	calls := 0
+	s, _ := newTestServer(t, roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			return esResponse(200, emptyStatsESBody), nil
+		}
+		return esResponse(200, statsESBody), nil
+	}))
+	if empty := decodeStatsResp(t, get(t, s, "/api/stats")); empty.Total != 0 || empty.MaxHP != 0 {
+		t.Errorf("empty index: total=%d max_hp=%d, want 0/0", empty.Total, empty.MaxHP)
+	}
+	if seeded := decodeStatsResp(t, get(t, s, "/api/stats")); seeded.Total != 20324 {
+		t.Errorf("after seeding: total=%d, want 20324 — an empty corpus must never be cached", seeded.Total)
+	}
+	if calls != 2 {
+		t.Errorf("ES called %d times, want 2", calls)
+	}
+}
+
+func TestStatsESDown(t *testing.T) {
+	s, logBuf := newTestServer(t, roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("connection refused")
+	}))
+	rec := get(t, s, "/api/stats")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status %d, want 503: %s", rec.Code, rec.Body.String())
+	}
+	body := decodeError(t, rec)
+	if body.Error.Code != codeESUnavailable || body.RequestID == "" {
+		t.Errorf("error envelope = %+v", body)
+	}
+	if line := queryLine(t, logBuf); line["status"] != float64(503) || line["error"] == nil {
+		t.Errorf("query log must carry the ES cause: %v", line)
+	}
+}
+
 func TestSetCatalogCachedAcrossSearches(t *testing.T) {
 	hotCalls := 0
 	catalogCalls := 0
@@ -1008,6 +1196,8 @@ func TestRouteLabel(t *testing.T) {
 	for path, want := range map[string]string{
 		"/api/search":       "search",
 		"/api/suggest":      "suggest",
+		"/api/explain":      "explain",
+		"/api/stats":        "stats",
 		"/api/meta":         "meta",
 		"/healthz":          "healthz",
 		"/livez":            "livez",

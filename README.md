@@ -80,6 +80,7 @@ docker compose up -d --build
 | `GET /api/meta` | Build identity and corpus provenance | — |
 | `GET /api/search` | Fuzzy multi-field card search, filters, facets, sorting, pagination | `q`, `id`, `supertype`, `types`, `set`, `rarity`, `series`, `hp_min`, `hp_max`, `sort`, `order`, `page`, `page_size`, `debug=1` |
 | `GET /api/suggest` | Deduplicated card-name completion with a fuzzy retry | `q` |
+| `GET /api/stats` | Corpus analytics: prints per year, HP distribution, type/class/rarity/series breakdowns, max HP | `debug=1` |
 | `GET /debug/vars` | expvar counters. **Opt-in** — only exists when `METRICS=1` | — |
 
 Search responses carry Elasticsearch's `took_ms`, the effective `page_size`, and live `supertype`, `types`, `rarity`, `set_series`, and readable `sets` facets. The `set` parameter takes an exact set ID; combine it with `q` to search within that set. Add `debug=1` to receive the generated DSL in the response.
@@ -100,6 +101,8 @@ Search responses carry Elasticsearch's `took_ms`, the effective `page_size`, and
 ```
 
 `seed` is `null` for an index seeded before provenance stamping existed. That is reported, not repaired: the stamp appears on the index's next reseed.
+
+`GET /api/stats` aggregates the whole archive in a single `size: 0` request — a `date_histogram` of prints per year, a 30-point HP histogram, the four categorical breakdowns (read from the same facet registry the filter rail uses) and the corpus maximum HP. The corpus is immutable between reseeds, so the result is computed on the first request and served from memory afterwards; an empty index is served but never cached, so the first request after a seed heals it without a restart. `took_ms` is therefore the Elasticsearch time of the aggregation that produced the payload, not of the request being answered.
 
 ### Relevance design
 

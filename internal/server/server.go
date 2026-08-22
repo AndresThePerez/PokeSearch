@@ -47,6 +47,8 @@ type Server struct {
 	setCatalog   []facetBucket
 	seedMetaMu   sync.RWMutex
 	seedMeta     *seedMeta
+	statsMu      sync.RWMutex
+	stats        *statsPayload
 }
 
 func New(es *elasticsearch.Client, static fs.FS, logW io.Writer, now func() time.Time) *Server {
@@ -74,6 +76,7 @@ func New(es *elasticsearch.Client, static fs.FS, logW io.Writer, now func() time
 	s.mux.HandleFunc("GET /api/search", s.handleSearch)
 	s.mux.HandleFunc("GET /api/suggest", s.handleSuggest)
 	s.mux.HandleFunc("GET /api/explain", s.handleExplain)
+	s.mux.HandleFunc("GET /api/stats", s.handleStats)
 	s.mux.HandleFunc("GET /api/meta", s.handleMeta)
 	s.mux.Handle("GET /", http.FileServerFS(static))
 	// Wrapped once: every route — including anything registered later, such as
@@ -187,6 +190,8 @@ func routeLabel(path string) string {
 		return "suggest"
 	case "/api/explain":
 		return "explain"
+	case "/api/stats":
+		return "stats"
 	case "/api/meta":
 		return "meta"
 	case "/healthz":
@@ -711,6 +716,188 @@ func pagesFor(total, pageSize int) int {
 		return 0
 	}
 	return (capped + pageSize - 1) / pageSize
+}
+
+// yearBucket is one column of the releases-per-year chart. The year is a label
+// rather than a number because that is all the chart does with it, and ES's own
+// bucket key is epoch milliseconds — a detail no client should have to know.
+type yearBucket struct {
+	Year  string `json:"year"`
+	Count int    `json:"count"`
+}
+
+// hpBucket is one band of the HP distribution, named by its lower bound.
+type hpBucket struct {
+	From  int `json:"from"`
+	Count int `json:"count"`
+}
+
+// statsPayload is the corpus description itself — everything about /api/stats
+// that is the same for every caller, and therefore the part that is cached.
+//
+// TookMs is the ES time of the aggregation that PRODUCED this payload, not of
+// the request being served: after the first hit, /api/stats never touches ES
+// again. The rail's round-trip number is the one that reflects the served
+// request, and the two together are exactly the point of the Stats inspector.
+type statsPayload struct {
+	Total     int           `json:"total"`
+	MaxHP     int           `json:"max_hp"`
+	PerYear   []yearBucket  `json:"per_year"`
+	HP        []hpBucket    `json:"hp"`
+	Types     []facetBucket `json:"types"`
+	Supertype []facetBucket `json:"supertype"`
+	Rarity    []facetBucket `json:"rarity"`
+	Series    []facetBucket `json:"series"`
+	TookMs    int           `json:"took_ms"`
+}
+
+// statsResponse is the payload plus the two per-request fields, which is why
+// they are not cached with it.
+type statsResponse struct {
+	statsPayload
+	DSL       map[string]any `json:"dsl,omitempty"`
+	RequestID string         `json:"request_id"`
+}
+
+// esStatsResponse decodes the aggregation reply. The categorical breakdowns
+// reuse esAggregation — they are the same terms aggregations the facet rail
+// runs — while the two histograms and the max metric have their own bucket
+// shapes.
+type esStatsResponse struct {
+	Took int `json:"took"`
+	Hits struct {
+		Total struct {
+			Value int `json:"value"`
+		} `json:"total"`
+	} `json:"hits"`
+	Aggregations struct {
+		PerYear struct {
+			Buckets []struct {
+				KeyAsString string `json:"key_as_string"`
+				DocCount    int    `json:"doc_count"`
+			} `json:"buckets"`
+		} `json:"per_year"`
+		HP struct {
+			Buckets []struct {
+				Key      float64 `json:"key"`
+				DocCount int     `json:"doc_count"`
+			} `json:"buckets"`
+		} `json:"hp"`
+		MaxHP struct {
+			Value float64 `json:"value"`
+		} `json:"max_hp"`
+		Types     esAggregation `json:"types"`
+		Supertype esAggregation `json:"supertype"`
+		Rarity    esAggregation `json:"rarity"`
+		Series    esAggregation `json:"series"`
+	} `json:"aggregations"`
+}
+
+// handleStats serves the corpus analytics behind the Stats view: one cached
+// aggregation over the whole archive (B4/D7).
+//
+// It takes no search parameters — the view describes the archive, not the
+// current query — so debug is the only thing read off the request, the same
+// exemption /api/suggest and /api/explain have from the strict-parameter 400s.
+func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
+	p, _ := search.ParseParams(r.URL.Query())
+	dsl := search.BuildStatsQuery()
+	entry := s.queryLog(r, "stats")
+	entry.Params = map[string]any{}
+	entry.DSL = dsl
+
+	payload, err := s.loadStats(r)
+	if err != nil {
+		s.writeES503(w, r, entry, err)
+		return
+	}
+
+	resp := statsResponse{statsPayload: *payload, RequestID: requestID(r)}
+	if p.Debug {
+		resp.DSL = dsl
+	}
+
+	entry.TookMs = payload.TookMs
+	entry.Total = payload.Total
+	entry.Status = http.StatusOK
+	s.writeLog(entry)
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// loadStats computes the corpus aggregation once and holds it for the process
+// lifetime. Same shape as loadSetCatalog and for the same three reasons: the
+// ES call runs OUTSIDE the lock, an empty corpus is served but never cached
+// (so the first request after a seed heals it without a restart), and a
+// redundant concurrent fetch on a cold start is cheaper than serializing every
+// request behind one mutex.
+func (s *Server) loadStats(r *http.Request) (*statsPayload, error) {
+	s.statsMu.RLock()
+	cached := s.stats
+	s.statsMu.RUnlock()
+	if cached != nil {
+		return cached, nil
+	}
+
+	esr, err := esQuery[esStatsResponse](s, r, search.BuildStatsQuery())
+	if err != nil {
+		return nil, err
+	}
+	payload := decodeStats(esr)
+	if payload.Total == 0 {
+		return payload, nil // unseeded: serve empty, cache nothing
+	}
+
+	s.statsMu.Lock()
+	if s.stats == nil {
+		s.stats = payload
+	}
+	cached = s.stats
+	s.statsMu.Unlock()
+	return cached, nil
+}
+
+// yearLabelLen is the leading portion of a date_histogram key_as_string that
+// names the year ("1999-01-01T00:00:00.000Z").
+const yearLabelLen = 4
+
+func decodeStats(esr *esStatsResponse) *statsPayload {
+	aggs := esr.Aggregations
+	payload := &statsPayload{
+		Total:     esr.Hits.Total.Value,
+		MaxHP:     int(aggs.MaxHP.Value),
+		PerYear:   make([]yearBucket, 0, len(aggs.PerYear.Buckets)),
+		HP:        make([]hpBucket, 0, len(aggs.HP.Buckets)),
+		Types:     statsBuckets(aggs.Types),
+		Supertype: statsBuckets(aggs.Supertype),
+		Rarity:    statsBuckets(aggs.Rarity),
+		Series:    statsBuckets(aggs.Series),
+		TookMs:    esr.Took,
+	}
+	for _, b := range aggs.PerYear.Buckets {
+		if len(b.KeyAsString) < yearLabelLen {
+			continue
+		}
+		payload.PerYear = append(payload.PerYear, yearBucket{
+			Year:  b.KeyAsString[:yearLabelLen],
+			Count: b.DocCount,
+		})
+	}
+	for _, b := range aggs.HP.Buckets {
+		payload.HP = append(payload.HP, hpBucket{From: int(b.Key), Count: b.DocCount})
+	}
+	return payload
+}
+
+// statsBuckets flattens one terms aggregation into the response's bucket shape.
+// Empty rather than null: the Stats view renders a fixed set of charts and must
+// never have to guard the inner value.
+func statsBuckets(agg esAggregation) []facetBucket {
+	esBuckets := agg.buckets()
+	buckets := make([]facetBucket, 0, len(esBuckets))
+	for _, b := range esBuckets {
+		buckets = append(buckets, facetBucket{Value: b.Key, Count: b.DocCount})
+	}
+	return buckets
 }
 
 // errESNotFound marks the one non-2xx that can be an answer rather than a

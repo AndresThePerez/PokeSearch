@@ -333,6 +333,61 @@ func TestBuildSuggest(t *testing.T) {
 	}
 }
 
+// The corpus's own shape, in one request: two numeric distributions (prints
+// per year, HP bands), the facet breakdowns, and the maximum HP. Nothing in it
+// depends on a request, which is what makes it cacheable for the process
+// lifetime.
+//
+// The breakdown aggregations are asserted here with the field names and terms
+// sizes the facet registry carries, because that is where BuildStatsQuery
+// reads them from — a stats chart must not be able to aggregate a different
+// field, or a shorter terms size, than the filter rail describing the same
+// corpus. supertype therefore has no explicit size: the registry does not give
+// it one (three values sit well inside the ES default).
+func TestBuildStatsQuery(t *testing.T) {
+	got := canonV(t, BuildStatsQuery())
+	want := canonS(t, `{
+	  "track_total_hits": true, "size": 0,
+	  "aggs": {
+	    "per_year": {"date_histogram": {"field": "release_date",
+	      "calendar_interval": "year", "min_doc_count": 0}},
+	    "hp": {"histogram": {"field": "hp", "interval": 30, "min_doc_count": 0}},
+	    "max_hp": {"max": {"field": "hp"}},
+	    "types":     {"terms": {"field": "types", "size": 11}},
+	    "supertype": {"terms": {"field": "supertype"}},
+	    "rarity":    {"terms": {"field": "rarity", "size": 100}},
+	    "series":    {"terms": {"field": "set_series", "size": 20}}
+	  }
+	}`)
+	if got != want {
+		t.Errorf("stats DSL\n got %s\nwant %s", got, want)
+	}
+}
+
+// Every stats breakdown must resolve to a registered facet, and must aggregate
+// byte-for-byte what that facet aggregates. This is the drift alarm: renaming a
+// facet or lowering its terms size can no longer leave the Stats view quietly
+// describing a different corpus than the filter rail.
+func TestStatsBreakdownsFollowFacetRegistry(t *testing.T) {
+	aggs := BuildStatsQuery()["aggs"].(map[string]any)
+	for _, sf := range statsFacets {
+		def, ok := facetByName(sf.Facet)
+		if !ok {
+			t.Errorf("stats breakdown %q names facet %q, which is not registered", sf.Key, sf.Facet)
+			continue
+		}
+		got := canonV(t, aggs[sf.Key])
+		want := canonV(t, map[string]any{"terms": termsOf(def)})
+		if got != want {
+			t.Errorf("stats breakdown %q\n got %s\nwant %s", sf.Key, got, want)
+		}
+	}
+	// The sets facet is deliberately not charted; 173 bars is a list.
+	if _, ok := aggs[SetsFacet]; ok {
+		t.Error("stats must not aggregate the sets facet")
+	}
+}
+
 func TestBuildDidYouMean(t *testing.T) {
 	got := canonV(t, BuildDidYouMean("charzard ex"))
 	want := canonS(t, `{

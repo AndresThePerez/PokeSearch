@@ -223,6 +223,27 @@ var Facets = []FacetDef{
 	{Name: SetsFacet, Exclude: "set", Field: "set_id", Size: 200},
 }
 
+// facetByName resolves a registry entry. Anything that wants to aggregate a
+// facet's field looks it up here rather than restating the field name.
+func facetByName(name string) (FacetDef, bool) {
+	for _, f := range Facets {
+		if f.Name == name {
+			return f, true
+		}
+	}
+	return FacetDef{}, false
+}
+
+// termsOf is the one construction of a facet's terms aggregation body. Size 0
+// means "no size key": ES's default is already above the cardinality.
+func termsOf(f FacetDef) map[string]any {
+	terms := map[string]any{"field": f.Field}
+	if f.Size > 0 {
+		terms["size"] = f.Size
+	}
+	return terms
+}
+
 func buildAggs(p Params) map[string]any {
 	aggs := make(map[string]any, len(Facets))
 	for _, f := range Facets {
@@ -235,10 +256,7 @@ func buildAggs(p Params) map[string]any {
 // except the facet's own.
 func facetAgg(p Params, f FacetDef) map[string]any {
 	scope := buildFilters(p, f.Exclude)
-	terms := map[string]any{"field": f.Field}
-	if f.Size > 0 {
-		terms["size"] = f.Size
-	}
+	terms := termsOf(f)
 	if len(scope) == 0 {
 		return map[string]any{"terms": terms}
 	}
@@ -247,6 +265,71 @@ func facetAgg(p Params, f FacetDef) map[string]any {
 		"aggs": map[string]any{"items": map[string]any{
 			"terms": terms,
 		}},
+	}
+}
+
+// statsFacet ties one Stats-view breakdown to the facet it describes. Key is
+// what the aggregation and the /api/stats response call it; Facet is the
+// registry entry the field and terms size come from.
+type statsFacet struct {
+	Key   string
+	Facet string
+}
+
+// statsFacets are the categorical breakdowns /api/stats reports, in the order
+// the Stats view renders them. They are named, not restated: a chart that
+// claims to show the corpus's rarities must aggregate the same field, at the
+// same terms size, as the rarity filter beside it. The sets facet is left out
+// deliberately — 173 bars is a list, not a chart.
+var statsFacets = []statsFacet{
+	{Key: "types", Facet: "types"},
+	{Key: "supertype", Facet: "supertype"},
+	{Key: "rarity", Facet: "rarity"},
+	{Key: "series", Facet: "set_series"},
+}
+
+// hpBucketWidth is the width of one HP band. 30 puts the corpus's 0–380 HP
+// range into thirteen bars — enough resolution to see power creep move, few
+// enough that the chart stays readable on a phone.
+const hpBucketWidth = 30
+
+// BuildStatsQuery aggregates the immutable corpus for /api/stats: prints per
+// year, the HP distribution, the facet breakdowns and the maximum HP, in one
+// request that carries no hits (size 0).
+//
+// It takes no Params on purpose. The Stats view describes the whole archive,
+// never the current search, so the body is a constant — which is what lets the
+// server compute it once and cache it for the process lifetime. The index only
+// changes via reseed, and reseed already implies a restart.
+//
+// min_doc_count 0 on both histograms keeps empty buckets: a year nobody
+// printed a card in, and an HP band nobody occupies, are the interesting parts
+// of the shape and dropping them would silently rescale the axis.
+func BuildStatsQuery() map[string]any {
+	aggs := map[string]any{
+		"per_year": map[string]any{"date_histogram": map[string]any{
+			"field":             "release_date",
+			"calendar_interval": "year",
+			"min_doc_count":     0,
+		}},
+		"hp": map[string]any{"histogram": map[string]any{
+			"field":         "hp",
+			"interval":      hpBucketWidth,
+			"min_doc_count": 0,
+		}},
+		"max_hp": map[string]any{"max": map[string]any{"field": "hp"}},
+	}
+	for _, sf := range statsFacets {
+		def, ok := facetByName(sf.Facet)
+		if !ok {
+			continue // unreachable: TestStatsBreakdownsFollowFacetRegistry guards it
+		}
+		aggs[sf.Key] = map[string]any{"terms": termsOf(def)}
+	}
+	return map[string]any{
+		"track_total_hits": true,
+		"size":             0,
+		"aggs":             aggs,
 	}
 }
 

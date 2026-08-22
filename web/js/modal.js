@@ -5,6 +5,7 @@ import { $, element } from "./util.js";
 import { cardsByID, displayType, imageURL, branchLabel } from "./render.js";
 import { fetchCardByID, fetchExplain } from "./api.js";
 import { queryText } from "./state.js";
+import { holoTier, attachHolo, setHoloTier, setHoloArtLoaded } from "./holo.js";
 
 let modalOpener = null;
 let modalArtCardID = null;
@@ -16,6 +17,10 @@ let explainCardID = null;
 function setModalArt(card) {
   const image = $("modal-image");
   modalArtCardID = card.id;
+  // The rarity drives the foil intensity: this is the one place the index's
+  // rarity field stops being a filter and becomes presentation.
+  setHoloTier($("modal-art"), holoTier(card.rarity));
+  setHoloArtLoaded($("modal-art"), true);
   image.src = imageURL(card, "small");
   image.alt = card.name;
   image.classList.add("is-upgrading");
@@ -220,6 +225,15 @@ export async function openDeepLink() {
 }
 
 export function bindModalEvents() {
+  // Bound once, not per card: the handlers read the element's rect live, so
+  // they do not care which card is currently in it.
+  attachHolo($("modal-art"));
+  // Both card sizes can 404 — the art is third-party. A foil pass over an
+  // empty rectangle is a smudge, so the shine goes with the art, and comes
+  // back with it: the small image can fail while the large one still loads.
+  $("modal-image").addEventListener("error", () => setHoloArtLoaded($("modal-art"), false));
+  $("modal-image").addEventListener("load", () => setHoloArtLoaded($("modal-art"), true));
+
   $("results-grid").addEventListener("click", (event) => {
     const button = event.target.closest(".card-open");
     if (!button) return;

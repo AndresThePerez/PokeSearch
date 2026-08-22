@@ -74,9 +74,49 @@ func TestBuildQueryFullText(t *testing.T) {
 	    ]
 	  }},
 	  "sort": ["_score", {"id": "asc"}],
+	  "highlight": `+highlightJSON+`,
 	  "aggs": `+noFilterAggsJSON+`}`)
 	if got != want {
 		t.Errorf("full-text DSL\n got %s\nwant %s", got, want)
+	}
+}
+
+// The highlight block, server-side <mark> tagging over the fields a text query
+// can actually match. Names come back whole (number_of_fragments 0); body text
+// comes back as one short fragment, which is all a one-line snippet can show.
+const highlightJSON = `{
+  "pre_tags": ["<mark>"],
+  "post_tags": ["</mark>"],
+  "fields": {
+    "name":           {"number_of_fragments": 0},
+    "attacks.name":   {"number_of_fragments": 0},
+    "abilities.name": {"number_of_fragments": 0},
+    "attacks.text":   {"fragment_size": 120, "number_of_fragments": 1},
+    "abilities.text": {"fragment_size": 120, "number_of_fragments": 1},
+    "flavor_text":    {"fragment_size": 120, "number_of_fragments": 1}
+  },
+  "highlight_query": {"multi_match": {
+    "query": "Pikuchu", "type": "best_fields",
+    "fields": ["name", "attacks.name", "abilities.name",
+               "attacks.text", "abilities.text", "flavor_text"]
+  }}
+}`
+
+// Highlighting is for text queries only. Browse has no query to highlight and
+// the exact-ID fast path is a single-document fetch — asking either for
+// highlights buys nothing and costs a per-hit re-analysis of the source.
+func TestHighlightOnlyForTextQueries(t *testing.T) {
+	if _, ok := BuildQuery(params(t, "q=charizard"))["highlight"]; !ok {
+		t.Error("a text query must carry a highlight block")
+	}
+	for _, qs := range []string{"", "supertype=pokemon", "types=Fire&sort=hp", "id=base1-1", "id=base1-1&types=Fire"} {
+		if _, ok := BuildQuery(params(t, qs))["highlight"]; ok {
+			t.Errorf("%q must not carry a highlight block", qs)
+		}
+	}
+	// A query that is only whitespace is not a text query.
+	if _, ok := BuildQuery(params(t, "q=+++"))["highlight"]; ok {
+		t.Error("a whitespace-only q must not carry a highlight block")
 	}
 }
 

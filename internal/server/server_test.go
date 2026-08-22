@@ -196,6 +196,27 @@ const matchedESBody = `{
   }
 }`
 
+// Three hits carrying what ES returns for a highlight block: a body-text
+// fragment, a whole highlighted name, and a hit with no highlight at all.
+const highlightESBody = `{
+  "took": 5,
+  "hits": {
+    "total": {"value": 3, "relation": "eq"},
+    "hits": [
+      {"_id": "base1-8", "_source": {"id": "base1-8", "name": "Machop"},
+        "highlight": {"attacks.text": ["\u2026discard your hand: this attack does <mark>100x</mark> damage\u2026"]}},
+      {"_id": "base1-57", "_source": {"id": "base1-57", "name": "Whirlwind Pidgey"},
+        "highlight": {"name": ["<mark>Whirlwind</mark> Pidgey"],
+                      "flavor_text": ["a gust of <mark>wind</mark>"]}},
+      {"_id": "base1-7", "_source": {"id": "base1-7", "name": "Hitmonchan"}}
+    ]
+  },
+  "aggregations": {
+    "supertype": {"buckets": []}, "types": {"buckets": []}, "rarity": {"buckets": []},
+    "set_series": {"buckets": []}, "sets": {"buckets": []}
+  }
+}`
+
 func TestSearchHandler(t *testing.T) {
 	var esReqBody []byte
 	catalogCalls := 0
@@ -404,6 +425,50 @@ func TestSearchMatchedBranches(t *testing.T) {
 
 	if body := get(t, s, "/api/search").Body.String(); strings.Contains(body, `"matched"`) {
 		t.Errorf("browse response must omit matched: %s", body)
+	}
+}
+
+// Highlights are aligned with results the same way matched is, and exist only
+// for text queries. The fragments are ES's, already <mark>-tagged.
+func TestSearchHighlights(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"set_catalog"`)) {
+			return esResponse(200, catalogESBody), nil
+		}
+		return esResponse(200, highlightESBody), nil
+	})
+	s, _ := newTestServer(t, rt)
+
+	var resp struct {
+		Results    []map[string]any      `json:"results"`
+		Highlights []map[string][]string `json:"highlights"`
+	}
+	rec := get(t, s, "/api/search?q=whirlwind")
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Highlights) != len(resp.Results) {
+		t.Fatalf("highlights has %d entries for %d results", len(resp.Highlights), len(resp.Results))
+	}
+	if got := resp.Highlights[0]["attacks.text"]; len(got) != 1 ||
+		got[0] != "…discard your hand: this attack does <mark>100x</mark> damage…" {
+		t.Errorf("hit 0 attacks.text = %v", got)
+	}
+	if got := resp.Highlights[1]["name"]; len(got) != 1 || got[0] != "<mark>Whirlwind</mark> Pidgey" {
+		t.Errorf("hit 1 name = %v", got)
+	}
+	// A hit ES returned no highlight for still gets an entry, so the two
+	// arrays stay index-for-index aligned.
+	if resp.Highlights[2] == nil || len(resp.Highlights[2]) != 0 {
+		t.Errorf("hit 2 must be an empty object, got %v", resp.Highlights[2])
+	}
+	if !strings.Contains(rec.Body.String(), `,{}]`) {
+		t.Errorf("an absent highlight must serialize as {}, not null: %s", rec.Body.String())
+	}
+
+	if body := get(t, s, "/api/search").Body.String(); strings.Contains(body, `"highlights"`) {
+		t.Errorf("browse response must omit highlights: %s", body)
 	}
 }
 

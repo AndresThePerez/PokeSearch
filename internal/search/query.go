@@ -28,6 +28,7 @@ func BuildQuery(p Params) map[string]any {
 	}
 	if p.Q != "" {
 		body["query"] = map[string]any{"bool": buildBool(p)}
+		body["highlight"] = buildHighlight(p.Q)
 	}
 	if filter := buildFilters(p, ""); len(filter) > 0 {
 		body["post_filter"] = map[string]any{"bool": map[string]any{"filter": filter}}
@@ -117,6 +118,79 @@ func buildBool(p Params) map[string]any {
 		should = append(should, b.Query)
 	}
 	return map[string]any{"should": should}
+}
+
+// highlightFragmentSize bounds a body-text fragment. The UI shows one line
+// under a card, so a longer fragment would only be truncated by CSS — and it
+// would be truncated at an arbitrary character rather than around the match.
+const highlightFragmentSize = 120
+
+// HighlightField is one entry of the third registry (after Facets and
+// Branches). Whole marks a field whose value comes back complete: a truncated
+// card name is useless, while body text has to be cut down to one line.
+type HighlightField struct {
+	Name  string
+	Whole bool
+}
+
+// HighlightFields is the registry. It feeds both the highlighter's field
+// settings and the highlight_query's field list, so the two cannot disagree —
+// and they must not: require_field_match only highlights a field the
+// highlight_query actually names.
+var HighlightFields = []HighlightField{
+	{Name: "name", Whole: true},
+	{Name: "attacks.name", Whole: true},
+	{Name: "abilities.name", Whole: true},
+	{Name: "attacks.text"},
+	{Name: "abilities.text"},
+	{Name: "flavor_text"},
+}
+
+// buildHighlight produces the server-side <mark> tagging for a text query.
+//
+// Attached only when q is non-empty (D5: on by default for text queries — it
+// answers the question the user actually asked, "why is this card in my
+// results?"). Browse has nothing to highlight; the exact-ID fast path is a
+// single-document fetch.
+//
+// THE highlight_query IS LOAD-BEARING, NOT DECORATION. The ranking query uses
+// fuzziness AUTO on two branches, and the highlighter has to rewrite a fuzzy
+// query into the concrete terms it matched, per document, per field. Measured
+// against the pinned corpus at q=charizard: 17ms without highlighting, 409ms
+// with it — four times the 100ms SLA on its own. Handing the highlighter a
+// non-fuzzy query scoped to exactly the highlighted fields brings it back to
+// 20ms. Ranking is untouched: this query only decides what gets marked.
+//
+// The cost of the trade is precise and small: a query that only matched
+// fuzzily ("charizrd") still ranks the card, it just gets no snippet. A
+// missing snippet is a far better failure than a 400ms search.
+//
+// The tags are fixed here rather than left to ES's <em> default so the
+// frontend parses one known marker — into real DOM nodes, never innerHTML.
+func buildHighlight(q string) map[string]any {
+	fields := make(map[string]any, len(HighlightFields))
+	names := make([]any, 0, len(HighlightFields))
+	for _, f := range HighlightFields {
+		if f.Whole {
+			fields[f.Name] = map[string]any{"number_of_fragments": 0}
+		} else {
+			fields[f.Name] = map[string]any{
+				"fragment_size":       highlightFragmentSize,
+				"number_of_fragments": 1,
+			}
+		}
+		names = append(names, f.Name)
+	}
+	return map[string]any{
+		"pre_tags":  []any{"<mark>"},
+		"post_tags": []any{"</mark>"},
+		"fields":    fields,
+		"highlight_query": map[string]any{"multi_match": map[string]any{
+			"query":  q,
+			"type":   "best_fields",
+			"fields": names,
+		}},
+	}
 }
 
 // FacetDef is one entry of the single facet registry. Three things used to

@@ -480,9 +480,12 @@ type searchResponse struct {
 	// Matched is aligned index-for-index with Results: the relevance branches
 	// (search.Branches) ES reports each hit as having matched. Present only for
 	// a text query — browse has no named clauses, so there is nothing to report.
-	Matched [][]string               `json:"matched,omitempty"`
-	Facets  map[string][]facetBucket `json:"facets"`
-	DSL     map[string]any           `json:"dsl,omitempty"`
+	Matched [][]string `json:"matched,omitempty"`
+	// Highlights is aligned the same way: field name → <mark>-tagged fragments,
+	// as ES produced them. Also text-query only.
+	Highlights []map[string][]string    `json:"highlights,omitempty"`
+	Facets     map[string][]facetBucket `json:"facets"`
+	DSL        map[string]any           `json:"dsl,omitempty"`
 }
 
 type esFacetBucket struct {
@@ -527,6 +530,9 @@ type esSearchResponse struct {
 			// MatchedQueries is what the _name keys on the relevance branches buy:
 			// ES names, per hit, which of them matched.
 			MatchedQueries []string `json:"matched_queries"`
+			// Highlight carries the <mark>-tagged fragments the highlight block
+			// asked for, keyed by field.
+			Highlight map[string][]string `json:"highlight"`
 		} `json:"hits"`
 	} `json:"hits"`
 	Aggregations map[string]esAggregation `json:"aggregations"`
@@ -578,6 +584,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.Q != "" {
 		resp.Matched = make([][]string, 0, len(esr.Hits.Hits))
+		resp.Highlights = make([]map[string][]string, 0, len(esr.Hits.Hits))
 	}
 	for _, hit := range esr.Hits.Hits {
 		resp.Results = append(resp.Results, hit.Source)
@@ -593,6 +600,14 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		}
 		slices.SortFunc(branches, func(a, b string) int { return branchRank(a) - branchRank(b) })
 		resp.Matched = append(resp.Matched, branches)
+
+		// Same alignment rule as matched: a hit ES highlighted nothing on still
+		// gets an entry, empty rather than null.
+		highlight := hit.Highlight
+		if highlight == nil {
+			highlight = map[string][]string{}
+		}
+		resp.Highlights = append(resp.Highlights, highlight)
 	}
 	// Every registered facet is always present in the response, empty or not —
 	// the UI renders a fixed set of controls and must never have to guess.

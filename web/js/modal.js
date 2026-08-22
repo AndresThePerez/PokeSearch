@@ -2,11 +2,13 @@
 // link, and focus restoration on close.
 
 import { $, element } from "./util.js";
-import { cardsByID, displayType, imageURL } from "./render.js";
-import { fetchCardByID } from "./api.js";
+import { cardsByID, displayType, imageURL, branchLabel } from "./render.js";
+import { fetchCardByID, fetchExplain } from "./api.js";
+import { queryText } from "./state.js";
 
 let modalOpener = null;
 let modalArtCardID = null;
+let explainCardID = null;
 
 // The grid's small image is already cached, so it shows instantly while the
 // large art loads detached; the swap is guarded by card id so a slow earlier
@@ -33,8 +35,93 @@ function setModalArt(card) {
   loader.src = largeURL;
 }
 
+// resetExplain returns the score-anatomy panel to its closed state. Opening a
+// different card must not leave the previous card's breakdown on screen, and
+// without a query there is nothing to explain at all.
+function resetExplain(card) {
+  explainCardID = card.id;
+  $("modal-explain").replaceChildren();
+  $("modal-explain").hidden = true;
+  $("modal-why").hidden = !queryText();
+  $("modal-why").disabled = false;
+  $("modal-why").textContent = "Why this card?";
+  $("modal-why").setAttribute("aria-expanded", "false");
+}
+
+// renderExplain draws the per-branch score bars: how much each relevance
+// clause contributed to this card's score, longest bar first by value. The
+// bars are proportional to the strongest branch, so the shape of the answer —
+// "the exact name match is doing all the work" — reads at a glance.
+function renderExplain(data) {
+  const panel = $("modal-explain");
+  const max = Math.max(0, ...data.branches.map((b) => b.score));
+  const matched = data.branches.filter((b) => b.matched).length;
+
+  const rows = [element("p", "explain-head", data.found
+    ? `Score ${data.score} · ${matched} of ${data.branches.length} branches matched “${data.q}”`
+    : "This card is not in the index, so no branch could match it.")];
+
+  for (const branch of data.branches) {
+    const row = element("div", `explain-row${branch.matched ? "" : " is-unmatched"}`);
+    row.append(element("span", "explain-name", branchLabel(branch.name)));
+    const track = element("span", "explain-track");
+    const fill = element("span", `explain-fill match-${branch.name}`);
+    // An unmatched branch keeps a visible sliver rather than nothing: "scored
+    // zero" and "was not considered" must not look the same.
+    fill.style.width = branch.matched && max > 0 ? `${(branch.score / max) * 100}%` : "2px";
+    track.append(fill);
+    row.append(track, element("span", "explain-score", branch.score.toFixed(1)));
+    panelRow(row, branch);
+    rows.push(row);
+  }
+
+  const raw = element("details", "explain-raw");
+  raw.append(element("summary", "", "Raw explain response"));
+  raw.append(element("pre", "", JSON.stringify(data, null, 2)));
+  rows.push(raw);
+
+  panel.replaceChildren(...rows);
+  panel.hidden = false;
+}
+
+// panelRow labels the row for assistive tech, where a bar width says nothing.
+function panelRow(row, branch) {
+  row.setAttribute("role", "group");
+  row.setAttribute("aria-label", branch.matched
+    ? `${branchLabel(branch.name)} branch scored ${branch.score.toFixed(1)}`
+    : `${branchLabel(branch.name)} branch did not match`);
+}
+
+async function loadExplain() {
+  const id = explainCardID;
+  const q = queryText();
+  if (!id || !q) return;
+  $("modal-why").disabled = true;
+  $("modal-why").textContent = "Explaining…";
+  try {
+    const data = await fetchExplain(id, q);
+    // The user can click through to another card while this is in flight; a
+    // late answer must not describe a card that is no longer open.
+    if (explainCardID !== id) return;
+    renderExplain(data);
+    $("modal-why").hidden = true;
+    $("modal-why").setAttribute("aria-expanded", "true");
+  } catch {
+    if (explainCardID !== id) return;
+    $("modal-explain").replaceChildren(
+      element("p", "explain-head", "The score breakdown is unavailable right now."));
+    $("modal-explain").hidden = false;
+  } finally {
+    if (explainCardID === id) {
+      $("modal-why").disabled = false;
+      $("modal-why").textContent = "Why this card?";
+    }
+  }
+}
+
 function renderModal(card) {
   setModalArt(card);
+  resetExplain(card);
   $("modal-card-name").textContent = card.name;
   $("modal-set-line").textContent = `${card.set_name} · ${card.number}/${card.set_total} · ${card.release_date}`;
 
@@ -140,6 +227,7 @@ export function bindModalEvents() {
     if (card) openModal(card, { opener: button });
   });
 
+  $("modal-why").addEventListener("click", loadExplain);
   $("modal-close").addEventListener("click", closeModal);
   $("card-modal").addEventListener("click", (event) => {
     if (event.target === $("card-modal")) closeModal();

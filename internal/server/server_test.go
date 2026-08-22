@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -1072,5 +1073,168 @@ func TestAccessLogCorrelatesWithQueryLog(t *testing.T) {
 	}
 	if access["path"] != "/api/search" || access["status"] != float64(200) {
 		t.Errorf("access line: %v", access)
+	}
+}
+
+// explainRT scripts _explain per branch: the fake reads which relevance clause
+// the body carries and answers with that branch's score, so the assembled
+// response can be checked branch by branch.
+func explainRT(t *testing.T, calls *[]string, scores map[string]float64) roundTripperFunc {
+	t.Helper()
+	return roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		var name string
+		switch {
+		case bytes.Contains(body, []byte(`"name.kw"`)):
+			name = "exact"
+		case bytes.Contains(body, []byte(`"bool_prefix"`)):
+			name = "prefix"
+		case bytes.Contains(body, []byte(`"fuzziness"`)) && bytes.Contains(body, []byte(`"match"`)):
+			name = "fuzzy-name"
+		case bytes.Contains(body, []byte(`"best_fields"`)):
+			name = "text"
+		default:
+			t.Errorf("unrecognised explain body: %s", body)
+			return esResponse(400, `{"error":"?"}`), nil
+		}
+		*calls = append(*calls, r.URL.Path+" "+name)
+		score, matched := scores[name]
+		if !matched {
+			return esResponse(200, `{"matched":false,"explanation":{"value":0.0,"description":"no match"}}`), nil
+		}
+		return esResponse(200, fmt.Sprintf(
+			`{"matched":true,"explanation":{"value":%v,"description":"sum of:"}}`, score)), nil
+	})
+}
+
+func TestExplainHandler(t *testing.T) {
+	var calls []string
+	rt := explainRT(t, &calls, map[string]float64{"exact": 33.2, "prefix": 6.1, "fuzzy-name": 2.4})
+	s, logBuf := newTestServer(t, rt)
+
+	rec := get(t, s, "/api/explain?id=base1-4&q=charizard")
+	if rec.Code != 200 {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		ID       string  `json:"id"`
+		Q        string  `json:"q"`
+		Found    bool    `json:"found"`
+		Score    float64 `json:"score"`
+		Branches []struct {
+			Name    string  `json:"name"`
+			Matched bool    `json:"matched"`
+			Score   float64 `json:"score"`
+		} `json:"branches"`
+		RequestID string `json:"request_id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.ID != "base1-4" || resp.Q != "charizard" || !resp.Found {
+		t.Errorf("identity: %+v", resp)
+	}
+	// One _explain per branch, in registry order, all against the same doc.
+	if len(calls) != 4 {
+		t.Fatalf("explain calls = %v", calls)
+	}
+	for i, want := range []string{"exact", "prefix", "fuzzy-name", "text"} {
+		if calls[i] != "/cards/_explain/base1-4 "+want {
+			t.Errorf("call %d = %q, want branch %q on /cards/_explain/base1-4", i, calls[i], want)
+		}
+		if resp.Branches[i].Name != want {
+			t.Errorf("branch %d = %q, want %q", i, resp.Branches[i].Name, want)
+		}
+	}
+	// A bool should sums its matched clauses, so the score is the sum of the
+	// matched branches and nothing else.
+	if resp.Score != 41.7 {
+		t.Errorf("score = %v, want 41.7 (33.2 + 6.1 + 2.4)", resp.Score)
+	}
+	if !resp.Branches[0].Matched || resp.Branches[0].Score != 33.2 {
+		t.Errorf("exact branch: %+v", resp.Branches[0])
+	}
+	if resp.Branches[3].Matched || resp.Branches[3].Score != 0 {
+		t.Errorf("unmatched text branch must score 0: %+v", resp.Branches[3])
+	}
+	if id := rec.Header().Get("X-Request-Id"); id == "" || resp.RequestID != id {
+		t.Errorf("request_id = %q, header = %q", resp.RequestID, id)
+	}
+	lg := queryLine(t, logBuf)
+	if lg["endpoint"] != "explain" || lg["status"] != float64(200) {
+		t.Errorf("log line: %v", lg)
+	}
+}
+
+// An id ES has never heard of is a legitimate answer, not an error: every
+// branch simply fails to match.
+func TestExplainUnknownDocument(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return esResponse(404, `{"_index":"cards","_id":"nope-1","found":false}`), nil
+	})
+	s, _ := newTestServer(t, rt)
+	rec := get(t, s, "/api/explain?id=nope-1&q=charizard")
+	if rec.Code != 200 {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Found    bool    `json:"found"`
+		Score    float64 `json:"score"`
+		Branches []struct {
+			Matched bool    `json:"matched"`
+			Score   float64 `json:"score"`
+		} `json:"branches"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Found || resp.Score != 0 || len(resp.Branches) != 4 {
+		t.Errorf("unknown doc: %+v", resp)
+	}
+	for i, b := range resp.Branches {
+		if b.Matched || b.Score != 0 {
+			t.Errorf("branch %d must be unmatched at 0: %+v", i, b)
+		}
+	}
+}
+
+func TestExplainRequiresIDAndQuery(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		t.Error("must not reach ES without both parameters")
+		return esResponse(200, `{}`), nil
+	})
+	s, _ := newTestServer(t, rt)
+	cases := []struct{ path, field string }{
+		{"/api/explain?q=charizard", "id"},
+		{"/api/explain?id=base1-4", "q"},
+		{"/api/explain?id=&q=", "id"},
+		{"/api/explain?id=base1-4&q=%20%20", "q"},
+	}
+	for _, c := range cases {
+		rec := get(t, s, c.path)
+		if rec.Code != 400 {
+			t.Errorf("%s: status %d, want 400", c.path, rec.Code)
+			continue
+		}
+		if body := decodeError(t, rec); body.Error.Code != codeInvalidParam || body.Error.Field != c.field {
+			t.Errorf("%s: error %+v, want field %q", c.path, body.Error, c.field)
+		}
+	}
+}
+
+func TestExplainESDown(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return nil, errors.New("connection refused")
+	})
+	s, logBuf := newTestServer(t, rt)
+	rec := get(t, s, "/api/explain?id=base1-4&q=charizard")
+	if rec.Code != 503 {
+		t.Fatalf("status %d, want 503: %s", rec.Code, rec.Body.String())
+	}
+	if body := decodeError(t, rec); body.Error.Code != codeESUnavailable {
+		t.Errorf("error body: %+v", body)
+	}
+	if lg := queryLine(t, logBuf); lg["endpoint"] != "explain" || lg["status"] != float64(503) {
+		t.Errorf("log line: %v", lg)
 	}
 }

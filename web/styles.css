@@ -781,6 +781,93 @@ main { min-width: 0; }
 #modal-meta-line { color: var(--muted); }
 #modal-flavor { padding-left: 1rem; border-left: 2px solid var(--accent); color: #b7bbc4; font-family: Georgia, serif; font-style: italic; line-height: 1.55; }
 
+/* Score anatomy: what each relevance branch contributed to this card's score.
+   Bars are proportional to the strongest branch, so the shape of the answer
+   reads before any number does. */
+#modal-why {
+  margin: .9rem 0 0;
+  padding: .4rem .8rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: .78rem;
+  letter-spacing: .02em;
+  background: var(--surface-raised);
+  cursor: pointer;
+  transition: color 160ms ease, border-color 160ms ease;
+}
+
+#modal-why:hover:not(:disabled) { border-color: var(--accent); color: var(--ink); }
+#modal-why:disabled { cursor: progress; opacity: .7; }
+
+#modal-explain {
+  display: grid;
+  gap: .35rem;
+  margin: .9rem 0 0;
+  padding: .85rem .95rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: var(--surface-input);
+}
+
+.explain-head {
+  margin: 0 0 .35rem;
+  color: var(--muted);
+  font-size: .74rem;
+  line-height: 1.45;
+}
+
+.explain-row {
+  display: grid;
+  grid-template-columns: 4.2rem 1fr 3rem;
+  align-items: center;
+  gap: .55rem;
+}
+
+.explain-row.is-unmatched { opacity: .42; }
+
+.explain-name,
+.explain-score {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.explain-name { color: var(--muted); }
+.explain-score { color: var(--ink); text-align: right; text-transform: none; }
+
+.explain-track {
+  display: block;
+  overflow: hidden;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .06);
+}
+
+/* The fill takes its hue from the same per-branch colour classes the grid
+   badges use, so a branch is one colour everywhere it appears. */
+.explain-fill {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  transition: width 260ms ease;
+}
+
+.explain-raw { margin-top: .5rem; }
+.explain-raw summary { color: var(--muted); font-size: .72rem; cursor: pointer; }
+
+.explain-raw pre {
+  overflow: auto;
+  max-height: 190px;
+  margin: .5rem 0 0;
+  color: #c7cbd4;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 #modal-attacks { display: grid; gap: 1.15rem; margin: 1.75rem 0; }
 
 .modal-section {

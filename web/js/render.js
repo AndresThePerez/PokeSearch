@@ -47,7 +47,7 @@ const BRANCH_LABELS = {
   text: "text",
 };
 
-function branchLabel(name) {
+export function branchLabel(name) {
   return BRANCH_LABELS[name] ?? name;
 }
 

@@ -14,13 +14,16 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"math"
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v8"
+	"github.com/elastic/go-elasticsearch/v8/esapi"
 
 	"github.com/AndresThePerez/pokesearch/internal/esindex"
 	"github.com/AndresThePerez/pokesearch/internal/search"
@@ -70,6 +73,7 @@ func New(es *elasticsearch.Client, static fs.FS, logW io.Writer, now func() time
 	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
 	s.mux.HandleFunc("GET /api/search", s.handleSearch)
 	s.mux.HandleFunc("GET /api/suggest", s.handleSuggest)
+	s.mux.HandleFunc("GET /api/explain", s.handleExplain)
 	s.mux.HandleFunc("GET /api/meta", s.handleMeta)
 	s.mux.Handle("GET /", http.FileServerFS(static))
 	// Wrapped once: every route — including anything registered later, such as
@@ -181,6 +185,8 @@ func routeLabel(path string) string {
 		return "search"
 	case "/api/suggest":
 		return "suggest"
+	case "/api/explain":
+		return "explain"
 	case "/api/meta":
 		return "meta"
 	case "/healthz":
@@ -683,26 +689,27 @@ func pagesFor(total, pageSize int) int {
 	return (capped + pageSize - 1) / pageSize
 }
 
-// esQuery runs one _search against the cards index and decodes the reply into
-// T. Every ES round trip in this package goes through it, so the per-request
-// timeout, the error-body capture and the decode all happen in exactly one
-// place — the response shape is the only thing that varies.
-func esQuery[T any](s *Server, r *http.Request, dsl map[string]any) (*T, error) {
-	body, err := json.Marshal(dsl)
-	if err != nil {
-		return nil, err
-	}
+// errESNotFound marks the one non-2xx that can be an answer rather than a
+// failure: _explain on a document that is not there. Callers that cannot get
+// one (search, suggest) treat it like any other ES error, so the 503 path is
+// unchanged; the cause still carries the ES body for the log.
+var errESNotFound = errors.New("elasticsearch: not found")
+
+// esCall runs one Elasticsearch round trip and decodes the reply into T. The
+// caller supplies the API call, so _search and _explain share the same
+// per-request timeout, the same error-body capture and the same decode — this
+// is the only place in the package that reads an ES response body.
+func esCall[T any](s *Server, r *http.Request, call func(context.Context) (*esapi.Response, error)) (*T, error) {
 	ctx, cancel := s.esCtx(r)
 	defer cancel()
-	res, err := s.es.Search(
-		s.es.Search.WithContext(ctx),
-		s.es.Search.WithIndex(esindex.IndexName),
-		s.es.Search.WithBody(bytes.NewReader(body)),
-	)
+	res, err := call(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer res.Body.Close()
+	if res.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("%w: %w", errESNotFound, esError(res.Status(), res.Body))
+	}
 	if res.IsError() {
 		return nil, esError(res.Status(), res.Body)
 	}
@@ -714,8 +721,163 @@ func esQuery[T any](s *Server, r *http.Request, dsl map[string]any) (*T, error) 
 	return &decoded, nil
 }
 
+// esQuery runs one _search against the cards index and decodes the reply into T.
+func esQuery[T any](s *Server, r *http.Request, dsl map[string]any) (*T, error) {
+	body, err := json.Marshal(dsl)
+	if err != nil {
+		return nil, err
+	}
+	return esCall[T](s, r, func(ctx context.Context) (*esapi.Response, error) {
+		return s.es.Search(
+			s.es.Search.WithContext(ctx),
+			s.es.Search.WithIndex(esindex.IndexName),
+			s.es.Search.WithBody(bytes.NewReader(body)),
+		)
+	})
+}
+
 func (s *Server) searchES(r *http.Request, dsl map[string]any) (*esSearchResponse, error) {
 	return esQuery[esSearchResponse](s, r, dsl)
+}
+
+// maxCardIDLen bounds the document id /api/explain will put in an ES URL path.
+// Real card ids are short ("cel25c-17_A" is among the longest); anything past
+// this is a mistake, and a 400 says so more usefully than found:false.
+const maxCardIDLen = 128
+
+// esExplainResponse is the part of _explain this endpoint reads. The full
+// Lucene explanation tree is deliberately not decoded: with one named branch
+// per call, the root value is that branch's contribution.
+type esExplainResponse struct {
+	Matched     bool `json:"matched"`
+	Explanation struct {
+		Value float64 `json:"value"`
+	} `json:"explanation"`
+}
+
+type explainBranch struct {
+	Name    string  `json:"name"`
+	Matched bool    `json:"matched"`
+	Score   float64 `json:"score"`
+}
+
+type explainResponse struct {
+	ID    string `json:"id"`
+	Q     string `json:"q"`
+	Found bool   `json:"found"`
+	// Score is the sum of the matched branches: a bool query's should clauses
+	// sum, so scoring each branch alone and adding them reconstructs the score
+	// the card was actually ranked by.
+	Score     float64         `json:"score"`
+	Branches  []explainBranch `json:"branches"`
+	TookMs    int64           `json:"took_ms"`
+	RequestID string          `json:"request_id"`
+}
+
+// handleExplain answers "why is this card here?" for one card: it replays each
+// relevance branch of the current query against that document through ES
+// _explain and reports the per-branch contributions.
+//
+// D4: this is on demand and single-document on purpose. Lucene explain on 24
+// hits per keystroke is pure waste; the per-hit matched_queries in /api/search
+// already covers the cheap half of the same question.
+//
+// Only id and q are read. Filters cannot change a score — they live in
+// post_filter — so the other search parameters are ignored rather than
+// rejected, the same exemption /api/suggest has.
+func (s *Server) handleExplain(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	entry := s.queryLog(r, "explain")
+	entry.Params = map[string]any{"id": id, "q": q}
+
+	if bad, field, message := explainParamError(id, q); bad {
+		entry.Status = http.StatusBadRequest
+		entry.Error = message
+		s.writeLog(entry)
+		s.writeError(w, r, http.StatusBadRequest, codeInvalidParam, field, message)
+		return
+	}
+
+	// One budget for the whole handler, not one per branch: WithTimeout takes
+	// the earlier of the two deadlines, so deriving the request's context once
+	// here caps all four calls at the single per-request ES budget instead of
+	// four times it.
+	ctx, cancel := s.esCtx(r)
+	defer cancel()
+	r = r.WithContext(ctx)
+
+	started := s.now()
+	branches := search.Branches(q)
+	resp := explainResponse{
+		ID:        id,
+		Q:         q,
+		Found:     true,
+		Branches:  make([]explainBranch, 0, len(branches)),
+		RequestID: requestID(r),
+	}
+	for _, b := range branches {
+		esr, err := s.explainBranch(r, id, b)
+		if errors.Is(err, errESNotFound) {
+			// The document is not in the index. Every branch is simply
+			// unmatched — that is an answer, and a 404 would make the UI
+			// invent an error for it.
+			resp.Found = false
+			esr, err = &esExplainResponse{}, nil
+		}
+		if err != nil {
+			s.writeES503(w, r, entry, err)
+			return
+		}
+		resp.Branches = append(resp.Branches, explainBranch{
+			Name:    b.Name,
+			Matched: esr.Matched,
+			Score:   esr.Explanation.Value,
+		})
+		if esr.Matched {
+			resp.Score += esr.Explanation.Value
+		}
+	}
+	// Summing floats leaves noise (33.2 + 6.1 + 2.4 is 41.699999999999996);
+	// the score is a display value, so it is rounded once, here.
+	resp.Score = math.Round(resp.Score*1e3) / 1e3
+	resp.TookMs = s.now().Sub(started).Milliseconds()
+
+	entry.TookMs = int(resp.TookMs)
+	entry.Total = len(resp.Branches)
+	entry.Status = http.StatusOK
+	s.writeLog(entry)
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// explainParamError enforces the two parameters the endpoint cannot work
+// without, in a fixed order so a request missing both names id first.
+func explainParamError(id, q string) (bool, string, string) {
+	switch {
+	case id == "":
+		return true, "id", "id is required"
+	case len(id) > maxCardIDLen:
+		return true, "id", fmt.Sprintf("id must be at most %d characters", maxCardIDLen)
+	case q == "":
+		return true, "q", "q is required"
+	}
+	return false, "", ""
+}
+
+// explainBranch scores one relevance branch against one document. Each call is
+// a single-document operation — the cost the design accepted in exchange for
+// not explaining 24 hits per keystroke.
+func (s *Server) explainBranch(r *http.Request, id string, b search.Branch) (*esExplainResponse, error) {
+	body, err := json.Marshal(map[string]any{"query": b.Query})
+	if err != nil {
+		return nil, err
+	}
+	return esCall[esExplainResponse](s, r, func(ctx context.Context) (*esapi.Response, error) {
+		return s.es.Explain(esindex.IndexName, id,
+			s.es.Explain.WithContext(ctx),
+			s.es.Explain.WithBody(bytes.NewReader(body)),
+		)
+	})
 }
 
 type esSuggestResponse struct {

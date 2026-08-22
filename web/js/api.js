@@ -75,6 +75,16 @@ export async function fetchCardByID(id) {
   return data.results[0] ?? null;
 }
 
+// fetchExplain asks the server to score one card against the current query,
+// branch by branch. It is the on-demand half of the relevance X-Ray: one
+// single-document call per click, never per keystroke.
+export async function fetchExplain(id, q) {
+  const sp = new URLSearchParams({ id, q });
+  const res = await fetch(`/api/explain?${sp}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 export async function refreshHealth() {
   try {
     const res = await fetch("/healthz");

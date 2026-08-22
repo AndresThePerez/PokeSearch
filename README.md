@@ -4,7 +4,7 @@
 [![Go 1.26](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Pokesearch is a fast search engine over 20,324 English Pokémon TCG cards: a Go API, Elasticsearch relevance and facets, and an embedded vanilla ES-module gallery in one containerized binary. Its signature feature is the observability rail — every search shows you the exact Elasticsearch DSL that answered it, the cluster's latency, the browser round trip, and the live SLA targets, while writing that same query to the application log as one replayable JSON line.
+Pokesearch is a fast search engine over 20,324 English Pokémon TCG cards: a Go API, Elasticsearch relevance and facets, and an embedded vanilla ES-module gallery in one containerized binary. Its signature feature is the observability rail — every search shows you the exact Elasticsearch DSL that answered it, the cluster's latency, the browser round trip, and the live SLA targets, while writing that same query to the application log as one replayable JSON line. The rail also breaks each request into Elasticsearch time versus everything else, sparklines the session's last twenty round trips, and prints the request id the log line carries. The treatment generalizes: `#stats` describes the whole archive in hand-rolled CSS charts and shows the aggregation DSL behind them in the same inspector.
 
 ![Pokesearch search results with the observability rail open](docs/media/hero.png)
 
@@ -80,6 +80,7 @@ docker compose up -d --build
 | `GET /api/meta` | Build identity and corpus provenance | — |
 | `GET /api/search` | Fuzzy multi-field card search, filters, facets, sorting, pagination | `q`, `id`, `supertype`, `types`, `set`, `rarity`, `series`, `hp_min`, `hp_max`, `sort`, `order`, `page`, `page_size`, `debug=1` |
 | `GET /api/suggest` | Deduplicated card-name completion with a fuzzy retry | `q` |
+| `GET /api/explain` | Score anatomy for one card under one query: per-branch contributions | `id`, `q` (both required) |
 | `GET /api/stats` | Corpus analytics: prints per year, HP distribution, type/class/rarity/series breakdowns, max HP | `debug=1` |
 | `GET /debug/vars` | expvar counters. **Opt-in** — only exists when `METRICS=1` | — |
 
@@ -114,6 +115,10 @@ A text query becomes four scored `should` branches. The boosts encode an intende
 | `prefix` | `multi_match` `bool_prefix` over `name.sayt` + 2/3-grams | **4** | Instant as-you-type matching, so partial names still rank highly. |
 | `fuzzy-name` | `match` on `name`, `fuzziness: AUTO` | **3** | Typo tolerance — "pikuchu" finds Pikachu — ranked below a real prefix match. |
 | `text` | `multi_match` `best_fields` over attack/ability names and text, flavor text, set name, artist | *implicit 1* | Discovery through card text: "flip a coin" finds cards by what they do. |
+
+The four branch names are a contract, not a comment. Elasticsearch echoes the ones each hit matched (`matched_queries`), so a text search's response carries a `matched` array aligned index-for-index with `results` — the grid renders them as per-card badges, and the boost hierarchy becomes observable: sort by relevance and watch the badge mix shift down the page. `GET /api/explain?id=…&q=…` takes the same question one card deeper, replaying each branch against that single document through Elasticsearch's `_explain` and reporting what each contributed. A `should` query's clauses sum, so the matched branches add back up to the score the card was ranked by — which is what the modal's score bars draw. It is deliberately on demand and single-document: Lucene explain on 24 hits per keystroke is pure waste.
+
+A text query also carries `highlights` (aligned the same way) and, when it found nothing, `did_you_mean`. Highlighting is on by default because it answers the question the reader actually asked — *why is this card in my results?* — and the fragments are `<mark>`-tagged server-side over card names, attack and ability names and text, and flavor text. The highlighter runs against its own non-fuzzy `highlight_query`: rewriting the ranking query's `fuzziness: AUTO` per document and per field costs 409 ms on this corpus against 20 ms for the scoped query, so ranking and marking are deliberately two different questions. The cost of that trade is exact and small — a card matched only by a typo still ranks, it just gets no snippet. `did_you_mean` comes from a term suggester that runs only on a zero-result text search: the cheapest response shape there is, and the one moment a correction cannot compete with the autocomplete the reader was already being offered.
 
 Filters (`supertype`, `types`, `rarity`, `set_series`, `set_id`, HP range) are scoring-neutral. With `q` empty there is nothing meaningful to score, so browse mode sorts by release date instead — match-all scores are noise. Every sort appends ascending card ID as a deterministic tiebreaker, which is what keeps page boundaries stable.
 

@@ -64,6 +64,11 @@ type searchResp struct {
 	Results  []map[string]any    `json:"results"`
 	Facets   map[string][]bucket `json:"facets"`
 	DSL      map[string]any      `json:"dsl"`
+	// The M3 per-hit additions. All three are text-query only, and the first
+	// two are aligned index-for-index with Results.
+	Matched    [][]string            `json:"matched"`
+	Highlights []map[string][]string `json:"highlights"`
+	DidYouMean string                `json:"did_you_mean"`
 }
 
 func search(t *testing.T, qs string) searchResp {
@@ -384,6 +389,207 @@ func TestPageSizeBounds(t *testing.T) {
 	}
 	if r := search(t, "page=999999"); r.Page != wantBrowsePages {
 		t.Errorf("page clamp at default size = %d, want %d", r.Page, wantBrowsePages)
+	}
+}
+
+// The relevance X-Ray and the highlighter, asserted against the live corpus:
+// a text query answers "why is this card here" per hit, and browse — which has
+// no query to be answered about — carries neither field at all.
+func TestSearchResponseAdditions(t *testing.T) {
+	r := search(t, "q=charizard")
+	if r.Total != 107 {
+		t.Fatalf("q=charizard total = %d, want 107", r.Total)
+	}
+	if len(r.Matched) != len(r.Results) || len(r.Highlights) != len(r.Results) {
+		t.Fatalf("matched %d, highlights %d, results %d — the three must stay aligned",
+			len(r.Matched), len(r.Highlights), len(r.Results))
+	}
+	// The first hit for an exact name is the exact branch, and every reported
+	// branch must be one the builder actually names.
+	named := map[string]bool{}
+	for _, b := range searchpkg.Branches("charizard") {
+		named[b.Name] = true
+	}
+	if len(r.Matched[0]) == 0 || r.Matched[0][0] != "exact" {
+		t.Errorf("top hit matched %v, want exact first", r.Matched[0])
+	}
+	for i, branches := range r.Matched {
+		for _, name := range branches {
+			if !named[name] {
+				t.Errorf("hit %d reports unknown branch %q", i, name)
+			}
+		}
+	}
+	// Highlighting is default-on for text queries (D5, Contract A) and the
+	// fragments are <mark>-tagged server-side.
+	marked := 0
+	for _, highlight := range r.Highlights {
+		for _, fragments := range highlight {
+			for _, fragment := range fragments {
+				if strings.Contains(fragment, "<mark>") {
+					marked++
+				}
+			}
+		}
+	}
+	if marked == 0 {
+		t.Error("no highlighted fragment on a text query — highlighting is default-on")
+	}
+
+	browse := search(t, "")
+	if browse.Matched != nil || browse.Highlights != nil {
+		t.Errorf("browse must carry neither matched nor highlights: %v / %v", browse.Matched, browse.Highlights)
+	}
+}
+
+type explainResp struct {
+	ID       string  `json:"id"`
+	Q        string  `json:"q"`
+	Found    bool    `json:"found"`
+	Score    float64 `json:"score"`
+	Branches []struct {
+		Name    string  `json:"name"`
+		Matched bool    `json:"matched"`
+		Score   float64 `json:"score"`
+	} `json:"branches"`
+}
+
+// /api/explain must reconstruct the score it explains: a bool query's should
+// clauses sum, so the matched branches' scores have to add up to the reported
+// total. That is the sanity check that keeps the score bars honest.
+func TestExplainBranchSum(t *testing.T) {
+	res, err := http.Get(baseURL() + "/api/explain?id=base1-4&q=charizard")
+	if err != nil {
+		t.Fatalf("GET /api/explain: %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != 200 {
+		t.Fatalf("GET /api/explain: status %d", res.StatusCode)
+	}
+	var out explainResp
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		t.Fatalf("decode explain: %v", err)
+	}
+	if !out.Found || out.Score <= 0 {
+		t.Fatalf("explain base1-4 = %+v, want found with a positive score", out)
+	}
+	if len(out.Branches) != len(searchpkg.Branches("charizard")) {
+		t.Errorf("explain reported %d branches, want %d", len(out.Branches), len(searchpkg.Branches("charizard")))
+	}
+	sum := 0.0
+	for _, b := range out.Branches {
+		if b.Matched {
+			sum += b.Score
+		}
+	}
+	if diff := sum - out.Score; diff > 0.01 || diff < -0.01 {
+		t.Errorf("matched branches sum to %.3f but score is %.3f", sum, out.Score)
+	}
+	// An unknown document is an answer, not an error (found:false, no 404).
+	res404, err := http.Get(baseURL() + "/api/explain?id=nope-99999&q=charizard")
+	if err != nil {
+		t.Fatalf("GET /api/explain (missing doc): %v", err)
+	}
+	defer res404.Body.Close()
+	if res404.StatusCode != 200 {
+		t.Errorf("explain on a missing document: status %d, want 200", res404.StatusCode)
+	}
+}
+
+// Did-you-mean fires only on a true zero-result text search (D8). The trigger
+// window is narrow — the search's own fuzziness rescues most typos — so these
+// are the locked probes, not invented ones.
+func TestDidYouMeanFixtures(t *testing.T) {
+	for query, want := range map[string]string{
+		"q=abxx":  "abra",
+		"q=zubxy": "zubat",
+		"q=ekxnz": "ekans",
+		"q=onxz":  "onix",
+	} {
+		r := search(t, query)
+		if r.Total != 0 {
+			t.Errorf("%s: total = %d, want 0 (the fixture must stay a zero-result query)", query, r.Total)
+			continue
+		}
+		if r.DidYouMean != want {
+			t.Errorf("%s: did_you_mean = %q, want %q", query, r.DidYouMean, want)
+		}
+	}
+	// A query with nothing to correct says nothing rather than guessing.
+	if r := search(t, "q=zzzzqqqqxxxx"); r.Total != 0 || r.DidYouMean != "" {
+		t.Errorf("q=zzzzqqqqxxxx: total = %d, did_you_mean = %q, want 0 and empty", r.Total, r.DidYouMean)
+	}
+	// A query that finds cards is never second-guessed.
+	if r := search(t, "q=charizard"); r.DidYouMean != "" {
+		t.Errorf("a successful search must not carry did_you_mean, got %q", r.DidYouMean)
+	}
+}
+
+// The identity surface: liveness, the frozen health contract, build identity,
+// the request-id echo, and metrics staying off unless they are asked for.
+func TestIdentityEndpoints(t *testing.T) {
+	var live struct {
+		Status string `json:"status"`
+	}
+	getJSON(t, "/livez", &live)
+	if live.Status != "alive" {
+		t.Errorf("/livez = %+v", live)
+	}
+
+	var health map[string]any
+	getJSON(t, "/healthz", &health)
+	if len(health) != 2 || health["status"] != "ok" || health["docs"] != float64(wantDocs) {
+		t.Errorf("/healthz = %v, want exactly {docs:%d, status:ok} — this shape is frozen", health, wantDocs)
+	}
+
+	var meta struct {
+		Version string `json:"version"`
+		Commit  string `json:"commit"`
+		Docs    int    `json:"docs"`
+	}
+	getJSON(t, "/api/meta", &meta)
+	if meta.Version == "" || meta.Commit == "" || meta.Docs != wantDocs {
+		t.Errorf("/api/meta = %+v", meta)
+	}
+
+	// An inbound trace id is honoured and echoed; every response carries one.
+	req, err := http.NewRequest("GET", baseURL()+"/api/search?q=pikachu", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Request-Id", "acceptance-probe-1")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET with request id: %v", err)
+	}
+	defer res.Body.Close()
+	if got := res.Header.Get("X-Request-Id"); got != "acceptance-probe-1" {
+		t.Errorf("X-Request-Id echo = %q, want the inbound id", got)
+	}
+
+	// D3: expvar is opt-in and the compose stack does not opt in.
+	vars, err := http.Get(baseURL() + "/debug/vars")
+	if err != nil {
+		t.Fatalf("GET /debug/vars: %v", err)
+	}
+	defer vars.Body.Close()
+	if vars.StatusCode != http.StatusNotFound {
+		t.Errorf("/debug/vars status %d, want 404 without METRICS", vars.StatusCode)
+	}
+}
+
+func getJSON(t *testing.T, path string, into any) {
+	t.Helper()
+	res, err := http.Get(baseURL() + path)
+	if err != nil {
+		t.Fatalf("GET %s: %v", path, err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != 200 {
+		t.Fatalf("GET %s: status %d", path, res.StatusCode)
+	}
+	if err := json.NewDecoder(res.Body).Decode(into); err != nil {
+		t.Fatalf("GET %s: decode: %v", path, err)
 	}
 }
 

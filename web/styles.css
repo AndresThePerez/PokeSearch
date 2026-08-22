@@ -1513,6 +1513,13 @@ body.route-stats .app-layout { grid-template-columns: minmax(0, 1fr) minmax(340p
   }
   .brand { justify-self: center; }
   .header-aside { justify-items: center; }
+  /* Thumb-sized, like every other control at this width. */
+  .stats-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 40px;
+    padding: 0 1rem;
+  }
   .archive-note {
     line-height: 1.4;
     text-align: center;

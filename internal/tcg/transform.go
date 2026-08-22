@@ -1,6 +1,7 @@
 package tcg
 
 import (
+	"math"
 	"strconv"
 	"strings"
 )
@@ -58,6 +59,12 @@ func Transform(sc SourceCard, set SourceSet) Card {
 
 // ParseDamage returns the leading integer of a printed damage string:
 // "30"→30, "10+"→10, "100×"→100, "120-"→120, ""→0.
+//
+// The result is indexed into attacks.damage_value, an ES integer, so a digit
+// run that cannot be one reports 0 — no numeric damage — instead of a
+// truncated or overflowed number. Discarding Atoi's error here used to turn a
+// long digit run into MaxInt64, which ES rejects at index time and which would
+// fail an entire bulk chunk (found by FuzzParseDamage).
 func ParseDamage(s string) int {
 	i := 0
 	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
@@ -66,7 +73,10 @@ func ParseDamage(s string) int {
 	if i == 0 {
 		return 0
 	}
-	n, _ := strconv.Atoi(s[:i])
+	n, err := strconv.Atoi(s[:i])
+	if err != nil || n > math.MaxInt32 {
+		return 0
+	}
 	return n
 }
 

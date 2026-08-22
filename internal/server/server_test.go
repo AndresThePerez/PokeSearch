@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v8"
+
+	"github.com/AndresThePerez/pokesearch/internal/version"
 )
 
 // roundTripperFunc fakes ES. Responses must carry X-Elastic-Product or the v8
@@ -707,6 +709,111 @@ func TestStaticServing(t *testing.T) {
 	rec := get(t, s, "/")
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Pokesearch") {
 		t.Errorf("static /: %d %q", rec.Code, rec.Body.String())
+	}
+}
+
+// metaRT fakes the two calls /api/meta makes: the doc count and the index
+// mapping that carries the seed provenance. mappingBody of "" means the
+// mapping has no _meta — the state the live index is in until its next reseed.
+func metaRT(mappingCalls *int, mappingBody string) roundTripperFunc {
+	return func(r *http.Request) (*http.Response, error) {
+		switch {
+		case strings.Contains(r.URL.Path, "_mapping"):
+			*mappingCalls++
+			if mappingBody == "" {
+				return esResponse(200, `{"cards":{"mappings":{}}}`), nil
+			}
+			return esResponse(200, mappingBody), nil
+		case strings.Contains(r.URL.Path, "_count"):
+			return esResponse(200, `{"count":20324}`), nil
+		}
+		return nil, errors.New("unexpected ES call: " + r.URL.Path)
+	}
+}
+
+const seedMetaBody = `{"cards":{"mappings":{"_meta":{"seed_ref":"abc","seeded_at":"2026-01-01T00:00:00Z"}}}}`
+
+// /api/meta answers "which build is this, and which corpus is it serving" —
+// the question every bug report and every Courier run has to pin down.
+func TestMetaEndpoint(t *testing.T) {
+	mappingCalls := 0
+	s, _ := newTestServer(t, metaRT(&mappingCalls, seedMetaBody))
+	rec := getWith(t, s, "/api/meta", map[string]string{"X-Request-Id": "trace-meta"})
+	if rec.Code != 200 {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Version string `json:"version"`
+		Commit  string `json:"commit"`
+		Built   string `json:"built"`
+		Docs    int    `json:"docs"`
+		Seed    *struct {
+			Ref      string `json:"ref"`
+			SeededAt string `json:"seeded_at"`
+		} `json:"seed"`
+		RequestID string `json:"request_id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Version != version.Version || resp.Commit != version.Commit || resp.Built != version.Built {
+		t.Errorf("build identity = %+v", resp)
+	}
+	if resp.Docs != 20324 {
+		t.Errorf("docs = %d, want 20324", resp.Docs)
+	}
+	if resp.Seed == nil || resp.Seed.Ref != "abc" || resp.Seed.SeededAt != "2026-01-01T00:00:00Z" {
+		t.Errorf("seed = %+v", resp.Seed)
+	}
+	if resp.RequestID != "trace-meta" {
+		t.Errorf("request_id = %q", resp.RequestID)
+	}
+
+	// The mapping is immutable between reseeds, so it is fetched once.
+	if rec := get(t, s, "/api/meta"); rec.Code != 200 {
+		t.Fatalf("second call: %d", rec.Code)
+	}
+	if mappingCalls != 1 {
+		t.Errorf("_mapping calls = %d, want 1 (cached)", mappingCalls)
+	}
+}
+
+// An index seeded before _meta stamping existed reports seed: null. That is
+// the live production index's state until its next reseed — documented
+// behaviour, not a failure.
+func TestMetaWithoutSeedProvenance(t *testing.T) {
+	mappingCalls := 0
+	s, _ := newTestServer(t, metaRT(&mappingCalls, ""))
+
+	for range 2 {
+		rec := get(t, s, "/api/meta")
+		if rec.Code != 200 {
+			t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), `"seed":null`) {
+			t.Errorf("missing _meta must report seed:null, got %s", rec.Body.String())
+		}
+	}
+	// Absence is never cached — the first /api/meta after a reseed must see the
+	// new stamp, exactly like the set catalog.
+	if mappingCalls != 2 {
+		t.Errorf("_mapping calls = %d, want 2 (absence must not be cached)", mappingCalls)
+	}
+}
+
+// /api/meta needs ES for both docs and provenance, so an unreachable cluster
+// is the standard 503 contract rather than a half-populated 200.
+func TestMetaESDown(t *testing.T) {
+	s, _ := newTestServer(t, roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return nil, errors.New("connection refused")
+	}))
+	rec := get(t, s, "/api/meta")
+	if rec.Code != 503 {
+		t.Fatalf("status %d, want 503", rec.Code)
+	}
+	if body := decodeError(t, rec); body.Error.Code != "es_unavailable" {
+		t.Errorf("503 body = %+v", body.Error)
 	}
 }
 

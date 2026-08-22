@@ -101,6 +101,12 @@ func run(esURL, ref string, force bool) error {
 		es.Indices.Create.WithBody(strings.NewReader(esindex.Mapping)))); err != nil {
 		return fmt.Errorf("create index: %w", err)
 	}
+	// Stamp provenance into the mapping so the index can say which corpus
+	// snapshot it holds. GET /api/meta reads it straight back out.
+	if err := do(es.Indices.PutMapping([]string{esindex.IndexName},
+		strings.NewReader(metaBody(ref, time.Now())))); err != nil {
+		return fmt.Errorf("stamp _meta: %w", err)
+	}
 	if err := do(es.Indices.PutSettings(strings.NewReader(`{"index":{"refresh_interval":"-1"}}`),
 		es.Indices.PutSettings.WithIndex(esindex.IndexName))); err != nil {
 		return fmt.Errorf("disable refresh: %w", err)
@@ -154,6 +160,14 @@ func run(esURL, ref string, force bool) error {
 	slog.Info("seeded", "cards", count.Count, "index", esindex.IndexName,
 		"took", time.Since(start).Round(time.Millisecond).String(), "ref", ref)
 	return nil
+}
+
+// metaBody builds the index mapping's _meta block. The two keys are a contract
+// with the server's /api/meta decoder — renaming one here breaks provenance
+// reporting there, which is what cmd/seed's TestMetaBody guards.
+func metaBody(ref string, at time.Time) string {
+	return fmt.Sprintf(`{"_meta":{"seed_ref":%q,"seeded_at":%q}}`,
+		ref, at.UTC().Format(time.RFC3339))
 }
 
 // do drains an esapi call, returning an error when transport or HTTP failed.

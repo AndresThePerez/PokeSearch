@@ -21,6 +21,7 @@ import (
 
 	"github.com/AndresThePerez/pokesearch/internal/esindex"
 	"github.com/AndresThePerez/pokesearch/internal/search"
+	"github.com/AndresThePerez/pokesearch/internal/version"
 )
 
 // esRequestTimeout bounds every Elasticsearch round trip a request makes. It
@@ -38,6 +39,8 @@ type Server struct {
 	esTimeout    time.Duration
 	setCatalogMu sync.RWMutex
 	setCatalog   []facetBucket
+	seedMetaMu   sync.RWMutex
+	seedMeta     *seedMeta
 }
 
 func New(es *elasticsearch.Client, static fs.FS, logW io.Writer, now func() time.Time) *Server {
@@ -64,6 +67,7 @@ func New(es *elasticsearch.Client, static fs.FS, logW io.Writer, now func() time
 	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
 	s.mux.HandleFunc("GET /api/search", s.handleSearch)
 	s.mux.HandleFunc("GET /api/suggest", s.handleSuggest)
+	s.mux.HandleFunc("GET /api/meta", s.handleMeta)
 	s.mux.Handle("GET /", http.FileServerFS(static))
 	// Wrapped once: every route — including anything registered later, such as
 	// EnableMetrics' /debug/vars — inherits the request ID and the access line.
@@ -252,7 +256,20 @@ func (s *Server) handleLivez(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "alive"})
 }
 
+// handleHealthz is a frozen contract — {"docs":N,"status":"ok"} with a real ES
+// round trip. Courier asserts on it; do not change its shape or its semantics.
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	docs, err := s.countDocs(r)
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "error"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "docs": docs})
+}
+
+// countDocs is the shared _count round trip. A missing index is not an error:
+// it is the not-seeded-yet signal, and it counts as zero documents.
+func (s *Server) countDocs(r *http.Request) (int, error) {
 	ctx, cancel := s.esCtx(r)
 	defer cancel()
 	res, err := s.es.Count(
@@ -260,28 +277,122 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 		s.es.Count.WithIndex(esindex.IndexName),
 	)
 	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "error"})
-		return
+		return 0, err
 	}
 	defer res.Body.Close()
 
 	if res.StatusCode == http.StatusNotFound {
-		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "docs": 0})
-		return
+		return 0, nil
 	}
 	if res.IsError() {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "error"})
-		return
+		return 0, esError(res.Status(), res.Body)
 	}
 
 	var body struct {
 		Count int `json:"count"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "error"})
+		return 0, err
+	}
+	return body.Count, nil
+}
+
+// seedMeta is the corpus provenance the seeder stamps into the index mapping's
+// _meta. It answers "which snapshot of pokemon-tcg-data is this index?".
+type seedMeta struct {
+	Ref      string `json:"ref"`
+	SeededAt string `json:"seeded_at"`
+}
+
+type metaResponse struct {
+	Version   string    `json:"version"`
+	Commit    string    `json:"commit"`
+	Built     string    `json:"built"`
+	Docs      int       `json:"docs"`
+	Seed      *seedMeta `json:"seed"`
+	RequestID string    `json:"request_id"`
+}
+
+// handleMeta reports build identity plus corpus provenance: the pair that lets
+// a bug report, a screenshot or a Courier run name the exact thing it hit.
+func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
+	entry := s.queryLog(r, "meta")
+	entry.Params = map[string]any{}
+
+	docs, err := s.countDocs(r)
+	if err != nil {
+		s.writeES503(w, r, entry, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "docs": body.Count})
+	seed, err := s.loadSeedMeta(r)
+	if err != nil {
+		s.writeES503(w, r, entry, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, metaResponse{
+		Version:   version.Version,
+		Commit:    version.Commit,
+		Built:     version.Built,
+		Docs:      docs,
+		Seed:      seed,
+		RequestID: requestID(r),
+	})
+}
+
+// loadSeedMeta reads the index mapping's _meta, caching it for the process
+// lifetime — the mapping is immutable between reseeds. Absence is never
+// cached: an index seeded before stamping existed reports seed:null until its
+// next reseed, and that reseed must be visible without a restart. Same
+// fetch-outside-the-lock shape as loadSetCatalog, for the same reasons.
+func (s *Server) loadSeedMeta(r *http.Request) (*seedMeta, error) {
+	s.seedMetaMu.RLock()
+	cached := s.seedMeta
+	s.seedMetaMu.RUnlock()
+	if cached != nil {
+		return cached, nil
+	}
+
+	ctx, cancel := s.esCtx(r)
+	defer cancel()
+	res, err := s.es.Indices.GetMapping(
+		s.es.Indices.GetMapping.WithContext(ctx),
+		s.es.Indices.GetMapping.WithIndex(esindex.IndexName),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode == http.StatusNotFound {
+		return nil, nil // unseeded index: no provenance to report
+	}
+	if res.IsError() {
+		return nil, esError(res.Status(), res.Body)
+	}
+
+	var body map[string]struct {
+		Mappings struct {
+			Meta *struct {
+				SeedRef  string `json:"seed_ref"`
+				SeededAt string `json:"seeded_at"`
+			} `json:"_meta"`
+		} `json:"mappings"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		return nil, err
+	}
+	index, ok := body[esindex.IndexName]
+	if !ok || index.Mappings.Meta == nil {
+		return nil, nil
+	}
+	found := &seedMeta{Ref: index.Mappings.Meta.SeedRef, SeededAt: index.Mappings.Meta.SeededAt}
+
+	s.seedMetaMu.Lock()
+	if s.seedMeta == nil {
+		s.seedMeta = found
+	}
+	cached = s.seedMeta
+	s.seedMetaMu.Unlock()
+	return cached, nil
 }
 
 type facetBucket struct {

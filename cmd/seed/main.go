@@ -23,18 +23,25 @@ import (
 
 const chunkSize = 1000
 
+// defaultTarballBase is the corpus source; the git ref is appended to it. It
+// is a flag rather than a constant so run() can be pointed at a local fixture
+// server and tested without reaching GitHub.
+const defaultTarballBase = "https://codeload.github.com/AndresThePerez/pokemon-tcg-data/tar.gz/"
+
 func main() {
 	esURL := flag.String("es", "http://127.0.0.1:9200", "Elasticsearch URL")
 	ref := flag.String("ref", "master", "pokemon-tcg-data git ref to ingest")
 	force := flag.Bool("force", false, "delete and recreate a populated index")
+	tarballBase := flag.String("tarball-base", defaultTarballBase,
+		"base URL for the corpus tarball; the -ref value is appended to it")
 	flag.Parse()
-	if err := run(*esURL, *ref, *force); err != nil {
+	if err := run(*esURL, *tarballBase, *ref, *force); err != nil {
 		slog.Error("seed failed", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(esURL, ref string, force bool) error {
+func run(esURL, tarballBase, ref string, force bool) error {
 	start := time.Now()
 	es, err := elasticsearch.NewClient(elasticsearch.Config{Addresses: []string{esURL}})
 	if err != nil {
@@ -77,7 +84,7 @@ func run(esURL, ref string, force bool) error {
 		return fmt.Errorf("inspect index: ES %s: %s", res.Status(), truncate(string(body), 500))
 	}
 
-	url := "https://codeload.github.com/AndresThePerez/pokemon-tcg-data/tar.gz/" + ref
+	url := tarballBase + ref
 	slog.Info("fetching corpus", "url", url)
 	resp, err := http.Get(url)
 	if err != nil {

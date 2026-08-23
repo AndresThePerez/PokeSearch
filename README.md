@@ -4,7 +4,13 @@
 [![Go 1.26](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Pokesearch is a fast search engine over 20,324 English Pokémon TCG cards: a Go API, Elasticsearch relevance and facets, and an embedded vanilla ES-module gallery in one containerized binary. Its signature feature is the observability rail — every search shows you the exact Elasticsearch DSL that answered it, the cluster's latency, the browser round trip, and the live SLA targets, while writing that same query to the application log as one replayable JSON line. The rail also breaks each request into Elasticsearch time versus everything else, sparklines the session's last twenty round trips, and prints the request id the log line carries. The treatment generalizes: `#stats` describes the whole archive in hand-rolled CSS charts and shows the aggregation DSL behind them in the same inspector.
+### **[Live demo → pokesearch.andrestheperez.com](https://pokesearch.andrestheperez.com)**
+
+Pokesearch is a full-text search engine over all 20,324 English Pokémon TCG cards — a Go API, an Elasticsearch relevance model with disjunctive facets, and a dependency-free ES-module frontend, shipped as a single containerized binary. Searching the corpus is the easy half. The half worth reading the code for is that the engine explains itself.
+
+Every result page carries an observability rail: the exact Elasticsearch DSL that answered the query, the cluster's own latency broken out from the browser round trip, a sparkline of the session's last twenty requests, and the live SLA targets — while the same query goes to the application log as one replayable JSON line tagged with the request ID printed on screen.
+
+Relevance is equally legible. A text query fans into four *named*, boosted `should` branches; Elasticsearch echoes which branches each hit matched, so the grid renders them as per-card badges and the boost hierarchy becomes something you can watch shift down the page. `GET /api/explain` takes it one card deeper through Lucene's `_explain`, and because a `should` query's clauses sum, the modal's score bars add back up to the number the card was ranked by. The treatment generalizes: `#stats` profiles the entire archive in hand-rolled CSS charts and shows the aggregation DSL behind them in the same inspector.
 
 ![Pokesearch search results with the observability rail open](docs/media/hero.png)
 
@@ -36,11 +42,14 @@ go run ./cmd/seed
 PORT=8080 go run ./cmd/server
 ```
 
+`docker-compose.dev.yml` binds Elasticsearch to `127.0.0.1:9200` only — never `0.0.0.0`.
+
 The seed command accepts:
 
-- `-es URL` — Elasticsearch URL.
+- `-es URL` — Elasticsearch URL. Defaults to `http://127.0.0.1:9200`.
 - `-ref REF` — `AndresThePerez/pokemon-tcg-data` Git ref; defaults to `master`. Pin a commit SHA when a reproducible corpus snapshot matters.
 - `-force` — delete and recreate a populated `cards` index.
+- `-tarball-base URL` — source tarball base; defaults to the dataset's `codeload.github.com` path. Override it to seed from a mirror.
 
 Run the checks the CI workflow runs:
 
@@ -49,16 +58,20 @@ go build ./...
 go vet ./...
 go vet -tags acceptance ./internal/acceptance
 go test -race ./...
-golangci-lint run ./...
+golangci-lint run
 go run golang.org/x/vuln/cmd/govulncheck@latest ./...
-for f in web/js/*.js; do node --check "$f"; done
+find web -name '*.js' -exec node --check {} \;
 ```
+
+CI adds one job this list cannot express locally: it builds the runtime image and asserts via `docker inspect` that it does not run as root.
 
 The acceptance suite is build-tagged and runs against a live stack:
 
 ```bash
 POKESEARCH_URL=http://localhost:8080 go test -tags acceptance -count=1 ./internal/acceptance
 ```
+
+`.github/workflows/acceptance.yml` runs that same suite end to end on demand (`workflow_dispatch`): it brings the stack up, seeds the pinned ref, asserts `/healthz` reports exactly 20,324 documents, and only then runs the tests.
 
 ### Build identity
 
@@ -75,6 +88,7 @@ docker compose up -d --build
 
 | Endpoint | Purpose | Parameters |
 |---|---|---|
+| `GET /` | The embedded frontend, served from `embed.FS` | — |
 | `GET /livez` | Liveness only — never touches Elasticsearch. Container healthcheck target. | — |
 | `GET /healthz` | Elasticsearch reachability and indexed document count | — |
 | `GET /api/meta` | Build identity and corpus provenance | — |
@@ -83,6 +97,8 @@ docker compose up -d --build
 | `GET /api/explain` | Score anatomy for one card under one query: per-branch contributions | `id`, `q` (both required) |
 | `GET /api/stats` | Corpus analytics: prints per year, HP distribution, type/class/rarity/series breakdowns, max HP | `debug=1` |
 | `GET /debug/vars` | expvar counters. **Opt-in** — only exists when `METRICS=1` | — |
+
+Routes are registered with method-scoped patterns, so a `POST` to a `GET` route returns `405`, not `404`.
 
 Search responses carry Elasticsearch's `took_ms`, the effective `page_size`, and live `supertype`, `types`, `rarity`, `set_series`, and readable `sets` facets. The `set` parameter takes an exact set ID; combine it with `q` to search within that set. Add `debug=1` to receive the generated DSL in the response.
 
@@ -103,7 +119,13 @@ Search responses carry Elasticsearch's `took_ms`, the effective `page_size`, and
 
 `seed` is `null` for an index seeded before provenance stamping existed. That is reported, not repaired: the stamp appears on the index's next reseed.
 
+### Corpus analytics
+
 `GET /api/stats` aggregates the whole archive in a single `size: 0` request — a `date_histogram` of prints per year, a 30-point HP histogram, the four categorical breakdowns (read from the same facet registry the filter rail uses) and the corpus maximum HP. The corpus is immutable between reseeds, so the result is computed on the first request and served from memory afterwards; an empty index is served but never cached, so the first request after a seed heals it without a restart. `took_ms` is therefore the Elasticsearch time of the aggregation that produced the payload, not of the request being answered.
+
+The `#stats` view renders that payload in hand-rolled CSS charts — no charting library — and the observability rail stays attached, so the aggregation DSL is one click away from the numbers it produced:
+
+![The #stats corpus-analytics view: prints per year, HP distribution and energy-type breakdowns, with the observability rail alongside](docs/media/stats.png)
 
 ### Relevance design
 
@@ -120,7 +142,7 @@ The four branch names are a contract, not a comment. Elasticsearch echoes the on
 
 A text query also carries `highlights` (aligned the same way) and, when it found nothing, `did_you_mean`. Highlighting is on by default because it answers the question the reader actually asked — *why is this card in my results?* — and the fragments are `<mark>`-tagged server-side over card names, attack and ability names and text, and flavor text. The highlighter runs against its own non-fuzzy `highlight_query`: rewriting the ranking query's `fuzziness: AUTO` per document and per field costs 409 ms on this corpus against 20 ms for the scoped query, so ranking and marking are deliberately two different questions. The cost of that trade is exact and small — a card matched only by a typo still ranks, it just gets no snippet. `did_you_mean` comes from a term suggester that runs only on a zero-result text search: the cheapest response shape there is, and the one moment a correction cannot compete with the autocomplete the reader was already being offered.
 
-Filters (`supertype`, `types`, `rarity`, `set_series`, `set_id`, HP range) are scoring-neutral. With `q` empty there is nothing meaningful to score, so browse mode sorts by release date instead — match-all scores are noise. Every sort appends ascending card ID as a deterministic tiebreaker, which is what keeps page boundaries stable.
+Filters (`supertype`, `types`, `rarity`, `set_series`, `set_id`, HP range) are scoring-neutral. With `q` empty there is nothing meaningful to score, so browse mode sorts by release date instead — match-all scores are noise, and asking for `sort=relevance` without a query is silently downgraded to `newest` rather than rejected. Every sort appends ascending card ID as a deterministic tiebreaker, which is what keeps page boundaries stable.
 
 Facets are **disjunctive**: each one is computed with every active filter *except its own*, so selecting `Rare` does not collapse the rarity dropdown to `Rare`, and the count next to an option predicts what clicking it will do. See [ADR 3](docs/DECISIONS.md#adr-3--disjunctive-facets-via-post_filter).
 
@@ -136,7 +158,7 @@ pages = ceil(min(total, 9600) / page_size)
 
 ### Errors
 
-Every non-2xx response uses one shape:
+Every non-2xx **JSON API** response uses one shape:
 
 ```json
 {
@@ -147,8 +169,10 @@ Every non-2xx response uses one shape:
 
 | Code | Status | Meaning |
 |---|---|---|
-| `invalid_param` | `400` | A strict parameter was supplied with an invalid value. `field` names it. |
+| `invalid_param` | `400` | A strict parameter was supplied with an invalid value, or a required one (`/api/explain`'s `id` and `q`) was omitted. `field` names it. |
 | `es_unavailable` | `503` | Elasticsearch could not be reached or returned an error. The cause — including a truncated Elasticsearch error body — goes to the log, never to the client. |
+
+Two responses sit outside the envelope by design: `/healthz` answers a failed probe with its own frozen `{"status":"error"}` body, because a health endpoint's shape must never change, and the static file handler returns net/http's plain-text `404` for unknown asset paths.
 
 Parameters split into two groups:
 
@@ -161,11 +185,11 @@ Out-of-range integers are clamped, not rejected — a clamp is a contract, an al
 
 ### Type names
 
-The API and index retain the source dataset's canonical TCG type values. The interface presents `Metal` as **Steel** and `Colorless` as **Normal**, including filter labels, active-filter chips, attack costs, and card details.
+The API and index retain the source dataset's canonical TCG type values. The interface presents `Metal` as **Steel** and `Colorless` as **Normal**, including filter labels, active-filter chips, attack costs, card details, and the `#stats` chart labels.
 
 ### Card images
 
-Card art is served from `images.scrydex.com`. The seeder rewrites the source dataset's legacy `images.pokemontcg.io` URLs to Scrydex card-ID routes, because the original URLs return real 404s. This is a hard third-party dependency: if Scrydex is unavailable, art fails to load while search itself continues to work.
+Card art is served from `images.scrydex.com`. The index and the API keep the source dataset's original `images.pokemontcg.io` URLs verbatim; the **frontend** rewrites them to Scrydex card-ID routes at render time, because the original URLs return real 404s. Keeping the rewrite at the presentation layer means the stored documents stay faithful to their source and a future art host is a one-function change. This is a hard third-party dependency: if Scrydex is unavailable, art fails to load while search itself continues to work.
 
 ## Observability
 
@@ -213,7 +237,7 @@ pokemon-tcg-data tarball (streamed from GitHub)
 
 The production Compose topology publishes only the Go application. `docker-compose.dev.yml` is deliberately opt-in so a plain `docker compose up` never exposes Elasticsearch on the host.
 
-The runtime image is `gcr.io/distroless/static-debian12:nonroot` — no shell, no package manager, running as uid 65532, with both base images pinned by digest. Because there is no shell, the server binary is its own healthcheck client (`/server -ping`).
+Elasticsearch runs `docker.elastic.co/elasticsearch/elasticsearch:8.15.0` as a single node with a 512m JVM heap. The runtime image is `gcr.io/distroless/static-debian12:nonroot` — no shell, no package manager, running as uid 65532, with both build and runtime base images pinned by digest. Because there is no shell, the server binary is its own healthcheck client (`/server -ping`).
 
 **Why any of this is the way it is:** [docs/DECISIONS.md](docs/DECISIONS.md).
 
@@ -225,7 +249,7 @@ The stack is deployed by pulling the repository onto a host and building there. 
 |---|---|---|
 | `DEPLOY_HOST` | `user@server` | SSH target running Docker |
 | `DEPLOY_DIR` | `~/apps/pokesearch` | Checkout location on that host |
-| `APP_PORT` | `8083` | Host port to publish the application on |
+| `APP_PORT` | `8083` | Host port to publish the application on (defaults to `8080`) |
 | `SEED_REF` | `0af6250a…` | `pokemon-tcg-data` commit to index |
 
 ```bash
@@ -240,7 +264,7 @@ docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build
 
 Never edit the deployed clone in place: commit on a workstation, push, pull on the host.
 
-**Concrete instance.** The public deployment runs on a home server in `~/apps/pokesearch`, published on host port **8083** (8080–8082 are taken by other services) and exposed at `https://pokesearch.andrestheperez.com` through the host's existing Cloudflare Tunnel — one ingress rule above the 404 catch-all. Wildcard DNS already routes the subdomain, so no DNS change is involved. The same tunnel serves other production sites; regression-check them all after any config change.
+**Concrete instance.** The public deployment runs on a home server in `~/apps/pokesearch`, published on host port **8083** and exposed at <https://pokesearch.andrestheperez.com> through the host's existing Cloudflare Tunnel — one ingress rule above the 404 catch-all. Wildcard DNS already routes the subdomain, so no DNS change is involved. The same tunnel serves other production sites; regression-check them all after any config change.
 
 ### Seeding
 
@@ -289,4 +313,4 @@ Rollback for public exposure: restore the previous `cloudflared` config backup o
 
 [MIT](LICENSE) © 2026 Andres Perez.
 
-Card data comes from the `pokemon-tcg-data` dataset. Pokémon and all associated names are trademarks of Nintendo, Game Freak and The Pokémon Company; this project is an unaffiliated, non-commercial portfolio piece.
+Pokémon and Pokémon character names are trademarks of Nintendo, Creatures Inc., and GAME FREAK inc. Card data comes from the `pokemon-tcg-data` dataset. This project is unaffiliated with those companies and is non-commercial.

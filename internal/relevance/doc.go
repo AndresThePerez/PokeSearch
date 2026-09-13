@@ -41,10 +41,13 @@
 // it rose the ranking reached outside the pool and the set needs re-pooling
 // before the number means anything. It was zero across every stratum when the
 // set was written, because the pool was drawn from the windows the weights of
-// the day returned. ADR 10 then moved two of those weights on the strength of
-// this harness, so the current baseline carries a nonzero unrated@10 and the
-// set is owed the re-pool ADR 10 records — which is the predicted cost of the
-// bias above arriving, not a surprise.
+// the day returned; the sweep behind ADR 10 then pushed it to 69, which is the
+// bias above arriving exactly where it was predicted to. The set was re-pooled
+// rather than read around — every card any point of that sweep's grid ranks in
+// a top ten is now judged — so it is zero again, at every point of the grid and
+// in every stratum. That is what makes the weights ADR 10 adopted measured
+// rather than merely better-scoring: no window the decision rests on contains a
+// card nobody looked at.
 //
 // Every judged card id is checked against the index before any number is
 // computed. _rank_eval answers a rating that names a document the index does

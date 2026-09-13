@@ -369,11 +369,13 @@ than assumed.
 
 ## ADR 10 — Measured branch weights
 
-**Decision.** The `prefix` boost moves from 4 to **2** and the `fuzzy-name`
-boost from 3 to **1.5**. The `exact` boost stays at **8** and the `text` branch
-keeps Elasticsearch's implicit **1**. The two that moved were chosen by the
-harness [ADR 9](#adr-9--how-relevance-is-evaluated) specified, against the
-judged set it specified, on the metric it named the headline.
+**Decision.** The `prefix` boost is **2** and the `fuzzy-name` boost is **1.5**,
+down from 4 and 3. The `exact` boost stays at **8** and the `text` branch keeps
+Elasticsearch's implicit **1**. The two that moved were chosen by the harness
+[ADR 9](#adr-9--how-relevance-is-evaluated) specified, against the judged set it
+specified, on the metric it named the headline — and then re-measured on a
+re-pooled set after the first measurement turned out to rest on a half-judged
+window. The second measurement is the one recorded here.
 
 **The grid.** Twenty-seven points: each swept boost took half its value, its
 value, and double it — `exact` over 4 / 8 / 16, `prefix` over 2 / 4 / 8,
@@ -381,49 +383,79 @@ value, and double it — `exact` over 4 / 8 / 16, `prefix` over 2 / 4 / 8,
 boost only ever sets a ratio, against the other branches and above all against
 text's fixed 1, so the grid moves on a log scale; text is not swept because
 moving it would rescale the other three rather than say anything new. Every
-point was scored on all 50 judged queries with all three metrics, and the
-harness built each request through `BuildQuery` and then overwrote the boosts of
-the named `should` clauses, so a grid point is the served query with two numbers
-changed and nothing else. `internal/search` gained no knob for this: [ADR
+point is scored on all 50 judged queries with all three metrics. The harness
+builds each request through `BuildQuery` and then overwrites the boosts of the
+named `should` clauses, so a grid point is the served query with three numbers
+rewritten and nothing else. `internal/search` gained no knob for this: [ADR
 2](#adr-2--internalsearch-is-a-pure-dsl-builder) keeps it a pure builder, and a
 one-off measurement is not a reason to grow a configuration surface.
 
-**The result.** Overall nDCG@10 rose from **0.592693** to **0.636402**,
-**+0.043710**. MRR@10 rose from 0.547167 to 0.603333. Precision@10 *fell*
-slightly, from 0.642000 to 0.638000 — the winner is not a win on every metric,
-and saying so is the point of reporting three.
+**The reference point is 8 / 4 / 3.** Every "before" figure below is that point
+— the weights served before this work — and not whatever happens to be served
+when the sweep is next run. The harness names it as a constant and asserts it is
+in the grid, because a delta measured against the current weights collapses to
+zero the moment a point is adopted, and a report of no movement is not the same
+as a report of no change.
+
+**A point can only be adopted if its window is fully judged.** `unrated@10`
+counts hits inside the evaluated window that no judgment covers, and such hits
+score as irrelevant — not because anybody looked and judged them irrelevant, but
+because nobody looked. A point carrying them has not been measured against the
+pool at all, so it cannot be adopted at any score; it is a request to judge what
+it surfaced and run again. The harness enforces this: the best point is reported
+whatever it scores, and the run fails with `RE-POOL REQUIRED` if that point is
+not fully judged.
+
+That rule is written here because this decision violated it once. The first
+sweep ran against a pool drawn from the reference point's own windows, so the
+reference scored `unrated@10` 0 by construction and every challenger paid a toll
+for surfacing cards nobody had graded — 8/2/1.5 carried 69 unjudged hits out of
+a 500-slot window, 13.8% of it. It won anyway, and the temptation was to adopt
+it on the argument that the bias ran in its favour. The judgment set was
+re-pooled instead: 117 judgments were added so that every card any of the 27
+points ranks in a top ten is graded, taking the set from 652 judgments to 769.
+`unrated@10` is now **0 at all 27 points, in all seven strata**, and every number
+below is measured on that pool.
+
+**The result.** Overall nDCG@10 rises from **0.585617** to **0.645359**,
+**+0.059743**. Precision@10 rises from 0.642000 to 0.662000. MRR@10 rises from
+0.547167 to 0.603333. On the re-pooled set the adopted point improves all three,
+which the half-judged measurement did not show — it had precision@10 falling.
 
 | Stratum | nDCG@10 at 8/4/3 | at 8/2/1.5 | Δ |
 |---|---|---|---|
-| exact name | 1.000000 | 0.979141 | −0.020859 |
-| prefix | 0.546714 | 0.541245 | −0.005469 |
-| typo | 0.928329 | 0.895716 | −0.032613 |
-| attack text | 0.493912 | 0.792111 | **+0.298199** |
+| exact name | 0.992428 | 0.971654 | −0.020774 |
+| prefix | 0.546714 | 0.569717 | +0.023003 |
+| typo | 0.908825 | 0.876376 | −0.032449 |
+| attack text | 0.478453 | 0.845457 | **+0.367004** |
 | artist | 0.795661 | 0.795661 | 0.000000 |
-| set name | 0.263157 | 0.324375 | +0.061218 |
-| natural-language intent | 0.180028 | 0.190297 | +0.010269 |
+| set name | 0.255307 | 0.327315 | +0.072008 |
+| natural-language intent | 0.179890 | 0.195589 | +0.015699 |
 
 The whole gain is one trade: the name branches were loud enough to drown the
-card-text branch, and quieting them let card text be heard. Four of seven strata
-improve, artist does not move at all, and the three name-shaped strata each give
-up a little.
+card-text branch, and quieting them let card text be heard. Five of seven strata
+improve, artist does not move at all, and exact name and typo each give up a
+little.
 
 **The exact boost is inert, and is therefore not a measured weight.** Every
-metric, overall and per stratum, came back identical to the last digit of a
-float64 at `exact` 4, 8 and 16 — three of the twenty-seven points describe one
-ranking. That is what a `term` clause does: it either fires for a card or it
-does not, and 4 already lifts every card it fires for clear of everything else,
-so multiplying it reorders nothing. The sweep gives no reason to move it and no
-reason to keep it either; 8 stays because nothing measured argues against it,
-and this record says so rather than letting the table imply the number was
-earned.
+metric, overall and per stratum, comes back identical to the last digit of a
+float64 at `exact` 4, 8 and 16 — 4/2/1.5 and 16/2/1.5 tie the adopted point
+exactly, and three of the twenty-seven points describe one ranking. That is what
+a `term` clause does: it either fires for a card or it does not, and 4 already
+lifts every card it fires for clear of everything else, so multiplying it
+reorders nothing. The tie rule is that an exact tie leaves the current value in
+place, so `exact` stays at 8 — because nothing measured argues against it, not
+because anything measured earned it. This record says so rather than letting the
+README table imply the number was won.
 
-**The runner-up** is **8/4/1.5** at nDCG@10 **0.632611** (+0.039919 against the
-served point), which keeps `prefix` at 4 and only halves `fuzzy-name`. It scores
-the best precision@10 in the whole grid, 0.652000, and it costs two fewer
-queries than the winner. It lost the headline by 0.003791, which is a small
-enough margin that a re-pooled judgment set could plausibly reverse it — a
-reader reopening this decision should start there.
+**The runner-up** is **8/4/1.5** at nDCG@10 **0.641568**, which keeps `prefix` at
+4 and only halves `fuzzy-name`. It loses the headline by **0.003791** and costs
+one fewer query than the adopted point. It is not the best point on every
+metric — precision@10 across the grid peaks at 0.682000 at `prefix` 8 with
+`fuzzy-name` 1.5, above both the adopted point's 0.662000 and the runner-up's
+0.676000 — which is the ordinary situation when three metrics are reported and
+one of them decides. A reader reopening this decision should start at 8/4/1.5:
+the margin is thin enough that a differently pooled set could reverse it.
 
 **The queries that got worse.** Six of fifty, against eleven better and
 thirty-three unchanged:
@@ -434,51 +466,61 @@ thirty-three unchanged:
 | `char` | prefix | 0.172290 → 0.000000 | −0.172290 |
 | `dragoni` | prefix | 0.641046 → 0.505360 | −0.135685 |
 | `professor oak` | exact name | 1.000000 → 0.865207 | −0.134793 |
-| `bill` | exact name | 1.000000 → 0.988782 | −0.011218 |
-| `mewtoo` | typo | 1.000000 → 0.991580 | −0.008420 |
+| `bill` | exact name | 0.946994 → 0.936371 | −0.010623 |
+| `mewtoo` | typo | 0.863471 → 0.856201 | −0.007271 |
 
-`char` is the one that should bother a reader: a two-branch-wide loss took it to
-zero, meaning no judged card survived in its top ten at all. A three-character
-fragment is the case where the prefix branch was carrying everything, and
-halving it is exactly the change that would hurt there. `professor oak` is the
-same failure wearing a different hat — a name that is also a phrase appearing in
-hundreds of cards' text, so a quieter name branch lets the text branch crowd the
-page. Against those: `energy burn` went 0.000000 → 1.000000, `rain dance`
-0.000000 → 0.618131, and `Jungle` 0.000000 → 0.274025, all of them queries the
-old weights answered with nothing a judge had called relevant.
+Against those, the eleven that improved, largest first: `energy burn` 0.000000 →
+1.000000, `rain dance` 0.000000 → 0.618131, `pika` 0.531000 → 1.000000,
+`thunder jolt` 0.199306 → 0.650033, `poison powder` 0.369957 → 0.650033,
+`Jungle` 0.000000 → 0.274025, `hydro pump` 0.779908 → 1.000000, `Evolving Skies`
+0.544792 → 0.663175, `Team Rocket` 0.174414 → 0.286060, `evolves from eevee`
+0.334246 → 0.401305, `draw more cards` 0.036293 → 0.094823. Four of them were
+scoring zero before.
 
-**The winner reached outside the judged pool, and that makes the margin a floor
-rather than a ceiling.** `unrated@10` went from 0 to 69 hits over the 500-slot
-evaluated window — 13.8% of it — because the pool was drawn from the windows the
-*old* weights returned, which is the bias ADR 9 recorded as this set's known
-cost. Every point in the grid except the served one is penalised by that: an
-unjudged hit is scored as irrelevant, so the incumbent evaluates on home ground
-and every challenger pays a toll. 8/2/1.5 won by 0.043710 while paying it. The
-direction is not ambiguous, either. Re-pooling can only add ratings, which lifts
-the DCG of a point that surfaced those documents and lifts the ideal DCG of one
-that did not — so a re-pool would be expected to widen this gap, not close it.
-The grid's flagged points are marked in the harness's own matrix for the same
-reason: a *loss* at a flagged point is unmeasured rather than proven, and no
-flagged point is scored at face value here except the winner, which needs no
-allowance because the allowance runs in its favour.
+**`char`, in full, because it is the worst of them.** It scored 0.172290 at the
+reference and scores **0.000000** now, and the honest description is that this
+query has never worked rather than that these weights broke it. The query
+returns 279 hits at both points — membership does not move — and the difference
+is entirely what fills the top ten.
 
-**Cost.** Three of them, all stated rather than discovered later.
+At 8/4/3 the window held ten cards named *Strength Charm*, *Sacred Charm*,
+*Bravery Charm* and *Big Charm*, every one matched on `prefix` and `fuzzy-name`
+together and every one judged **1**: defensible, since they do start with the
+letters typed, but not what anybody means by `char`. At 8/2/1.5 the window holds
+ten cards matched on `text` alone and judged **0** — Quilava, whose attack is
+literally named *Char*, and nine more whose attack or ability text carries a
+token an edit away from it. The seven cards a searcher plainly means, the
+Charizard, Charmeleon and Charmander prints, are matched on `prefix` alone at
+both points and sit at ranks **61 to 98** in both. They were never in the window
+to lose. What the change did was swap ten near-misses for ten irrelevancies, and
+nDCG scores that honestly: 0.172290 to zero.
 
-*The judgment set is now owed a re-pool.* It measures movement away from a
-known-good window well and discovery badly, and the served window has just
-moved. Until it is re-pooled at these weights, 0.636402 is a number with a
-footnote, and the next sweep run against it inherits the same skew pointing the
-other way — the new weights will be the ones on home ground.
+The mechanism is worth naming because it is not specific to this query. `char`
+is a short fragment that is also a real token in card text, so the `text` branch
+matches it on hundreds of documents and scores them on BM25 term statistics,
+while the cards actually wanted are reachable only through `prefix`. Halving
+`prefix` is exactly the change that loses that contest. Three- and four-letter
+fragments are the as-you-type case, and the judged set contains one of them,
+which is too few to tune against — so this decision buys the other forty-nine
+queries at `char`'s expense, knowingly, and the fix for it is a better prefix
+strategy rather than a larger prefix boost.
 
-*Three-character prefixes got worse and nothing here fixes them.* `char` scoring
-zero is a real regression for a real behaviour: the as-you-type path is exactly
-where two- and three-character fragments arrive. The judged set has one such
-query, which is too few to tune against, and this record buys the other
-forty-nine at its expense.
+**Cost.** Three, all stated rather than discovered later.
+
+*Short prefixes got worse and nothing here fixes them.* `char` scoring zero is a
+real regression in a real behaviour. The judged set has one query of that shape,
+so the sweep cannot tune for it, and a boost large enough to rescue it is the
+boost that was just measured as costing more than it returns everywhere else.
+
+*The pool is bounded by this grid, not by all possible rankings.* Every card any
+of the 27 points ranks in a top ten is judged, which is what makes this matrix
+fully measured. It does not make the set complete: a boost outside the grid, a
+change to the `text` branch, a fourth branch or a different `k` would reach
+outside the pool again. `unrated@10` is the instrument that will say so, it is 0
+today, and it is not a promise about tomorrow.
 
 *A measured weight is measured against one corpus, one judgment set and one
-date.* These two numbers are better founded than the numbers they replace, which
-were an argument with no evidence; they are not permanent. A reseed to a newer
-corpus, or a re-pooled set, is grounds to run the sweep again — which is now a
-ten-second command rather than an afternoon, and that is most of what this
-exercise bought.
+date.* These two numbers are better founded than the ones they replace, which
+were an argument with no evidence. They are not permanent. A reseed, or a
+re-pool, is grounds to run the sweep again — which is a ten-second command, and
+that is most of what this exercise bought.

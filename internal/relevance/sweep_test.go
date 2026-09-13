@@ -25,6 +25,23 @@ import (
 // each named should clause overwritten — so what is evaluated at a grid point
 // is the served query with its three swept boosts rewritten, which is precisely
 // what adopting that point would produce.
+//
+// Three points matter to the output and they are not the same point:
+//
+//	reference  what was served before this branch, referencePoint below. Every
+//	           "before" figure and every delta is measured against it, and it
+//	           does not move when weights are adopted — otherwise the next sweep
+//	           would compare the new weights against themselves.
+//	served     what BuildQuery produces today, read out of the builder rather
+//	           than restated. It breaks ties: equal scores leave it in place.
+//	adopted    what the run says to serve. It must have unrated@10 = 0.
+//
+// That last rule is the lesson of this package's own history. A point whose
+// window holds cards nobody judged has not been measured against the pool: its
+// score counts those cards as irrelevant because nobody looked, which is not
+// the same as looking and finding them irrelevant. Such a point is a request to
+// re-pool the judgment set and run again, and the run says so loudly rather
+// than letting a half-judged window be adopted on a number.
 
 // headlineMetric decides the winner. ADR 9 names nDCG@10 the headline because
 // it is the only one of the three that reads both the grade of a hit and where
@@ -74,6 +91,15 @@ var (
 	prefixValues = []float64{2, 4, 8}
 	fuzzyValues  = []float64{1.5, 3, 6}
 )
+
+// referencePoint is the weighting this branch inherited — exact 8, prefix 4,
+// fuzzy-name 3 — the point that was served before any of this work. It is a
+// fixed historical fact, not a reading of the current code, and that is the
+// whole point of writing it down: it stays put when a weight is adopted, so a
+// second sweep still reports movement against the same "before" the first one
+// did. A delta against whatever happens to be served would go to zero the
+// moment a point was adopted and would say nothing.
+var referencePoint = boostPoint{exact: 8, prefix: 4, fuzzy: 3}
 
 // sweepGrid is the full cross product, in a fixed order so two runs print the
 // same table in the same sequence.
@@ -218,20 +244,31 @@ func servedPoint(t *testing.T) boostPoint {
 	return boostPoint{exact: got["exact"], prefix: got["prefix"], fuzzy: got["fuzzy-name"]}
 }
 
-// TestSweepGridContainsTheServedPoint is the guard that keeps every delta in
-// the report meaningful. The sweep reports each point against what is served
-// today, which it can only do if what is served today is one of the points.
+// TestSweepGridContainsTheServedPoint keeps the tie rule honest: equal scores
+// leave the served point in place, which the run can only do if the served
+// point was scored.
 func TestSweepGridContainsTheServedPoint(t *testing.T) {
-	served := servedPoint(t)
-	for _, p := range sweepGrid() {
-		if p == served {
+	assertInGrid(t, servedPoint(t), "served")
+}
+
+// TestSweepGridContainsTheReferencePoint is the other half of the same guard.
+// Every delta the sweep prints is measured against the reference point, so the
+// reference point has to be one of the points it measures.
+func TestSweepGridContainsTheReferencePoint(t *testing.T) {
+	assertInGrid(t, referencePoint, "reference")
+}
+
+func assertInGrid(t *testing.T, p boostPoint, role string) {
+	t.Helper()
+	for _, candidate := range sweepGrid() {
+		if candidate == p {
 			return
 		}
 	}
-	t.Fatalf("the served boosts are %s, which is not a point of the grid "+
-		"(exact %v x prefix %v x fuzzy-name %v); re-centre the grid on the served "+
-		"weights before reading a sweep against them",
-		served, exactValues, prefixValues, fuzzyValues)
+	t.Fatalf("the %s point is %s, which is not a point of the grid "+
+		"(exact %v x prefix %v x fuzzy-name %v); the grid has to hold both the "+
+		"weights served today and the reference they are reported against",
+		role, p, exactValues, prefixValues, fuzzyValues)
 }
 
 // TestBoostRewriteTouchesOnlyTheBoosts proves the claim the whole sweep rests
@@ -303,37 +340,79 @@ func TestBoostSweep(t *testing.T) {
 	ranked := rankPoints(grid, results, served)
 	best := ranked[0]
 	headline := func(p boostPoint) float64 { return results[p].overall[headlineMetric] }
+	fromReference := func(p boostPoint) float64 { return headline(p) - headline(referencePoint) }
+
+	t.Logf("reference point: %s, at %s %.6f — every delta below is measured against it",
+		referencePoint, headlineMetric, headline(referencePoint))
 	if tied := tiedWith(ranked, results, best); len(tied) > 0 {
 		t.Logf("TIED WITH THE BEST at %s %.6f: %s — one ranking under several labels",
 			headlineMetric, headline(best), joinPoints(tied))
 	}
-	if best == served {
-		t.Logf("BEST: the served point %s, at %s %.6f. No boost moves.", served, headlineMetric, headline(served))
-	} else {
-		t.Logf("BEST: %s, at %s %.6f (%+.6f against the served %s), moving %d of %d boosts.",
-			best, headlineMetric, headline(best), headline(best)-headline(served), served,
-			boostsMoved(best, served), len(best.boosts()))
+	t.Logf("BEST: %s, at %s %.6f (%+.6f against the reference %s).",
+		best, headlineMetric, headline(best), fromReference(best), referencePoint)
+
+	// The adoption rule. A point that reached outside the judged pool has not
+	// been measured against it, whatever it scored, so it cannot be adopted —
+	// it is a request to judge what it surfaced and run again. Failing here
+	// rather than logging is deliberate: this is exactly the mistake that costs
+	// a re-pool, and it has to be impossible to read past.
+	adopted, adoptable := bestAdoptable(ranked, results)
+	switch {
+	case !adoptable:
+		t.Errorf("RE-POOL REQUIRED: every point in the grid reached outside the judged pool, "+
+			"so none of them can be adopted. Judge the cards the grid surfaces until %s is 0 "+
+			"at the points worth adopting, then run again.", unratedKey)
+	case adopted != best:
+		t.Errorf("RE-POOL REQUIRED: the best point %s scores %s %.6f but reached outside the "+
+			"judged pool (%s %.0f), so it cannot be adopted on that number. Judge the cards it "+
+			"surfaces and run again. The best fully judged point is %s at %.6f.",
+			best, headlineMetric, headline(best), unratedKey, results[best].overall[unratedKey],
+			adopted, headline(adopted))
 	}
+	if adoptable {
+		if adopted == served {
+			t.Logf("ADOPTED: the served point %s, at %s %.6f (%+.6f against the reference %s). "+
+				"No boost moves.", adopted, headlineMetric, headline(adopted), fromReference(adopted), referencePoint)
+		} else {
+			t.Logf("ADOPTED: %s, at %s %.6f (%+.6f against the reference %s), moving %d of %d "+
+				"boosts away from the served %s.", adopted, headlineMetric, headline(adopted),
+				fromReference(adopted), referencePoint, boostsMoved(adopted, served), len(adopted.boosts()), served)
+		}
+	}
+
 	runnerUp, hasRunnerUp := runnerUpBehind(ranked, results)
 	if !hasRunnerUp {
 		t.Logf("RUNNER-UP: none — every point in the grid scores the same %s", headlineMetric)
 	} else {
-		t.Logf("RUNNER-UP: %s, at %s %.6f (%+.6f against the served %s).",
-			runnerUp, headlineMetric, headline(runnerUp), headline(runnerUp)-headline(served), served)
+		t.Logf("RUNNER-UP: %s, at %s %.6f (%+.6f against the reference %s, %+.6f against the best %s).",
+			runnerUp, headlineMetric, headline(runnerUp), fromReference(runnerUp), referencePoint,
+			headline(runnerUp)-headline(best), best)
 	}
 
 	// The two points worth a per-query table are the winner and the runner-up:
-	// between them they are the whole case for changing anything. Whichever of
-	// them is the served point has nothing to compare against itself.
+	// between them they are the whole case for changing anything, or for
+	// leaving it alone. Neither has anything to compare against the reference
+	// if it *is* the reference.
 	reported := []boostPoint{best}
 	if hasRunnerUp {
 		reported = append(reported, runnerUp)
 	}
 	for _, p := range reported {
-		if p != served {
-			logQueryDeltas(t, set, results, served, p)
+		if p != referencePoint {
+			logQueryDeltas(t, set, results, referencePoint, p)
 		}
 	}
+}
+
+// bestAdoptable is the highest-ranked point whose evaluated windows are fully
+// judged. Everything in the grid is reported; only these may be served.
+func bestAdoptable(ranked []boostPoint, results map[boostPoint]scored) (boostPoint, bool) {
+	for _, p := range ranked {
+		if results[p].overall[unratedKey] == 0 {
+			return p, true
+		}
+	}
+	return boostPoint{}, false
 }
 
 // assertHeadlineIsReported keeps the deciding metric and the reported metrics
@@ -454,13 +533,17 @@ func metricKeys() []string {
 	return keys
 }
 
-// pointLabel marks the served point in every table, so a reader never has to
-// remember which row is the one everything else is measured against, and flags
-// a point whose window reached outside the judged pool.
+// pointLabel marks the two rows a reader keeps looking back at — the point
+// served today and the reference every delta is measured against — and flags a
+// point whose window reached outside the judged pool, which is the one thing
+// that disqualifies a row from being adopted whatever it scored.
 func pointLabel(p, served boostPoint, r scored) string {
 	label := p.String()
 	if p == served {
 		label += " ="
+	}
+	if p == referencePoint {
+		label += " ^"
 	}
 	if r.overall[unratedKey] > 0 {
 		label += " !"
@@ -471,7 +554,7 @@ func pointLabel(p, served boostPoint, r scored) string {
 func logOverall(t *testing.T, grid []boostPoint, results map[boostPoint]scored, served boostPoint) {
 	t.Helper()
 	keys := metricKeys()
-	t.Logf("OVERALL  (= served point, ! reached outside the judged pool)")
+	t.Logf("OVERALL  (= served today, ^ reference, ! reached outside the judged pool and so cannot be adopted)")
 	t.Logf("%-14s %-12s %-12s %-12s %s", "point", keys[0], keys[1], keys[2], unratedKey)
 	for _, p := range grid {
 		r := results[p]
@@ -502,13 +585,14 @@ func logByStratum(t *testing.T, grid []boostPoint, results map[boostPoint]scored
 	}
 }
 
-// logQueryDeltas names what one point would cost, query by query, against the
-// served point. This is the part of the sweep that earns the decision record:
-// a headline that rose says a change is worth making, and only this says what
-// it is worth making at the expense of.
-func logQueryDeltas(t *testing.T, set judgmentSet, results map[boostPoint]scored, served, p boostPoint) {
+// logQueryDeltas names what one point costs, query by query, against the
+// reference. This is the part of the sweep that earns the decision record: a
+// headline that rose says a change is worth making, and only this says what it
+// is worth making at the expense of — including when the point being described
+// is the one already being served.
+func logQueryDeltas(t *testing.T, set judgmentSet, results map[boostPoint]scored, reference, p boostPoint) {
 	t.Helper()
-	from := results[served].perQuery[headlineMetric]
+	from := results[reference].perQuery[headlineMetric]
 	to := results[p].perQuery[headlineMetric]
 
 	type delta struct {
@@ -537,8 +621,8 @@ func logQueryDeltas(t *testing.T, set judgmentSet, results map[boostPoint]scored
 			losses++
 		}
 	}
-	t.Logf("PER-QUERY %s: %s against the served %s — %d worse, %d better, %d unchanged",
-		headlineMetric, p, served, losses, len(moved)-losses, unchanged)
+	t.Logf("PER-QUERY %s: %s against the reference %s — %d worse, %d better, %d unchanged",
+		headlineMetric, p, reference, losses, len(moved)-losses, unchanged)
 	for _, d := range moved {
 		t.Logf("%+9.6f  %-26s %-24s %.6f -> %.6f", d.after-d.before, d.query, d.stratum, d.before, d.after)
 	}

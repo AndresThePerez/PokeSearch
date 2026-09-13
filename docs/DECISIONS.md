@@ -16,6 +16,7 @@ append-only: a superseded decision keeps its entry and gains a pointer forward.
 | [8](#adr-8--what-was-deliberately-not-built) | What was deliberately not built | Accepted |
 | [9](#adr-9--how-relevance-is-evaluated) | How relevance is evaluated | Accepted |
 | [10](#adr-10--measured-branch-weights) | Measured branch weights | Accepted |
+| [11](#adr-11--a-shadow-analyzer-index-measured-not-adopted) | A shadow analyzer index, measured not adopted | Accepted |
 
 ---
 
@@ -524,3 +525,185 @@ date.* These two numbers are better founded than the ones they replace, which
 were an argument with no evidence. They are not permanent. A reseed, or a
 re-pool, is grounds to run the sweep again — which is a ten-second command, and
 that is most of what this exercise bought.
+
+---
+
+## ADR 11 — A shadow analyzer index, measured not adopted
+
+**Decision.** The folded, delimiter-aware `name` analysis chain is built as a
+**second index**, `cards_v2`, reindexed from the served `cards` and scored
+against it — not as a mapping change to the index that is served. It is
+measured, written down here, and **not adopted**: nothing aliases it, the server
+compiles `cards` in as its index name, and the chain cannot reach production
+until a coordinated reseed carries it.
+
+**Why a second index rather than an in-place change.** Analysis lives in the
+mapping, and a mapping cannot be edited in place — changing it means creating an
+index and reindexing into it. On this project that reindex is a coordinated
+two-project change, for the reason [ADR
+8](#adr-8--what-was-deliberately-not-built) already records: the companion load
+generator's fixtures assert exact corpus cardinalities, so the served index
+cannot be rebuilt on this repository's schedule alone. A shadow index buys the
+measurement without the coordination. It also buys the safety argument
+structurally rather than by care: `/healthz` counts by the name `cards`, every
+frozen cardinality aggregates a `keyword` field a text analyzer cannot reach,
+and a second index is invisible to both.
+
+**What is in the chain.** A standard tokenizer, then `lowercase`,
+`asciifolding`, a one-group `gx, ex` suffix synonym set, a
+`word_delimiter_graph` with `split_on_numerics` and `split_on_case_change` off
+and `preserve_original` and `stem_english_possessive` on, and `flatten_graph` to
+close the graph. The `lc` normalizer gains `asciifolding` too, so `name.kw`,
+`evolves_from.kw`, `artist.kw` and `set_name.kw` fold with the text field.
+`name.sayt` and `name.suggest` are untouched, which is why the `prefix` branch
+and the suggester do not fold.
+
+**The accent gap closes, and that is the result this index was built for.** A
+bare `match` against the `name` field alone:
+
+| Spelling | `cards` | `cards_v2` |
+|---|---|---|
+| `pokemon` | 0 | 71 |
+| `pokémon` | 71 | 71 |
+
+On the served index the two spellings are two different terms and the
+unaccented one reaches nothing on that field at all. On the shadow index they
+are one term.
+
+**The ranking result: it costs a little.** Both sides run the same 50 judged
+queries through the same `search.BuildQuery`, at the weights [ADR
+10](#adr-10--measured-branch-weights) adopted, over the same 20,324 documents,
+with the same `k`. The only variable is the analysis chain.
+
+| Metric | `cards` | `cards_v2` | Δ |
+|---|---|---|---|
+| nDCG@10 | 0.645359 | 0.637366 | −0.007994 |
+| precision@10 | 0.662000 | 0.656000 | −0.006000 |
+| MRR@10 | 0.603333 | 0.593056 | −0.010278 |
+| unrated@10 | 0 | 3 | +3 |
+
+Per stratum, on the headline metric, with `unrated@10` beside it because a score
+can only be read next to it:
+
+| Stratum | nDCG@10 `cards` | nDCG@10 `cards_v2` | Δ | unrated@10 `cards_v2` |
+|---|---|---|---|---|
+| exact name | 0.971654 | 0.968021 | −0.003633 | 2 |
+| prefix | 0.569717 | 0.569717 | 0.000000 | 0 |
+| typo | 0.876376 | 0.877415 | **+0.001039** | 0 |
+| attack text | 0.845457 | 0.845457 | 0.000000 | 0 |
+| artist | 0.795661 | 0.795661 | 0.000000 | 0 |
+| set name | 0.327315 | 0.272812 | **−0.054503** | 1 |
+| natural-language intent | 0.195589 | 0.195589 | 0.000000 | 0 |
+
+Three strata never move at all, one gains, two lose and one of those loses
+nearly everything the headline gave up. Reporting only the overall −0.007994
+would have hidden that `set name` fell by seven times the headline, which is
+what the per-stratum breakdown exists to prevent.
+
+**Four of fifty queries moved. Every one of them for a reason unrelated to the
+accent.**
+
+| Query | Stratum | nDCG@10 | Δ |
+|---|---|---|---|
+| `Team Rocket` | set name | 0.286060 → 0.000000 | −0.286060 |
+| `Jungle` | set name | 0.274025 → 0.178564 | −0.095460 |
+| `professor oak` | exact name | 0.865207 → 0.839778 | −0.025429 |
+| `mewtoo` | typo | 0.856201 → 0.863471 | +0.007271 |
+
+**Mechanism one: the possessive stem, which is a recall change scored as a
+precision loss.** `stem_english_possessive` makes `Team Rocket's Porygon2` index
+`team`, `rocket's`, `rocket`, `porygon2` where the served chain indexes only
+`team`, `rocket's`, `porygon2`. A query of `Team Rocket` therefore matches two
+terms on those names instead of one, and that card's score rises from 30.316648
+to 36.109787 while `Here Comes Team Rocket!` — whose tokens did not change —
+rises only from 29.979610 to 30.492981. The whole `Team Rocket's …` family
+overtakes it, and the two grade-3 cards that held ranks 2 and 3 leave the
+window, taking the query from 0.286060 to zero. The same mechanism costs
+`professor oak`: `Professor's Research` gains the bare token `professor` and
+climbs from ranks 8–10 to ranks 5–7, pushing three grade-2 `Imposter Professor
+Oak` prints down.
+
+That is worth stating precisely, because it is not obviously a defect. The new
+chain is *better* at finding cards named `Team Rocket's …` and `Bill's …`; the
+judgments encode the set-name reading of `Team Rocket`, under which those cards
+are graded 0. `bill` shows the same thing scoring neutral: three `Bill's
+Maintenance` prints enter the window and three cards matched only on card text
+leave it, the score is identical to six decimals, and two of the three arrivals
+carry no judgment at all. A searcher typing `Team Rocket` might mean either
+thing. The measurement says what this judgment set says, and this judgment set
+reads it as a set name.
+
+**Mechanism two: BM25 length normalization moves for documents that did not
+change.** The chain emits more tokens per name — synonyms, preserved originals,
+delimiter parts — so the `name` field's average length rises from **1.440366**
+to **1.595109**. BM25 divides by that average, so every name-branch score in the
+index shifts even where the document's own token stream is untouched. That is
+what put `Perilous Jungle` into the `Jungle` window: `weight(name:jungle)` rises
+from 8.929465 to 9.375243 purely through the `tf` term (0.392206 → 0.411785),
+and a grade-3 Jungle-set card falls out of tenth place. It is also the whole of
+`mewtoo`'s gain, in the other direction: `Mewtwo LV.X` lengthens from two tokens
+to four, drops below the one-token `Mewtwo` prints, and a grade-3 card rises
+from rank 7 to rank 5. An analysis change is not local to the documents whose
+tokens it rewrites.
+
+**The synonym group is unmeasured, not vindicated.** No judged query contains
+`ex` or `gx` as a token, so the `gx, ex` group's direct effect — the one that
+conflates a `-GX` printing with an `ex` printing — is invisible to this set. Its
+only measured contribution is indirect, through the average-length inflation
+above. The prediction that it would cost the `exact name` stratum was right
+about the stratum and wrong about the cause: `exact name` fell, but on
+`professor oak`, through the possessive stem. Anyone who reopens this record
+should judge a handful of suffix queries before drawing any conclusion about
+that group.
+
+**The accent fix is real and reaches no judged window.** It is proven by the
+counts above and by the token streams, and yet the two judged queries whose text
+contains `pokemon` score identically on both indexes — `switch my active
+pokemon` at 1.000000, already at the ceiling, and `water starter pokemon` at
+0.000000 with a byte-identical window of `Water Energy` prints that the token
+`water` alone decides. The set has no accented query and no query the fold can
+reach. That is a gap in the judgment set, and this record is the place it gets
+written down rather than the place it gets closed: the set was **not** amended
+to suit the index under test, because a judgment set edited to reward the change
+being measured is not evidence.
+
+**`unrated@10` rose from 0 to 3**, on two queries: `bill` (ex14-71, ex6-87, both
+`Bill's Maintenance` prints) and `Team Rocket` (sv10-155, `Team Rocket's
+Porygon-Z`). Three slots out of five hundred, 0.6% of the evaluated window. It
+is small, but it is not nothing, and it is the reason ADR 10's adoption rule
+would refuse this index outright: a point carrying unjudged hits has not been
+measured against the pool. That rule is why this record says *measured* and not
+*adopted*. Those three cards score as irrelevant because nobody graded them, not
+because anybody judged them so, and every number above is a little more
+pessimistic than the truth by exactly that much.
+
+**Cost.** Four, all of them ongoing.
+
+*Two indexes to keep in step.* `cards_v2` is 10.2mb on the same node, built by
+one `_reindex` and refreshed by hand. Nothing rebuilds it when `cards` is
+reseeded, so from the next reseed onward it is stale unless somebody reindexes
+it again, and a stale shadow index scored against a fresh served one would
+report an analysis difference that is really a corpus difference. The harness
+fails rather than reports if the two document counts diverge, which is the
+cheapest available guard and not a substitute for rebuilding it.
+
+*The chain cannot reach production on this repository's schedule.* It needs the
+coordinated reseed of ADR 8. Until then the served index has no folding, the
+README says so plainly, and this record is a measurement of something the
+deployment does not do.
+
+*The measurement is bounded by a pool drawn from the other index's windows.*
+Every judgment here was pooled from windows the served analysis chain returned,
+so a chain that surfaces different cards is scored as though the cards it
+surfaced were noise. `unrated@10` is the instrument that says how far that went —
+3 of 500 — and the honest reading of a −0.007994 headline measured that way is
+"no measured improvement, a small measured cost, and a known bias in the
+direction of the cost".
+
+**What this does not decide.** Whether to adopt the chain. It costs a little on
+this judgment set, it fixes a gap this judgment set cannot see, and the two
+facts do not resolve each other. The next step is judgments that can see it — an
+accented query, a suffix query, a possessive name — measured before any alias is
+moved. [ADR 9](#adr-9--how-relevance-is-evaluated) fixed the method for exactly
+this situation: the first numbers are in, and they say the question is not ready
+to be closed.

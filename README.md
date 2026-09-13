@@ -160,6 +160,19 @@ The analysis chain is deliberately just as plain. Every `text` field — `name`,
 
 What the chain does *not* have is `asciifolding`, and the corpus's own name is where that shows: `q=pokemon` returns **13,386** hits while `q=pokémon` returns **13,564** — a gap of **178** documents on the word the archive is named after. The unaccented spelling is not lost, but it is carried by the wrong branch. With nothing folding `é` to `e`, no indexed token starts with `pokemon`, so the ASCII query cannot match `prefix` at all and its hits come back matched on `fuzzy-name` alone, a boost tier below the accented query, which matches both. Closing that means adding `asciifolding` to the analysis chain, and analysis lives in the mapping, so it needs a reindex — which on this project is the coordinated two-project change described in [ADR 8](docs/DECISIONS.md#adr-8--what-was-deliberately-not-built), because the companion load generator's fixtures assert exact corpus cardinalities. So folding waits for that reindex, and the divergence is written down here with its numbers rather than left for a reader to trip over.
 
+That reindex now has a **measured** answer waiting for it. `cards_v2` is a shadow index — the same 20,324 documents, built by `_reindex` from `cards` — carrying a real analysis chain on `name`: a standard tokenizer, then `lowercase`, `asciifolding`, a small `gx, ex` suffix synonym group, a `word_delimiter_graph` and `flatten_graph`; the `lc` normalizer folds there too, so `name.kw` and the three other normalized keywords fold with it. **It is not what the live deployment serves.** Nothing aliases it, the server compiles `cards` in as its index name, and `/healthz`, every facet cardinality and every acceptance fixture still describe `cards` exactly as they did. The served chain has no folding; this paragraph is about a second index that does, and it exists so the paragraph above can be measured instead of asserted.
+
+What the chain changes, in tokens — one hyphenated name and one accented one, each read back from that index's own `name` field with `_analyze`:
+
+| Name | `cards` (served) | `cards_v2` (shadow) |
+|---|---|---|
+| `Ethan's Ho-Oh ex` | `["ethan's","ho","oh","ex"]` | `["ethan's","ethan","ho","oh","ex","gx"]` |
+| `Pokémon Center Lady` | `["pokémon","center","lady"]` | `["pokemon","center","lady"]` |
+
+The hyphen was never the problem: the standard tokenizer already split `Ho-Oh`. What the chain adds is the possessive stem (`ethan's` keeps its original token and gains `ethan`), the suffix synonym (`ex` and `gx` reach one another), and the fold. The fold is the headline, and it is a count rather than an argument — a bare `match` against the `name` field alone, no other branch involved, returns **0** documents for `pokemon` on `cards` and **71** on `cards_v2`, while `pokémon` returns **71** on both. On the served index the two spellings are two different terms; on the shadow index they are one term, and `name.kw` folds with them (`["pokémon center lady"]` becomes `["pokemon center lady"]`).
+
+Scored against the judged set of [ADR 9](docs/DECISIONS.md#adr-9--how-relevance-is-evaluated), at the weights of [ADR 10](docs/DECISIONS.md#adr-10--measured-branch-weights), with the same `BuildQuery` and the same window on both sides, the shadow chain is **slightly worse overall**: nDCG@10 **0.645359 → 0.637366**. Four of the fifty judged queries moved, and none of them moved because of the accent. [ADR 11](docs/DECISIONS.md#adr-11--a-shadow-analyzer-index-measured-not-adopted) carries the per-stratum table and names the two mechanisms; both runs are checked in side by side as `docs/relevance/baseline.json` and `docs/relevance/baseline-v2.json`.
+
 ### Paging
 
 `page_size` is bounded **1–100** and defaults to **24**. Pagination is capped at a reachable window of **9,600 documents** so `from + size` always stays inside Elasticsearch's 10,000-result window:

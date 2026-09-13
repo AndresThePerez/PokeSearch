@@ -690,6 +690,20 @@ func TestEvaluatedBodyCoversEveryServedKey(t *testing.T) {
 // every metric, prints the per-stratum and overall table, and writes the
 // baseline.
 func TestRelevanceBaseline(t *testing.T) {
+	measureBaseline(t)
+}
+
+// measureBaseline is that measurement with the test name taken off it: it
+// scores whatever index POKESEARCH_INDEX names, with the served query builder,
+// prints the table and writes the run to POKESEARCH_BASELINE_OUT.
+//
+// It is a function rather than a test body so that a second index can be
+// measured by exactly this code and not by a copy of it. A shadow run that
+// restated any of this — the metric set, the stratum grouping, the id check,
+// the report shape — would be comparing two harnesses rather than two analysis
+// chains, and the difference it reported would be unattributable.
+func measureBaseline(t *testing.T) baselineReport {
+	t.Helper()
 	set := loadJudgments(t)
 	byStratum := groupByStratum(set)
 
@@ -719,6 +733,7 @@ func TestRelevanceBaseline(t *testing.T) {
 
 	printTable(t, report)
 	writeBaseline(t, report)
+	return report
 }
 
 // closeEnough compares two means of the same float64s, which differ only by

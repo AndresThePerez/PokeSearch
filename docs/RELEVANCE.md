@@ -80,11 +80,14 @@ of defensible, then the card the searcher plainly meant. Graded rather than
 binary because relevance here is not binary: a different print of the right card
 is not the answer, but it is not noise either.
 
-**How they were made.** The grading is rule-based: one grading rule is stated
-per query, and it decides every card judged for that query. Each individual
-judgment then carries a one-line reason recording why that card earned that
-grade under that rule. The reasons are the point — they make the set auditable,
-so a disagreement later is a conversation about a stated argument rather than an
+**How they were made.** The grading is rule-based: one grading rule decided
+every card judged for a given query, and each judgment records a one-line reason
+for the grade it earned under that rule. The rule itself is not a field in the
+file — `judgments.json` carries `query`, `stratum` and `judgments: [{id, grade,
+reason}]`, and nothing else. What holds a query's rule is the reasons that apply
+it, plus the maintainer approval recorded below. **The reasons are what ships** —
+all 769 of them, beside the grades — and they are what makes the set auditable: a
+disagreement later is a conversation about a stated argument rather than an
 argument about a number.
 
 **Every judged id is checked against the corpus before any number is computed.**
@@ -179,7 +182,7 @@ Six of fifty got worse, eleven got better, thirty-three did not move.
 | +0.618131 | `rain dance` | attack text | 0.000000 → 0.618131 |
 | +1.000000 | `energy burn` | attack text | 0.000000 → 1.000000 |
 
-Four of the eleven were scoring zero before.
+Three of the eleven were scoring zero before.
 
 ### `char`, in full
 

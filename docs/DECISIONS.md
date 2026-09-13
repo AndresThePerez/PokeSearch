@@ -340,13 +340,15 @@ story.
 
 **It reuses the served query builder.** The harness calls `BuildQuery` and
 sends what it returns; it does not restate the DSL in a fixture of its own.
-This is the second thing ADR 2's purity buys. An evaluation of a query the
+This is a fourth thing ADR 2's purity buys — beyond the three its own "Why"
+lists. An evaluation of a query the
 server does not issue measures nothing, and the only durable defence against
 that drift is for there to be one builder rather than two. The intended shape
 follows from that: a build-tagged package under `internal/relevance`, so a
 plain `go test ./...` stays cluster-free; the judgments checked in as JSON
-beside it; an Elasticsearch `_rank_eval` request per stratum against the cards
-index; a baseline written under `docs/relevance/` recording the index, the
+beside it; an Elasticsearch `_rank_eval` request per metric against the `cards`
+index, reported per stratum by grouping the per-query details client-side; a
+baseline written under `docs/relevance/` recording the index, the
 document count and the build it was measured on; and the written report in
 `docs/RELEVANCE.md`. The acceptance workflow gates on that baseline on demand
 and against a stated tolerance, rather than on every push — an evaluation needs
@@ -475,7 +477,7 @@ Against those, the eleven that improved, largest first: `energy burn` 0.000000 �
 `thunder jolt` 0.199306 → 0.650033, `poison powder` 0.369957 → 0.650033,
 `Jungle` 0.000000 → 0.274025, `hydro pump` 0.779908 → 1.000000, `Evolving Skies`
 0.544792 → 0.663175, `Team Rocket` 0.174414 → 0.286060, `evolves from eevee`
-0.334246 → 0.401305, `draw more cards` 0.036293 → 0.094823. Four of them were
+0.334246 → 0.401305, `draw more cards` 0.036293 → 0.094823. Three of them were
 scoring zero before.
 
 **`char`, in full, because it is the worst of them.** It scored 0.172290 at the
@@ -620,8 +622,10 @@ rises only from 29.979610 to 30.492981. The whole `Team Rocket's …` family
 overtakes it, and the two grade-3 cards that held ranks 2 and 3 leave the
 window, taking the query from 0.286060 to zero. The same mechanism costs
 `professor oak`: `Professor's Research` gains the bare token `professor` and
-climbs from ranks 8–10 to ranks 5–7, pushing three grade-2 `Imposter Professor
-Oak` prints down.
+climbs from ranks 8–10 to ranks 5–7, pushing three grade-2 `Imposter`/`Impostor
+Professor Oak` prints down — the corpus carries the name both ways, and these
+three are one `Impostor` (`base1-73`) and two `Imposter` (`base4-102`,
+`cel25c-73_A`).
 
 That is worth stating precisely, because it is not obviously a defect. The new
 chain is *better* at finding cards named `Team Rocket's …` and `Bill's …`; the

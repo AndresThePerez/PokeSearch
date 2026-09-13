@@ -238,9 +238,10 @@ repaired — it is echoed into a header and into logs, so it is validated first.
 Recorded so the absences read as decisions rather than oversights.
 
 **App-level rate limiting.** Cloudflare fronts the public URL, and the project's
-companion load generator is the intended internal traffic source. A limiter
-would return `429` to the very tool built to exercise the API. Revisit only if
-organic traffic ever warrants edge rules.
+companion load generator, [Courier](https://github.com/AndresThePerez/Courier),
+is the intended internal traffic source. A limiter would return `429` to the
+very tool built to exercise the API. Revisit only if organic traffic ever
+warrants edge rules.
 
 **URL versioning (`/api/v1/…`).** Two consumers exist, both co-versioned with
 the server. A version segment would be ceremony without a second independent
@@ -265,6 +266,7 @@ CSS and SVG for the same reason.
 `dense_vector` on a single node with a 512 MB heap is a science project, not a
 feature. It stays on the stretch list.
 
-**Re-seeding to a newer corpus.** Out of scope until the companion project
-ships. Because its fixtures assert exact corpus cardinalities, a reseed is a
-coordinated two-project change, not a unilateral one.
+**Re-seeding to a newer corpus.** Out of scope until the companion project,
+[Courier](https://github.com/AndresThePerez/Courier), ships. Because its
+fixtures assert exact corpus cardinalities, a reseed is a coordinated
+two-project change, not a unilateral one.

@@ -229,11 +229,11 @@ Never edit the deployed clone in place: commit on a workstation, push, pull on t
 
 The host runbook — the deploy variables, the pinned-ref seed, backup, restore and the recovery ladder — is [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
-## License
-
 ## Author
 
 Built and hosted by [Andres Perez](https://andrestheperez.com), a senior backend engineer focused on API design and platform services in Go and PHP. PokéSearch is the Elasticsearch relevance project I keep public, and [Courier](https://github.com/AndresThePerez/Courier) is the API tooling I test it with; the [portfolio](https://andrestheperez.com) and [resume](https://andrestheperez.com/resume.html) carry the rest.
+
+## License
 
 [MIT](LICENSE) © 2026 Andres Perez.
 

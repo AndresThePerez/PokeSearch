@@ -80,6 +80,13 @@ var metricDefs = []metricDef{
 	}}},
 }
 
+// unratedKey names the fourth column, which is a count of documents rather
+// than a score in 0..1: how many hits in the evaluated windows no judgment
+// covers. It sits beside the metrics because it is what makes them readable —
+// a score that fell while this rose means the ranking surfaced cards nobody
+// judged, not that it ranked judged cards worse.
+const unratedKey = "unrated@10"
+
 // servedKeysDropped are the two top-level keys _rank_eval refuses. Probed
 // against the pinned node: a request carrying either comes back 400 ("Failed
 // to build [request]"), while sort, size, track_total_hits and post_filter are
@@ -201,6 +208,16 @@ func evaluatedBody(t *testing.T, q string) map[string]any {
 
 type rankEvalDetail struct {
 	MetricScore float64 `json:"metric_score"`
+	// UnratedDocs are the hits inside the window that no judgment covers.
+	// _rank_eval returns them on every metric, and they are the only thing in
+	// the response that tells a regression from a discovery: a ranking change
+	// that drops the score because it reordered judged cards is a regression,
+	// while one that drops it because it surfaced cards nobody has judged is a
+	// gap in the judgment set. Discarding this field would leave the two
+	// indistinguishable.
+	UnratedDocs []struct {
+		ID string `json:"_id"`
+	} `json:"unrated_docs"`
 }
 
 // rankEvalResponse is the successful shape only. Failures are read separately,
@@ -214,8 +231,10 @@ type rankEvalResponse struct {
 var client = &http.Client{Timeout: 60 * time.Second}
 
 // runRankEval posts the whole judgment set as one _rank_eval request for a
-// single metric and returns the per-query scores keyed by query text.
-func runRankEval(t *testing.T, set judgmentSet, m metricDef) (overall float64, perQuery map[string]float64) {
+// single metric. It returns the overall score, the per-query scores, and the
+// per-query count of window hits no judgment covers — all three keyed by query
+// text.
+func runRankEval(t *testing.T, set judgmentSet, m metricDef) (overall float64, perQuery map[string]float64, unrated map[string]int) {
 	t.Helper()
 	index := indexName()
 	requests := make([]map[string]any, 0, len(set.Queries))
@@ -282,10 +301,83 @@ func runRankEval(t *testing.T, set judgmentSet, m metricDef) (overall float64, p
 	}
 
 	perQuery = make(map[string]float64, len(out.Details))
+	unrated = make(map[string]int, len(out.Details))
 	for id, d := range out.Details {
 		perQuery[id] = d.MetricScore
+		unrated[id] = len(d.UnratedDocs)
 	}
-	return out.MetricScore, perQuery
+	return out.MetricScore, perQuery, unrated
+}
+
+// mgetBatch is how many ids go into one _mget. The judged set is a few hundred
+// documents; batching keeps the request a sane size if it grows.
+const mgetBatch = 500
+
+// assertJudgedIDsExist fails the run if any judged card id is absent from the
+// index being evaluated.
+//
+// This cannot be left to _rank_eval. A rating naming a document that does not
+// exist comes back inside an HTTP 200 with no entry in failures: the rating is
+// simply ignored, and the query's score silently drops as though the ranking
+// had missed a card it was supposed to find. A typo in a hand-maintained
+// judgment file would therefore read as a relevance regression, which is the
+// most expensive kind of wrong answer this harness can give. One _mget against
+// the cluster the test already has rules it out.
+func assertJudgedIDsExist(t *testing.T, set judgmentSet) {
+	t.Helper()
+	seen := make(map[string]bool)
+	ids := make([]string, 0)
+	for _, q := range set.Queries {
+		for _, j := range q.Judgments {
+			if !seen[j.ID] {
+				seen[j.ID] = true
+				ids = append(ids, j.ID)
+			}
+		}
+	}
+	sort.Strings(ids) // so a failure lists the same ids in the same order twice
+
+	index := indexName()
+	endpoint := fmt.Sprintf("%s/%s/_mget?_source=false", esURL(), index)
+	var missing []string
+	for start := 0; start < len(ids); start += mgetBatch {
+		end := min(start+mgetBatch, len(ids))
+		payload, err := json.Marshal(map[string]any{"ids": ids[start:end]})
+		if err != nil {
+			t.Fatalf("encode _mget request: %v", err)
+		}
+		res, err := client.Post(endpoint, "application/json", bytes.NewReader(payload))
+		if err != nil {
+			t.Fatalf("POST %s: %v", endpoint, err)
+		}
+		var out struct {
+			Docs []struct {
+				ID    string `json:"_id"`
+				Found bool   `json:"found"`
+			} `json:"docs"`
+		}
+		err = json.NewDecoder(res.Body).Decode(&out)
+		status := res.StatusCode
+		res.Body.Close()
+		if status != http.StatusOK {
+			t.Fatalf("POST %s: status %d", endpoint, status)
+		}
+		if err != nil {
+			t.Fatalf("POST %s: decode: %v", endpoint, err)
+		}
+		for _, d := range out.Docs {
+			if !d.Found {
+				missing = append(missing, d.ID)
+			}
+		}
+	}
+	if len(missing) > 0 {
+		t.Fatalf("%d of %d judged card ids are not in index %q: %s\n"+
+			"A judgment on an id the corpus does not hold is worse than no judgment: "+
+			"_rank_eval ignores the rating inside a 200 and the score drops as if the ranking had missed it.",
+			len(missing), len(ids), index, strings.Join(missing, ", "))
+	}
+	t.Logf("all %d distinct judged card ids exist in index %q", len(ids), index)
 }
 
 func mean(values []float64) float64 {
@@ -317,6 +409,8 @@ type metaResponse struct {
 	Seed    *seedIdentity `json:"seed"`
 }
 
+// stratumReport is one stratum's block. Metrics holds the three scores plus
+// unrated@10, which is a document count rather than a score — see unratedKey.
 type stratumReport struct {
 	Name    string             `json:"name"`
 	Queries int                `json:"queries"`
@@ -500,14 +594,20 @@ func TestRelevanceBaseline(t *testing.T) {
 		byStratum[q.Stratum] = append(byStratum[q.Stratum], q.Query)
 	}
 
-	overall := make(map[string]float64, len(metricDefs))
+	// An invented id is ignored by _rank_eval inside a 200, so this has to
+	// happen before a single number is computed.
+	assertJudgedIDsExist(t, set)
+
+	overall := make(map[string]float64, len(metricDefs)+1)
 	stratumScores := make(map[string]map[string]float64, len(strata))
 	for _, s := range strata {
-		stratumScores[s] = make(map[string]float64, len(metricDefs))
+		stratumScores[s] = make(map[string]float64, len(metricDefs)+1)
 	}
+	unratedByMetric := make(map[string]map[string]int, len(metricDefs))
 
 	for _, m := range metricDefs {
-		score, perQuery := runRankEval(t, set, m)
+		score, perQuery, unrated := runRankEval(t, set, m)
+		unratedByMetric[m.Key] = unrated
 
 		// ES's own metric_score is the mean over the requests. Recomputing it
 		// from the details proves the per-stratum means below are grouping the
@@ -533,6 +633,29 @@ func TestRelevanceBaseline(t *testing.T) {
 			stratumScores[s][m.Key] = mean(values)
 		}
 	}
+
+	// The unrated window is a property of the search, not of the metric, so
+	// all three metrics must report the same counts. Asserting it rather than
+	// assuming it is what lets the rest of this read one metric's numbers.
+	unrated := unratedByMetric[metricDefs[0].Key]
+	for _, m := range metricDefs[1:] {
+		for _, q := range set.Queries {
+			if got, want := unratedByMetric[m.Key][q.Query], unrated[q.Query]; got != want {
+				t.Errorf("query %q: %s reports %d unrated docs, %s reports %d",
+					q.Query, m.Key, got, metricDefs[0].Key, want)
+			}
+		}
+	}
+	totalUnrated := 0
+	for _, s := range strata {
+		n := 0
+		for _, q := range byStratum[s] {
+			n += unrated[q]
+		}
+		stratumScores[s][unratedKey] = float64(n)
+		totalUnrated += n
+	}
+	overall[unratedKey] = float64(totalUnrated)
 
 	report := baselineReport{
 		Index:   indexName(),
@@ -574,13 +697,14 @@ func printTable(t *testing.T, report baselineReport) {
 	}
 	t.Logf("index=%s docs=%d queries=%d k=%d build=%s/%s",
 		report.Index, report.Docs, report.Queries, report.K, report.Build.Version, report.Build.Commit)
-	t.Logf("%-26s %5s  %-12s %-12s %-12s", "stratum", "n", keys[0], keys[1], keys[2])
+	t.Logf("%-26s %5s  %-12s %-12s %-12s %s", "stratum", "n", keys[0], keys[1], keys[2], unratedKey)
 	for _, s := range report.Strata {
-		t.Logf("%-26s %5d  %-12.6f %-12.6f %-12.6f",
-			s.Name, s.Queries, s.Metrics[keys[0]], s.Metrics[keys[1]], s.Metrics[keys[2]])
+		t.Logf("%-26s %5d  %-12.6f %-12.6f %-12.6f %.0f",
+			s.Name, s.Queries, s.Metrics[keys[0]], s.Metrics[keys[1]], s.Metrics[keys[2]], s.Metrics[unratedKey])
 	}
-	t.Logf("%-26s %5d  %-12.6f %-12.6f %-12.6f",
-		"OVERALL", report.Queries, report.Metrics[keys[0]], report.Metrics[keys[1]], report.Metrics[keys[2]])
+	t.Logf("%-26s %5d  %-12.6f %-12.6f %-12.6f %.0f",
+		"OVERALL", report.Queries,
+		report.Metrics[keys[0]], report.Metrics[keys[1]], report.Metrics[keys[2]], report.Metrics[unratedKey])
 }
 
 func writeBaseline(t *testing.T, report baselineReport) {

@@ -34,6 +34,21 @@
 // *discovery* badly, and it has to be re-pooled whenever the boosts change
 // enough to reshape the windows it was drawn from.
 //
+// That bias is measured rather than merely described. The baseline carries an
+// unrated@10 count beside the three scores — how many hits in the evaluated
+// windows no judgment covers — so a score that fell can be read correctly: if
+// unrated@10 held steady the ranking put judged cards in a worse order, and if
+// it rose the ranking reached outside the pool and the set needs re-pooling
+// before the number means anything. It is zero across every stratum while the
+// full window is judged, which is the state the set was written in.
+//
+// Every judged card id is checked against the index before any number is
+// computed. _rank_eval answers a rating that names a document the index does
+// not hold with an HTTP 200 and no failure entry: the rating is dropped and
+// the query's score falls as though the ranking had missed a card. A typo in
+// the judgment file would read as a relevance regression, so the harness rules
+// it out with one _mget rather than trusting the file.
+//
 // # The query it evaluates
 //
 // The harness never restates the DSL. It parses each judged query through

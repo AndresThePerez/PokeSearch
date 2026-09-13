@@ -1571,15 +1571,42 @@ body.route-stats .app-layout { grid-template-columns: minmax(0, 1fr) minmax(340p
     cursor: pointer;
   }
   #filter-toggle[aria-expanded="false"] + .filter-content { display: none; }
+  /* Open, the panel leaves the page flow and becomes a sheet over it: pinned
+     to the viewport above the header, scrolling itself, and keeping that
+     scroll to itself so the results behind it do not take over at either end.
+     Everything inside it — the full-width card classes, the energy grid, the
+     right-aligned counts — is laid out exactly as before. */
   .filter-content {
+    position: fixed;
+    z-index: 40;
+    inset: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     max-height: none;
-    margin-top: .65rem;
+    /* Insets of 0 with a top margin: the sheet fills the viewport apart from
+       a strip along its top edge, left uncovered on purpose for the rule
+       underneath to dim. */
+    margin-top: 3.25rem;
     padding: 1rem .9rem;
     border: 1px solid var(--line-soft);
-    border-radius: 12px;
+    border-radius: 12px 12px 0 0;
     background: var(--surface);
   }
+  /* The strip the sheet leaves bare, dimmed, so what is behind reads as
+     covered rather than as the next thing to scroll to. It matches the sheet's
+     top margin, and it only ever paints while the panel does — closed, the
+     panel is display: none and this goes with it. */
+  .filter-content::before {
+    content: "";
+    position: fixed;
+    z-index: -1;
+    inset: 0 0 auto;
+    height: 3.25rem;
+    background: rgba(9, 10, 14, .72);
+  }
   #filter-done {
+    position: sticky;
+    bottom: 0;
     display: block;
     width: 100%;
     min-height: 44px;
@@ -1589,7 +1616,9 @@ body.route-stats .app-layout { grid-template-columns: minmax(0, 1fr) minmax(340p
     border-radius: 9px;
     color: var(--accent-strong);
     font-weight: 650;
-    background: var(--accent-soft);
+    /* Same accent-soft pill, over the panel's own surface: the tint is
+       translucent, and it now has filters scrolling underneath it. */
+    background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--surface);
     cursor: pointer;
   }
   .segmented-control button,

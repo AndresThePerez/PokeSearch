@@ -65,6 +65,38 @@ function clearAllFilters() {
   runSearch({ push: true });
 }
 
+// The phone filter panel is a sheet over the page, so the page behind it must
+// not scroll while it is open. What was on body.style.overflow before the lock
+// is put back rather than blanked, and the lock is only released by whoever
+// took it — a second overlay that locks the same way finds the page as it left
+// it, and neither one hands the scroll back while the other is still up.
+let pageScrollLock = null;
+
+function lockPageScroll() {
+  if (pageScrollLock !== null) return;
+  pageScrollLock = document.body.style.overflow;
+  document.body.style.overflow = "hidden";
+}
+
+function releasePageScroll() {
+  if (pageScrollLock === null) return;
+  document.body.style.overflow = pageScrollLock;
+  pageScrollLock = null;
+}
+
+// Closing the drawer: the panel goes away, the page gets its scroll back and
+// focus returns to the control that opened it, wherever the close came from.
+function closeFilterDrawer() {
+  $("filter-toggle").setAttribute("aria-expanded", "false");
+  releasePageScroll();
+  $("filter-toggle").scrollIntoView({ block: "nearest" });
+  $("filter-toggle").focus({ preventScroll: true });
+}
+
+function filterDrawerOpen() {
+  return $("filter-toggle").getAttribute("aria-expanded") === "true";
+}
+
 function bindCoreEvents() {
   $("search-input").addEventListener("input", (event) => {
     // Typing is a search, and a search belongs on the search view.
@@ -123,6 +155,13 @@ function bindCoreEvents() {
     if (event.key === "/" && document.activeElement !== $("search-input")) {
       event.preventDefault();
       $("search-input").focus();
+    }
+    // Escape belongs to whatever is on top. The suggestion listbox marks its
+    // own Escape handled and the card dialog closes itself, so the drawer only
+    // takes the key when it is the thing that is open.
+    if (event.key === "Escape" && !event.defaultPrevented
+      && !$("card-modal").open && filterDrawerOpen()) {
+      closeFilterDrawer();
     }
   });
 
@@ -225,14 +264,22 @@ function bindFilterEvents() {
   $("clear-filters").addEventListener("click", clearAllFilters);
 
   $("filter-toggle").addEventListener("click", () => {
-    const expanded = $("filter-toggle").getAttribute("aria-expanded") === "true";
+    const expanded = filterDrawerOpen();
     $("filter-toggle").setAttribute("aria-expanded", String(!expanded));
+    if (expanded) releasePageScroll();
+    else lockPageScroll();
   });
 
-  $("filter-done").addEventListener("click", () => {
+  $("filter-done").addEventListener("click", closeFilterDrawer);
+
+  // Widening past the drawer's breakpoint — a tablet turning landscape — puts
+  // the panel back in the rail, where there is nothing to dismiss. The open
+  // state goes with it, rather than leaving the page locked against a drawer
+  // that is no longer on screen.
+  window.matchMedia("(max-width: 768px)").addEventListener("change", (event) => {
+    if (event.matches || !filterDrawerOpen()) return;
     $("filter-toggle").setAttribute("aria-expanded", "false");
-    $("filter-toggle").scrollIntoView({ block: "nearest" });
-    $("filter-toggle").focus({ preventScroll: true });
+    releasePageScroll();
   });
 }
 

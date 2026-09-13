@@ -84,11 +84,32 @@ function releasePageScroll() {
   pageScrollLock = null;
 }
 
-// Closing the drawer: the panel goes away, the page gets its scroll back and
-// focus returns to the control that opened it, wherever the close came from.
+// Everything the open sheet covers. The filter rail is not in the list: the
+// drawer and the toggle that owns it live there, and they have to stay
+// reachable. Between them these three are every focusable thing outside the
+// rail — the dialog is the only other child of body, and it is inert to the
+// page in the other direction, by showModal.
+const BEHIND_DRAWER = [".site-header", "main", ".observability-rail"];
+
+// Covering the page is not the same as taking it out of the tab order, so Tab
+// past the close button used to land on the search box behind the sheet, with
+// the page locked and the caret invisible. inert takes those regions out of
+// the tab order and off the accessibility tree for as long as the drawer is
+// up. It rides the same open and close paths as the scroll lock, which only
+// the phone-width toggle can reach, so desktop never sees it.
+function setPageBehindDrawerInert(inert) {
+  for (const selector of BEHIND_DRAWER) {
+    document.querySelector(selector)?.toggleAttribute("inert", inert);
+  }
+}
+
+// Closing the drawer: the panel goes away, the page gets its scroll and its
+// tab order back, and focus returns to the control that opened it, wherever
+// the close came from.
 function closeFilterDrawer() {
   $("filter-toggle").setAttribute("aria-expanded", "false");
   releasePageScroll();
+  setPageBehindDrawerInert(false);
   $("filter-toggle").scrollIntoView({ block: "nearest" });
   $("filter-toggle").focus({ preventScroll: true });
 }
@@ -266,20 +287,26 @@ function bindFilterEvents() {
   $("filter-toggle").addEventListener("click", () => {
     const expanded = filterDrawerOpen();
     $("filter-toggle").setAttribute("aria-expanded", String(!expanded));
-    if (expanded) releasePageScroll();
-    else lockPageScroll();
+    if (expanded) {
+      releasePageScroll();
+      setPageBehindDrawerInert(false);
+    } else {
+      lockPageScroll();
+      setPageBehindDrawerInert(true);
+    }
   });
 
   $("filter-done").addEventListener("click", closeFilterDrawer);
 
   // Widening past the drawer's breakpoint — a tablet turning landscape — puts
   // the panel back in the rail, where there is nothing to dismiss. The open
-  // state goes with it, rather than leaving the page locked against a drawer
-  // that is no longer on screen.
+  // state goes with it, rather than leaving the page locked and untabbable
+  // against a drawer that is no longer on screen.
   window.matchMedia("(max-width: 768px)").addEventListener("change", (event) => {
     if (event.matches || !filterDrawerOpen()) return;
     $("filter-toggle").setAttribute("aria-expanded", "false");
     releasePageScroll();
+    setPageBehindDrawerInert(false);
   });
 }
 

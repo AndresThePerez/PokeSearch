@@ -437,8 +437,9 @@ func BuildDidYouMean(q string) map[string]any {
 	}
 }
 
-// SuggestSize is how many completions /api/suggest asks ES for. The frontend
-// slices to the same number, so the two must not drift.
+// SuggestSize is how many completions /api/suggest asks ES for. The endpoint
+// is the only place this size is decided; the frontend renders whatever it
+// receives.
 const SuggestSize = 8
 
 // BuildSuggest produces the completion-suggester body for /api/suggest.

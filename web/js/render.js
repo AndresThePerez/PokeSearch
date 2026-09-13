@@ -128,8 +128,9 @@ export function markWithin(original, fragments) {
   if (!original || !fragments?.length) return null;
   for (const fragment of fragments) {
     const plain = stripMarks(fragment);
-    const at = original.indexOf(plain);
-    if (at === -1 || !plain) continue;
+    if (!plain) continue;
+    const at = locateOccurrence(original, plain);
+    if (at === -1) continue;
     const nodes = [];
     if (at > 0) nodes.push(document.createTextNode(original.slice(0, at)));
     nodes.push(...markNodes(fragment));
@@ -138,6 +139,39 @@ export function markWithin(original, fragments) {
     return nodes;
   }
   return null;
+}
+
+// isWordChar treats letters, digits and underscore as "inside a word" — the
+// class a real excerpt boundary never lands in the middle of.
+function isWordChar(ch) {
+  return ch !== undefined && /[\p{L}\p{N}_]/u.test(ch);
+}
+
+// locateOccurrence finds where `plain` sits inside `original`. A short
+// fragment can legitimately repeat verbatim — the same word or clause
+// appearing twice in the same text — and the first hit is not always the one
+// the fragment was cut from. A whole-value fragment (plain === original) can
+// only ever match at offset zero, so there is nothing to pick between; for a
+// genuine excerpt, each repeat is checked against the fragment's own
+// neighbours: an ES-cut excerpt never starts or ends mid-word, so the
+// occurrence bordered by a non-word character (or the edge of the string) on
+// both sides is the one it came from. When none or more than one repeat
+// qualifies, nothing discriminates and the first occurrence stands.
+function locateOccurrence(original, plain) {
+  const first = original.indexOf(plain);
+  if (first === -1 || plain === original) return first;
+  let clean = -1;
+  let cleanCount = 0;
+  for (let at = first; at !== -1; at = original.indexOf(plain, at + 1)) {
+    const end = at + plain.length;
+    const before = at > 0 ? original[at - 1] : undefined;
+    const after = end < original.length ? original[end] : undefined;
+    if (!isWordChar(before) && !isWordChar(after)) {
+      clean = at;
+      cleanCount++;
+    }
+  }
+  return cleanCount === 1 ? clean : first;
 }
 
 // Which highlighted field becomes the card's one-line snippet, in priority

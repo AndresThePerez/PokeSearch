@@ -6,10 +6,6 @@ import { $ } from "./util.js";
 import { state, queryText } from "./state.js";
 import { fetchSuggestions, runSearch, cancelScheduledSearch } from "./api.js";
 
-// How many completions to show. The server asks ES for the same number
-// (search.SuggestSize); slicing here guards against that drifting.
-const MAX_SUGGESTIONS = 8;
-
 let suggestController = null;
 let suggestTimer = null;
 let suggestions = [];
@@ -30,7 +26,7 @@ async function loadSuggestions() {
   suggestController = controller;
   try {
     const names = await fetchSuggestions(queryText(), controller.signal);
-    renderSuggestions(names.slice(0, MAX_SUGGESTIONS));
+    renderSuggestions(names);
   } catch (err) {
     if (err.name !== "AbortError") closeSuggestions();
   }

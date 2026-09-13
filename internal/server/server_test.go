@@ -1212,6 +1212,72 @@ func TestRouteLabel(t *testing.T) {
 	}
 }
 
+// Every response carries the security headers, whatever produced it: a static
+// asset, a JSON endpoint, or a 404 that never reached a handler of ours. The
+// CSP is compared against securityCSP whole rather than by substring, so
+// widening the policy has to be a deliberate edit to the constant.
+func TestSecurityHeaders(t *testing.T) {
+	mappingCalls := 0
+	s, _ := newTestServer(t, metaRT(&mappingCalls, seedMetaBody))
+
+	want := map[string]string{
+		"Content-Security-Policy": securityCSP,
+		"X-Content-Type-Options":  "nosniff",
+		"X-Frame-Options":         "DENY",
+		"Referrer-Policy":         "strict-origin-when-cross-origin",
+	}
+
+	for _, tc := range []struct {
+		path       string
+		wantStatus int
+	}{
+		{path: "/", wantStatus: 200},
+		{path: "/api/meta", wantStatus: 200},
+		{path: "/no-such-asset", wantStatus: 404},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			rec := get(t, s, tc.path)
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status %d, want %d: %s", rec.Code, tc.wantStatus, rec.Body.String())
+			}
+			for name, value := range want {
+				if got := rec.Header().Get(name); got != value {
+					t.Errorf("%s = %q, want %q", name, got, value)
+				}
+			}
+			// TLS terminates upstream and this hop is plaintext, so an HSTS
+			// header from here would be meaningless and unverifiable. Assert
+			// the absence so a later edit cannot add it back quietly.
+			if _, ok := rec.Header()["Strict-Transport-Security"]; ok {
+				t.Errorf("Strict-Transport-Security must not be set by this app, got %q",
+					rec.Header().Get("Strict-Transport-Security"))
+			}
+		})
+	}
+}
+
+// The policy is only worth as much as the origins it names. script-src and
+// connect-src must stay same-origin-only — the Cloudflare Web Analytics
+// allowances an earlier draft carried are gone and must not come back — and
+// the card-art host has to survive a careless edit to the constant.
+func TestSecurityCSPNamesOnlyOwnedOrigins(t *testing.T) {
+	for _, want := range []string{
+		"script-src 'self';",
+		"connect-src 'self';",
+		"img-src 'self' https://images.scrydex.com data:;",
+		"frame-ancestors 'none'",
+	} {
+		if !strings.Contains(securityCSP, want) {
+			t.Errorf("securityCSP is missing %q:\n%s", want, securityCSP)
+		}
+	}
+	for _, forbidden := range []string{"cloudflareinsights.com", "unsafe-eval", "*"} {
+		if strings.Contains(securityCSP, forbidden) {
+			t.Errorf("securityCSP must not contain %q:\n%s", forbidden, securityCSP)
+		}
+	}
+}
+
 // Every response carries X-Request-Id. An inbound id is honoured — X-Request-Id
 // first, then Cloudflare's Cf-Ray — so one trace spans edge, app log and
 // client. An implausible id is replaced rather than repaired: it would

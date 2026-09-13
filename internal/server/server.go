@@ -80,8 +80,10 @@ func New(es *elasticsearch.Client, static fs.FS, logW io.Writer, now func() time
 	s.mux.HandleFunc("GET /api/meta", s.handleMeta)
 	s.mux.Handle("GET /", http.FileServerFS(static))
 	// Wrapped once: every route — including anything registered later, such as
-	// EnableMetrics' /debug/vars — inherits the request ID and the access line.
-	s.handler = s.withObservability(s.mux)
+	// EnableMetrics' /debug/vars — inherits the request ID, the access line and
+	// the security headers. Security sits inside observability so the request
+	// ID is assigned first and the access line covers the whole request.
+	s.handler = s.withObservability(s.withSecurityHeaders(s.mux))
 	return s
 }
 
@@ -141,6 +143,61 @@ func newRequestID() string {
 	// crypto/rand.Read never returns an error; it panics if the OS source fails.
 	_, _ = cryptorand.Read(b[:])
 	return hex.EncodeToString(b[:])
+}
+
+// securityCSP is the exact policy every response carries. It names only the
+// origins this application actually uses, verified against the frontend:
+//   - script-src and connect-src are 'self' and nothing more. The markup has
+//     exactly one script tag and it is a same-origin module; the app talks to
+//     no third-party endpoint.
+//   - img-src allows images.scrydex.com because the corpus stores
+//     pokemontcg.io art URLs that no longer serve and the frontend rewrites
+//     them to scrydex card-ID routes at render time, and data: because the
+//     favicon is an inline SVG data URI.
+//   - style-src keeps 'unsafe-inline' because the UI writes style properties
+//     at render time in five places (the holo tilt custom properties, the two
+//     stat charts, the explain bars and the telemetry waterfall). Narrowing it
+//     to 'self' needs a report-only pass to prove no violations first.
+//
+// The remaining directives are hardening with nothing to trade off: this app
+// is never framed, sets no <base>, submits no forms and embeds no plugins.
+const securityCSP = "default-src 'self'; " +
+	"script-src 'self'; " +
+	"style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' https://images.scrydex.com data:; " +
+	"connect-src 'self'; " +
+	"object-src 'none'; " +
+	"base-uri 'none'; " +
+	"form-action 'none'; " +
+	"frame-ancestors 'none'"
+
+// withSecurityHeaders bounds what a page served from this origin may do. The
+// application owns these rather than leaving them to the edge because the
+// compose stack in this repository has no proxy in front of it: a deployment
+// that is only correct behind Cloudflare is not correct.
+//
+// Strict-Transport-Security is deliberately absent, and the test asserts its
+// absence so a future well-meaning edit cannot add it back quietly. TLS
+// terminates upstream and this process is reached over a plaintext hop, so an
+// HSTS header emitted here would be both meaningless — the browser negotiating
+// TLS never sees this hop — and unverifiable from inside this topology. HSTS
+// belongs to whoever terminates TLS.
+//
+// Every header is set before next.ServeHTTP, never after: a handler that has
+// already written its status line cannot take a header any more.
+func (s *Server) withSecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", securityCSP)
+		h.Set("X-Content-Type-Options", "nosniff")
+		// The pre-CSP companion to frame-ancestors 'none', for anything that
+		// still honours only this one.
+		h.Set("X-Frame-Options", "DENY")
+		// Pins the current browser default rather than changing behaviour:
+		// cross-origin card art still sends an origin, no request sends a path.
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		next.ServeHTTP(w, r)
+	})
 }
 
 // withObservability gives every request an id (honouring the edge's, when the

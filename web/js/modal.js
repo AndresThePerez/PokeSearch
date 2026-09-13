@@ -10,6 +10,10 @@ import { holoTier, attachHolo, setHoloTier, setHoloArtLoaded } from "./holo.js";
 let modalOpener = null;
 let modalArtCardID = null;
 let explainCardID = null;
+// Whether #modal-explain currently holds a real breakdown. The apology a
+// failed fetch leaves behind is a child of the panel too, so the panel's own
+// contents cannot tell a cached answer from an error still worth retrying.
+let explainRendered = false;
 // The hash the modal replaced when it opened. The modal is an overlay on a
 // route, not a route of its own, so closing it has to put the reader back on
 // the page they were on — #stats included.
@@ -58,6 +62,7 @@ function syncExplainToggle() {
 // without a query there is nothing to explain at all.
 function resetExplain(card) {
   explainCardID = card.id;
+  explainRendered = false;
   $("modal-explain").replaceChildren();
   $("modal-explain").hidden = true;
   $("modal-why").hidden = !queryText();
@@ -109,25 +114,21 @@ function panelRow(row, branch) {
     : `${branchLabel(branch.name)} branch did not match`);
 }
 
-// toggleExplain is the disclosure's only entry point. The panel it controls is
-// the state: shown, it collapses; already fetched, it comes back without a
-// second request; empty, it loads. The button itself never moves or goes away,
-// so the keyboard stays exactly where the reader left it.
+// toggleExplain is the disclosure's only entry point. Only a rendered
+// breakdown is a disclosure at all: it cannot go stale while the card stays
+// open — resetExplain drops it the moment another card does — so it collapses
+// and reopens from what is already on screen, with no second request. Until
+// there is one, the click fetches, which is what makes a failed attempt
+// retryable: its apology is written into the panel but is not an answer.
+// The button itself never moves or goes away, so the keyboard stays exactly
+// where the reader left it.
 function toggleExplain() {
-  if ($("modal-why").getAttribute("aria-expanded") === "true") {
-    $("modal-explain").hidden = true;
-    syncExplainToggle();
+  if (!explainRendered) {
+    loadExplain();
     return;
   }
-  // A breakdown already rendered for this card cannot go stale while the card
-  // stays open — resetExplain empties the panel the moment another one does —
-  // so reopening shows it again rather than re-asking the server.
-  if ($("modal-explain").childElementCount > 0) {
-    $("modal-explain").hidden = false;
-    syncExplainToggle();
-    return;
-  }
-  loadExplain();
+  $("modal-explain").hidden = !$("modal-explain").hidden;
+  syncExplainToggle();
 }
 
 async function loadExplain() {
@@ -142,6 +143,7 @@ async function loadExplain() {
     // late answer must not describe a card that is no longer open.
     if (explainCardID !== id) return;
     renderExplain(data);
+    explainRendered = true;
   } catch {
     if (explainCardID !== id) return;
     $("modal-explain").replaceChildren(

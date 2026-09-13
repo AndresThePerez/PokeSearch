@@ -263,9 +263,29 @@ deployment. It is explicitly not designed for continuous indexing.
 feature, not a gap. Native ES modules are the ceiling; charts are hand-rolled
 CSS and SVG for the same reason.
 
-**Semantic / vector search.** A deferred non-goal rather than a rejected one:
-`dense_vector` on a single node with a 512 MB heap is a science project, not a
-feature. It stays on the stretch list.
+**Semantic / vector search.** A deferred non-goal rather than a rejected one,
+and deferred with a design rather than a shrug. What would be built: one text
+blob per card — name, attack and ability names and text, and `flavor_text`,
+concatenated — embedded by a small sentence-embedding model, for example a
+MiniLM-class encoder at 384 dimensions, into a single `dense_vector`. That
+vector lives on a side index, `cards_vec`, keyed by card id and never as a
+field on the cards index, so nothing that asserts the corpus's cardinalities
+has to move: the cards mapping, its document count and every fixture built on
+them stay exactly as they are. Retrieval then runs two branches — the existing
+lexical `text` query and a `knn` search over the side index — merged by
+reciprocal rank fusion in application code rather than by a retriever at the
+engine. Fusing in Go keeps the merge diffable in a pull request like every
+other ranking decision here, and sidesteps the question of which retriever
+tiers a basic-license single node is entitled to. The bar is ADR 9's harness:
+that lexical branch is the baseline, and a hybrid that does not beat it there
+does not ship.
+
+The arithmetic is why it waits. 20,324 documents at 384 dimensions and 4 bytes
+per dimension is roughly 31 MB of raw vectors — and that figure excludes the
+approximate-nearest-neighbor graph, which is the part that has to stay resident
+for the search to be fast, on a node with a 512 MB heap. None of that has been
+measured: the deferral rests on an estimate rather than a benchmark, which is
+why this stays on the stretch list rather than in the backlog.
 
 **Re-seeding to a newer corpus.** Out of scope until the companion project,
 [Courier](https://github.com/AndresThePerez/Courier), ships. Because its

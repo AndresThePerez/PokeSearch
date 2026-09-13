@@ -481,6 +481,17 @@ func BuildSuggest(q string, fuzzy bool) map[string]any {
 // sub-aggregation recovers the display casing, because name.kw is normalized
 // to lowercase and its bucket keys cannot be shown to a reader.
 //
+// The operator is "and", not ES's default "or", and that is load-bearing here
+// in a way it is not in the ranker. Ranking a search keeps relevance, so a card
+// matching one word of two simply scores below one matching both. This request
+// throws relevance away — size 0, buckets ordered by doc_count — so under "or"
+// a multi-word prefix qualifies on any single word and the card actually typed
+// is then outranked by whatever merely shares a word and was printed more
+// often: "dark alakazam" returned Dark Dragonair and no Dark Alakazam,
+// "professor oak" returned eight professors and no Oak. Requiring every typed
+// word keeps the candidate set to cards the reader could have meant, and it
+// costs single-word prefixes nothing, since one term satisfies both operators.
+//
 // Size is SuggestSize, so the endpoint returns the same count it always did.
 // A prefix the aggregation cannot serve yields no buckets, and the handler
 // falls back to BuildSuggest for it.
@@ -489,8 +500,9 @@ func BuildSuggestByPrintCount(q string) map[string]any {
 		"track_total_hits": false,
 		"size":             0,
 		"query": map[string]any{"multi_match": map[string]any{
-			"query": q,
-			"type":  "bool_prefix",
+			"query":    q,
+			"type":     "bool_prefix",
+			"operator": "and",
 			"fields": []any{
 				"name.sayt",
 				"name.sayt._2gram",

@@ -338,13 +338,17 @@ func TestBuildSuggest(t *testing.T) {
 // endpoint return the same eight it always did, in the order a reader means
 // rather than in alphabetical order. The top_hits sub-aggregation is not
 // decoration either — name.kw is lowercase-normalized, so the bucket key
-// cannot be shown and the display casing has to come from _source.
+// cannot be shown and the display casing has to come from _source. Nor is the
+// "and" operator: this request discards relevance, so ES's default "or" would
+// let a multi-word prefix qualify on any one word and let a more-printed card
+// that shares only that word outrank the card actually typed.
 func TestBuildSuggestByPrintCount(t *testing.T) {
 	got := canonV(t, BuildSuggestByPrintCount("alak"))
 	want := canonS(t, `{
 	  "track_total_hits": false,
 	  "size": 0,
 	  "query": {"multi_match": {"query": "alak", "type": "bool_prefix",
+	    "operator": "and",
 	    "fields": ["name.sayt", "name.sayt._2gram", "name.sayt._3gram"]}},
 	  "aggs": {"names": {
 	    "terms": {"field": "name.kw", "size": 8, "order": {"_count": "desc"}},

@@ -521,8 +521,11 @@ main { min-width: 0; }
 #empty-message { margin: 0; }
 
 /* The did-you-mean button only exists on a zero-result search (D8), so it can
-   afford to be the most prominent thing on an otherwise empty screen. */
-#did-you-mean {
+   afford to be the most prominent thing on an otherwise empty screen. The
+   banner's retry is the same kind of offer after a different kind of dead end,
+   so it wears the same pill rather than introducing a second one. */
+#did-you-mean,
+#retry-search {
   margin-top: 1.1rem;
   padding: .6rem 1.15rem;
   border: 1px solid rgba(230, 57, 76, .5);
@@ -534,7 +537,8 @@ main { min-width: 0; }
   transition: border-color 160ms ease, background 160ms ease;
 }
 
-#did-you-mean:hover { border-color: var(--accent-strong); background: rgba(230, 57, 76, .22); }
+#did-you-mean:hover,
+#retry-search:hover { border-color: var(--accent-strong); background: rgba(230, 57, 76, .22); }
 #did-you-mean strong { color: var(--accent-strong); font-weight: 600; }
 
 #results-grid {
@@ -546,7 +550,10 @@ main { min-width: 0; }
   list-style: none;
 }
 
-#results-grid.is-loading:has(.card-open) { opacity: .62; }
+/* Stale cards wear the loading dim: in both states what is on screen is not
+   the answer to the query in the box. */
+#results-grid.is-loading:has(.card-open),
+#results-grid.is-stale:has(.card-open) { opacity: .62; }
 
 .card-cell { min-width: 0; }
 

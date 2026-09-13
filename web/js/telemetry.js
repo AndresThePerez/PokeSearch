@@ -27,9 +27,21 @@ export function renderInspector(dsl, response) {
   $("response-json").textContent = response ? JSON.stringify(response, null, 2) : "No response available.";
 }
 
+// The placeholder the markup ships with: a readout with nothing to say.
+const BLANK = "—";
+
 export function setDegraded(isDegraded) {
   $("degraded-banner").hidden = !isDegraded;
   setServiceStatus(isDegraded ? "Degraded" : "Online", isDegraded);
+  // A failed search leaves the previous query's totals on screen, where they
+  // read as a count of what is showing now. Blank them to the same dash the
+  // page starts with — the elements and their live regions stay put, so the
+  // next success has somewhere to land and the change is still announced.
+  if (isDegraded) {
+    $("total-count").textContent = BLANK;
+    $("stat-results").textContent = BLANK;
+    $("stat-roundtrip").textContent = BLANK;
+  }
 }
 
 export function setServiceStatus(label, degraded = false) {
@@ -113,7 +125,9 @@ export function renderStats(data, roundTripMs) {
   $("stat-results").textContent = Number(data.total).toLocaleString();
   $("stat-engine").textContent = `${data.took_ms ?? "—"} ms`;
   $("stat-roundtrip").textContent = `${Math.round(roundTripMs)} ms`;
-  $("stat-page").textContent = `${data.page} / ${data.pages || 0}`;
+  // With no pages there is no page to be on: "1 / 0" is a position in a range
+  // that does not exist.
+  $("stat-page").textContent = data.pages ? `${data.page} / ${data.pages}` : BLANK;
   $("sla-engine-state").textContent = data.took_ms < 100 ? "within target" : "above target";
   $("sla-roundtrip-state").textContent = roundTripMs < 250 ? "within target" : "above target";
 }

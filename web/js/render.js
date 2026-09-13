@@ -360,9 +360,24 @@ function makeSkeleton() {
   return item;
 }
 
+// A stale grid is one whose cards outlived the search that produced them: the
+// last request failed, so what is on screen answers an older query. It is not
+// busy in the loading sense and it is not settled either, and of the two
+// aria-busy can only say one — so it says "true". Announcing a failed search's
+// leftovers as the finished answer is the worse lie, and the state ends the
+// moment a search succeeds.
+export function setStale(isStale) {
+  const grid = $("results-grid");
+  grid.classList.toggle("is-stale", isStale);
+  grid.setAttribute("aria-busy", String(isStale || grid.classList.contains("is-loading")));
+}
+
 export function setLoading(loading, { append = false } = {}) {
   const grid = $("results-grid");
-  grid.setAttribute("aria-busy", String(loading));
+  // Clearing the loading flag must not clear staleness with it: the request
+  // that finished is the one that failed, and the cards under it are still the
+  // previous query's.
+  grid.setAttribute("aria-busy", String(loading || grid.classList.contains("is-stale")));
   if (loading) {
     $("load-more").disabled = true;
     if (!append && !grid.querySelector(".card-open")) {

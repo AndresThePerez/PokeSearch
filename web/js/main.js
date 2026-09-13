@@ -87,6 +87,13 @@ function bindCoreEvents() {
     runSearch({ append: true });
   });
 
+  // Retrying the search the banner is complaining about. Nothing about the
+  // query changed, only whether the archive answered, so this earns no history
+  // entry — Back still goes back a query.
+  $("retry-search").addEventListener("click", () => {
+    runSearch();
+  });
+
   $("copy-dsl").addEventListener("click", async () => {
     await navigator.clipboard.writeText($("dsl-json").textContent);
     $("copy-dsl").textContent = "Copied";

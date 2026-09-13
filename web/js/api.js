@@ -5,7 +5,7 @@
 // import this module instead. That direction is what keeps the graph acyclic.
 
 import { state, buildParams, writeStateToURL } from "./state.js";
-import { renderResults, setLoading } from "./render.js";
+import { renderResults, setLoading, setStale } from "./render.js";
 import { renderInspector, setDegraded, setServiceStatus, debugEnabled, recordTiming } from "./telemetry.js";
 import { $ } from "./util.js";
 
@@ -36,9 +36,14 @@ export async function runSearch({ append = false, push = false, fromHistory = fa
     // response carries it, including the ones with no body worth reading.
     recordTiming(data.took_ms, roundTripMs, res.headers.get("X-Request-Id"));
     setDegraded(false);
+    setStale(false);
   } catch (err) {
     if (err.name === "AbortError") return;
     setDegraded(true);
+    // The grid still holds the last successful search's cards. Mark them as
+    // what they are rather than let the banner and the results contradict
+    // each other.
+    setStale(true);
   } finally {
     if (searchController === controller) {
       setLoading(false, { append });

@@ -32,7 +32,7 @@ services:
       - "${APP_PORT:-8080}:8080"
     environment:
       # METRICS=1 publishes expvar counters at /debug/vars on the app port.
-      # Never set it in the server topology — the tunnel forwards everything.
+      # Never set it in the server topology — the proxy forwards everything.
       - ES_URL=http://es:9200
     healthcheck:
       # The distroless image has no shell: the server binary probes itself.

@@ -234,6 +234,14 @@ so a user reporting an id lands an operator on the exact DSL that answered it.
 An inbound id that does not look like a trace id is replaced rather than
 repaired — it is echoed into a header and into logs, so it is validated first.
 
+**Two edge cases the envelope does not cover.** The first is a pair of responses
+that are not JSON envelopes at all; the second is how the `types`, `rarity` and
+`series` filters treat case. Both paragraphs moved here verbatim from the README.
+
+Two responses sit outside the envelope by design: `/healthz` answers a failed probe with its own frozen `{"status":"error"}` body, because a health endpoint's shape must never change, and the static file handler returns net/http's plain-text `404` for unknown asset paths.
+
+Case is handled unevenly across those filters, and that is a known asymmetry rather than a design. `supertype` is lower-cased before it is matched against `pokemon|trainer|energy`, and `types` members are compared case-insensitively against the eleven canonical type names — but `rarity` and `series` members are only trimmed and then matched verbatim against bare keyword fields that carry no normalizer. So `rarity=common` answers `200` with a total of **0**, while `rarity=Common` returns **5,297**. Send those two the way the facets hand them back: title-case rarities (`Common`, `Uncommon`, `Rare Holo`) and full series names (`Sword & Shield`, `Scarlet & Violet`). Treat that as the interim contract — closing the gap either changes observable filter semantics or means a mapping change and therefore a reseed, so it is written down here rather than quietly altered.
+
 ---
 
 ## ADR 8 — What was deliberately not built
@@ -692,9 +700,9 @@ fails rather than reports if the two document counts diverge, which is the
 cheapest available guard and not a substitute for rebuilding it.
 
 *The chain cannot reach production on this repository's schedule.* It needs the
-coordinated reseed of ADR 8. Until then the served index has no folding, the
-README says so plainly, and this record is a measurement of something the
-deployment does not do.
+coordinated reseed of ADR 8. Until then the served index has no folding,
+docs/RELEVANCE.md says so plainly, and this record is a measurement of
+something the deployment does not do.
 
 *The measurement is bounded by a pool drawn from the other index's windows.*
 Every judgment here was pooled from windows the served analysis chain returned,

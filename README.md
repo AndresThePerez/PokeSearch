@@ -143,38 +143,7 @@ A text query becomes four scored `should` branches. The boosts encode an *orderi
 
 The numbers behind that column — the metric table overall and per stratum, where the judgments came from, the queries the adopted weights moved, and the command that reproduces the run — are published in [docs/RELEVANCE.md](docs/RELEVANCE.md).
 
-Those weight points stay inspectable from the running application: `GET /api/compare?q=…` runs the same query twice under two of them — `served`, `previous` or `runner-up`, defaulting to `served` against `previous` — and reports both top-ten windows, the per-card movement between them and Spearman's ρ over their union. The rail's **Ranking lab** panel is its only client: open it on a result page and it shows the two rankings side by side with the cards that moved. The weights are never read off the query string, so the comparison is always between two recorded profiles rather than an arbitrary one.
-
-The four branch names are a contract, not a comment. Elasticsearch echoes the ones each hit matched (`matched_queries`), so a text search's response carries a `matched` array aligned index-for-index with `results` — the grid renders them as per-card badges, and the boost hierarchy becomes observable: sort by relevance and watch the badge mix shift down the page. `GET /api/explain?id=…&q=…` takes the same question one card deeper, replaying each branch against that single document through Elasticsearch's `_explain` and reporting what each contributed. A `should` query's clauses sum, so the matched branches add back up to the score the card was ranked by — which is what the modal's score bars draw. It is deliberately on demand and single-document: Lucene explain on 24 hits per keystroke is pure waste. One case is worth pre-empting, because it can read as a broken badge strip: on an exact-name query the mix does not shift at the top of the list at all — `q=charizard` returns `["exact","prefix","fuzzy-name","text"]` for each of the first three hits, because a name typed exactly satisfies all four branches at once. What separates those hits there is not which badges they carry but how much each branch contributed — the per-branch **scores**, one click away in the explain modal.
-
-A text query also carries `highlights` (aligned the same way) and, when it found nothing, `did_you_mean`. Highlighting is on by default because it answers the question the reader actually asked — *why is this card in my results?* — and the fragments are `<mark>`-tagged server-side over card names, attack and ability names and text, and flavor text. The highlighter runs against its own non-fuzzy `highlight_query`: rewriting the ranking query's `fuzziness: AUTO` per document and per field costs 409 ms on this corpus against 20 ms for the scoped query, so ranking and marking are deliberately two different questions. The cost of that trade is exact and small — a card matched only by a typo still ranks, it just gets no snippet. `did_you_mean` comes from a term suggester that runs only on a zero-result text search: the cheapest response shape there is, and the one moment a correction cannot compete with the autocomplete the reader was already being offered. That gate is narrower than it reads, because the suggester competes with the edit budget the `fuzzy-name` and `text` branches already spend as `fuzziness: AUTO`: a typo those branches can still reach returns hits, which suppresses the suggestion, and a query mangled past every budget returns neither hits nor a correction — `q=charizzzard` answers **107** hits with no `did_you_mean`, and `q=zzzzqqqq` answers **0** hits, also with no `did_you_mean`. A correction fires in the gap between the two budgets, and the gap exists because they are shaped differently: `fuzziness: AUTO` scales with term length — no edits below three characters, one at three to five, two at six and up — while the term suggester sets no `max_edits` and so takes Elasticsearch's flat default of two at any length. So `q=eevio` — five characters, two edits from `Eevee` — is a single token the branches cannot reach and the suggester can: **0** hits carrying `did_you_mean: eevee`. Token count is not what decides it: `q=pikchu zzzzqqqq` puts one badly mangled token beside one the branches can still reach, and that reachable token alone brings back **267** hits, so the zero-result gate never opens and no correction is offered.
-
-Filters (`supertype`, `types`, `rarity`, `set_series`, `set_id`, HP range) are scoring-neutral. With `q` empty there is nothing meaningful to score, so browse mode sorts by release date instead — match-all scores are noise, and asking for `sort=relevance` without a query is silently downgraded to `newest` rather than rejected. Every sort appends ascending card ID as a deterministic tiebreaker, which is what keeps page boundaries stable.
-
-Facets are **disjunctive**: each one is computed with every active filter *except its own*, so selecting `Rare` does not collapse the rarity dropdown to `Rare`, and the count next to an option predicts what clicking it will do. See [ADR 3](docs/DECISIONS.md#adr-3--disjunctive-facets-via-post_filter).
-
-#### Scoring model and analysis
-
-Underneath those boosts the ranking is **stock BM25** — Elasticsearch's default similarity with default `k1` and `b`, and no `similarity` override anywhere in the mapping. That is a decision, not an omission. What decides a match here is short name fields over a small corpus that is immutable between reseeds, which is the shape BM25's defaults already fit, and nothing has been measured that would justify moving term saturation or length normalization off them. Retuning a similarity with no judgement set to score the change against is guessing with extra steps.
-
-The analysis chain is deliberately just as plain. Every `text` field — `name`, `evolves_from`, `artist`, `set_name`, attack and ability names and text, and `flavor_text` — uses the **standard analyzer**; the index defines no custom analyzer at all. The one thing the settings do add is a lowercase normalizer, `lc`, applied to exactly four keyword sub-fields: `name.kw`, `evolves_from.kw`, `artist.kw` and `set_name.kw`. Those four are the ones a human types, so case must not decide the match. The bare keyword fields behind the filter rail — `supertype`, `subtypes`, `types`, `rarity`, `set_id`, `set_series` — get no normalizer on purpose: their values are a closed vocabulary the facets hand back to the client, which then sends them back verbatim, so folding case there would buy nothing and could merge two values the aggregation counts apart.
-
-`name` carries three sub-fields, and each is a different Elasticsearch feature rather than a second copy of the same text. `name.kw` is the lowercase-normalized keyword the `exact` branch runs its `term` against. `name.sayt` is a **`search_as_you_type`** field, and the `_2gram` and `_3gram` sub-fields it generates are what the `prefix` branch's `bool_prefix` actually matches. `name.suggest` is a **completion suggester**, which Elasticsearch holds in memory as an FST. It is now `/api/suggest`'s fallback rather than its main path: the endpoint first asks a `terms` aggregation over `name.kw` to rank completions by print count, and drops to the suggester — and then to a fuzzy retry — only for a prefix the aggregation cannot serve. The API table above says what that endpoint does; this is the feature vocabulary behind it.
-
-What the chain does *not* have is `asciifolding`, and the corpus's own name is where that shows: `q=pokemon` returns **13,386** hits while `q=pokémon` returns **13,564** — a gap of **178** documents on the word the archive is named after. The unaccented spelling is not lost, but it is carried by the wrong branch. With nothing folding `é` to `e`, no indexed token starts with `pokemon`, so the ASCII query cannot match `prefix` at all. The **71** cards carrying *Pokémon* in their name are then reachable only through `fuzzy-name`, and at that branch's measured boost of **1.5** they rank below every card the `text` branch matched — the whole first page is `text`-only and the first of the 71 lands at rank **105**. The accented spelling matches `prefix` and `fuzzy-name` together and puts **46** of those same cards inside the first hundred. Closing that means adding `asciifolding` to the analysis chain, and analysis lives in the mapping, so it needs a reindex — which on this project is the coordinated two-project change described in [ADR 8](docs/DECISIONS.md#adr-8--what-was-deliberately-not-built), because the [companion load generator](https://github.com/AndresThePerez/Courier)'s fixtures assert exact corpus cardinalities. So folding waits for that reindex, and the divergence is written down here with its numbers rather than left for a reader to trip over.
-
-That reindex now has a **measured** answer waiting for it. `cards_v2` is a shadow index — the same 20,324 documents, built by `_reindex` from `cards` — carrying a real analysis chain on `name`: a standard tokenizer, then `lowercase`, `asciifolding`, a small `gx, ex` suffix synonym group, a `word_delimiter_graph` and `flatten_graph`; the `lc` normalizer folds there too, so `name.kw` and the three other normalized keywords fold with it. **It is not what the live deployment serves.** Nothing aliases it, the server compiles `cards` in as its index name, and `/healthz`, every facet cardinality and every acceptance fixture still describe `cards` exactly as they did. The served chain has no folding; this paragraph is about a second index that does, and it exists so the paragraph above can be measured instead of asserted.
-
-What the chain changes, in tokens — one hyphenated name and one accented one, each read back from that index's own `name` field with `_analyze`:
-
-| Name | `cards` (served) | `cards_v2` (shadow) |
-|---|---|---|
-| `Ethan's Ho-Oh ex` | `["ethan's","ho","oh","ex"]` | `["ethan's","ethan","ho","oh","ex","gx"]` |
-| `Pokémon Center Lady` | `["pokémon","center","lady"]` | `["pokemon","center","lady"]` |
-
-The hyphen was never the problem: the standard tokenizer already split `Ho-Oh`. What the chain adds is the possessive stem (`ethan's` keeps its original token and gains `ethan`), the suffix synonym (`ex` and `gx` reach one another), and the fold. The fold is the headline, and it is a count rather than an argument — a bare, **non-fuzzy** `match` against the `name` field alone, no other branch involved, returns **0** documents for `pokemon` on `cards` and **71** on `cards_v2`, while `pokémon` returns **71** on both. On the served index the two spellings are two different terms; on the shadow index they are one term, and `name.kw` folds with them (`["pokémon center lady"]` becomes `["pokemon center lady"]`).
-
-Scored against the judged set of [ADR 9](docs/DECISIONS.md#adr-9--how-relevance-is-evaluated), at the weights of [ADR 10](docs/DECISIONS.md#adr-10--measured-branch-weights), with the same `BuildQuery` and the same window on both sides, the shadow chain is **slightly worse overall**: nDCG@10 **0.645359 → 0.637366**. Four of the fifty judged queries moved, and none of them moved because of the accent. [ADR 11](docs/DECISIONS.md#adr-11--a-shadow-analyzer-index-measured-not-adopted) carries the per-stratum table and names the two mechanisms; both runs are checked in side by side as `docs/relevance/baseline.json` and `docs/relevance/baseline-v2.json`.
+The rest of that design — the branch badges and `GET /api/explain`, highlighting and `did_you_mean`, scoring-neutral filters and disjunctive facets, the stock-BM25 and analysis-chain reasoning, and the measured shadow-analyzer index of [ADR 11](docs/DECISIONS.md#adr-11--a-shadow-analyzer-index-measured-not-adopted) — moved to [docs/RELEVANCE.md](docs/RELEVANCE.md) under *Design notes moved from the README*.
 
 ### Paging
 
@@ -188,21 +157,12 @@ pages = ceil(min(total, 9600) / page_size)
 
 ### Errors
 
-Every non-2xx **JSON API** response uses one shape:
-
-```json
-{
-  "error": { "code": "invalid_param", "field": "sort", "message": "sort must be one of relevance|newest|oldest|hp|name" },
-  "request_id": "3f2a8c1d9e0b4a76"
-}
-```
+Every non-2xx **JSON API** response uses one shape: an `error` object carrying `code`, the offending `field` where there is one, and a `message`, beside the request's `request_id`. The example body and the reasoning behind the contract are [ADR 7](docs/DECISIONS.md#adr-7--a-strictlenient-error-contract).
 
 | Code | Status | Meaning |
 |---|---|---|
 | `invalid_param` | `400` | A strict parameter was supplied with an invalid value, or a required one (`/api/explain`'s `id` and `q`) was omitted. `field` names it. |
 | `es_unavailable` | `503` | Elasticsearch could not be reached or returned an error. The cause — including a truncated Elasticsearch error body — goes to the log, never to the client. |
-
-Two responses sit outside the envelope by design: `/healthz` answers a failed probe with its own frozen `{"status":"error"}` body, because a health endpoint's shape must never change, and the static file handler returns net/http's plain-text `404` for unknown asset paths.
 
 Parameters split into two groups:
 
@@ -211,9 +171,7 @@ Parameters split into two groups:
 | **Strict** | `sort`, `order`, `supertype`, `hp_min`, `hp_max`, `page`, `page_size` | `400` with the offending `field`. Rejected before Elasticsearch is called. |
 | **Lenient** | members of the `types`, `rarity`, and `series` comma-lists; unknown query keys | Silently dropped/ignored, `200`. |
 
-Out-of-range integers are clamped, not rejected — a clamp is a contract, an alphabetic `page` is a typo. `GET /api/suggest` reads only `q`, so field errors on its other parameters are ignored rather than returned. The rationale is [ADR 7](docs/DECISIONS.md#adr-7--a-strictlenient-error-contract).
-
-Case is handled unevenly across those filters, and that is a known asymmetry rather than a design. `supertype` is lower-cased before it is matched against `pokemon|trainer|energy`, and `types` members are compared case-insensitively against the eleven canonical type names — but `rarity` and `series` members are only trimmed and then matched verbatim against bare keyword fields that carry no normalizer. So `rarity=common` answers `200` with a total of **0**, while `rarity=Common` returns **5,297**. Send those two the way the facets hand them back: title-case rarities (`Common`, `Uncommon`, `Rare Holo`) and full series names (`Sword & Shield`, `Scarlet & Violet`). Treat that as the interim contract — closing the gap either changes observable filter semantics or means a mapping change and therefore a reseed, so it is written down here rather than quietly altered.
+Out-of-range integers are clamped, not rejected — a clamp is a contract, an alphabetic `page` is a typo. `GET /api/suggest` reads only `q`, so field errors on its other parameters are ignored rather than returned. The two responses that sit outside the envelope by design, and the uneven case handling across the `rarity` and `series` filters, moved into [ADR 7](docs/DECISIONS.md#adr-7--a-strictlenient-error-contract) with the rest of the rationale.
 
 ### Type names
 
@@ -230,7 +188,7 @@ Every request gets an ID and leaves a trail that connects the browser to the log
 - **`X-Request-Id` on every response.** An inbound `X-Request-Id` or Cloudflare `Cf-Ray` is honoured so one trace spans edge, app and client; otherwise one is generated. An inbound value that does not look like a trace ID is replaced rather than sanitized — it ends up in a response header and in every log line.
 - **One access line per request:** `method`, `path`, `status`, `bytes`, `dur_ms`, `request_id`.
 - **One query line per search or suggestion** that reaches Elasticsearch, carrying the full generated DSL — the same query the UI's inspector shows. Both lines are JSON, both use UTC millisecond timestamps, and both name the same `request_id`, so correlating them never involves reasoning about time zones.
-- **`METRICS=1`** publishes stdlib `expvar` counters at `/debug/vars`, keyed by route and status (`search_200`, `search_400`, …). Counting is always on; publishing is opt-in, because the production tunnel forwards whatever path it is given. **Never set `METRICS=1` in the server topology.**
+- **`METRICS=1`** publishes stdlib `expvar` counters at `/debug/vars`, keyed by route and status (`search_200`, `search_400`, …). Counting is always on; publishing is opt-in, because the production reverse proxy forwards whatever path it is given. **Never set `METRICS=1` in the server topology.**
 
 **[Courier](https://github.com/AndresThePerez/Courier)** — the companion API test runner and load tester, [live at courier.andrestheperez.com](https://courier.andrestheperez.com) — drives this API on the deploy host over the internal container network, so the knee it reports is a property of **this** service rather than of the tool: throughput bends at about **10 workers**, **154.1 req/s** at a p50 of **70.36 ms** and a p95 of **118.80 ms**, **0.00%** errors, against a p95 target of **150 ms**. Past that point the extra concurrency queues rather than works, and the error rate never leaves zero. The rail publishes two budgets — ES query under **100 ms**, UI response under **250 ms** — as stated targets, and the companion's runs are the evidence they hold.
 
@@ -255,21 +213,7 @@ flowchart TD
     D -- "_bulk, 1000-doc chunks" --> E
 ```
 
-```text
-browser :8080
-     │
-     ▼
-Go server ── embedded HTML/CSS/JS
-     │
-     │ Compose-internal HTTP :9200
-     ▼
-Elasticsearch 8.15 ── es-data volume
-     ▲
-     │ one-shot /seed profile
-pokemon-tcg-data tarball (streamed from GitHub)
-```
-
-The production Compose topology publishes only the Go application. `docker-compose.dev.yml` is deliberately opt-in so a plain `docker compose up` never exposes Elasticsearch on the host.
+The production Compose topology publishes only the Go application. `docker-compose.dev.yml` is deliberately opt-in so a plain `docker compose up` never exposes Elasticsearch on the host. A plain-text rendering of the same topology is in [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 Elasticsearch runs `docker.elastic.co/elasticsearch/elasticsearch:8.15.0` as a single node with a 512m JVM heap. The runtime image is `gcr.io/distroless/static-debian12:nonroot` — no shell, no package manager, running as uid 65532, with both build and runtime base images pinned by digest. Because there is no shell, the server binary is its own healthcheck client (`/server -ping`).
 
@@ -277,71 +221,13 @@ Elasticsearch runs `docker.elastic.co/elasticsearch/elasticsearch:8.15.0` as a s
 
 ## Deployment
 
-The stack is deployed by pulling the repository onto a host and building there. Substitute your own values:
+`docker-compose.yml` is the whole stack; layering `docker-compose.server.yml` on top of it adds `restart: unless-stopped` and per-service memory caps for a host that runs other tenants.
 
-| Variable | Example | Meaning |
-|---|---|---|
-| `DEPLOY_HOST` | `user@server` | SSH target running Docker |
-| `DEPLOY_DIR` | `~/apps/pokesearch` | Checkout location on that host |
-| `APP_PORT` | `8083` | Host port to publish the application on (defaults to `8080`) |
-| `SEED_REF` | `0af6250a…` | `pokemon-tcg-data` commit to index |
-
-```bash
-ssh "$DEPLOY_HOST"
-cd "$DEPLOY_DIR"
-git pull
-printf 'APP_PORT=%s\n' "$APP_PORT" > .env      # git-ignored
-docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build
-```
-
-`docker-compose.server.yml` adds `restart: unless-stopped` and memory caps (`es` 1g — twice the 512m JVM heap, per Elastic's container guidance; `app` 256m) so the stack coexists with a host's other tenants. Elasticsearch remains on the Compose-internal network with no host port in any topology.
+Deploy on any Docker host behind a TLS-terminating reverse proxy; the public instance at <https://pokesearch.andrestheperez.com> sits behind one. Elasticsearch stays on the Compose-internal network with no host port in any topology, so only the Go application is ever reachable.
 
 Never edit the deployed clone in place: commit on a workstation, push, pull on the host.
 
-**Concrete instance.** The public deployment runs on a home server in `~/apps/pokesearch`, published on host port **8083** and exposed at <https://pokesearch.andrestheperez.com> through the host's existing Cloudflare Tunnel — one ingress rule above the 404 catch-all. Wildcard DNS already routes the subdomain, so no DNS change is involved. The same tunnel serves other production sites; regression-check them all after any config change.
-
-### Seeding
-
-Seed once per environment, pinned for reproducibility:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.server.yml --profile seed run --rm seed \
-  -es http://es:9200 -ref "$SEED_REF"
-```
-
-`0af6250a22495e4a3e9f60ff45fc3fedc2e0563d` is the `pokemon-tcg-data` `master` commit as of 2026-07-10 and yields exactly **20,324** documents (`/healthz` → `{"docs":20324,"status":"ok"}`). It is the ref pinned in `docker-compose.yml`. A populated index makes reseeding a no-op unless `-force` is passed.
-
-### Backup and restore
-
-The index is write-once: one verified backup after seeding is sufficient (no cron). All commands run on the deployment host in `$DEPLOY_DIR`.
-
-Backup (≈30s downtime; the tarball is ~7MB):
-
-```bash
-mkdir -p ~/backups
-docker compose -f docker-compose.yml -f docker-compose.server.yml stop es
-docker run --rm -v pokesearch_es-data:/data -v ~/backups:/out alpine \
-  tar czf /out/pokesearch-es-data-$(date +%F).tgz -C /data .
-docker compose -f docker-compose.yml -f docker-compose.server.yml start es
-```
-
-Restore (into the live volume — stop the stack first):
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.server.yml stop es app
-docker run --rm -v pokesearch_es-data:/data -v ~/backups:/in alpine \
-  sh -c 'rm -rf /data/* && tar xzf /in/pokesearch-es-data-<DATE>.tgz -C /data'
-docker compose -f docker-compose.yml -f docker-compose.server.yml start es app
-```
-
-Recovery ladder, cheapest first:
-
-1. **Container restart** — the `es-data` volume persists the index.
-2. **Reseed** with the pinned ref (see Seeding above) — deterministic, takes seconds.
-3. **Restore** the backup tarball into `pokesearch_es-data` (commands above).
-4. **Full rebuild** — re-clone, `up -d --build`, reseed.
-
-Rollback for public exposure: restore the previous `cloudflared` config backup over the live config, restart `cloudflared`, then re-verify every hostname the tunnel serves.
+The host runbook — the deploy variables, the pinned-ref seed, backup, restore and the recovery ladder — is [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 ## License
 

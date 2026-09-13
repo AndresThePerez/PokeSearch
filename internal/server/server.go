@@ -581,7 +581,7 @@ func routeLabel(path string) string {
 
 // EnableMetrics publishes the expvar document at /debug/vars. It is a method
 // rather than a constructor argument so New's signature stays stable, and it
-// is opt-in because the production Cloudflare tunnel forwards every path it is
+// is opt-in because the production reverse proxy forwards every path it is
 // given — the ingress routes only "/", and this endpoint must not change that.
 func (s *Server) EnableMetrics() {
 	s.mux.Handle("GET /debug/vars", expvar.Handler())

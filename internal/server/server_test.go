@@ -1616,7 +1616,7 @@ func TestMetaESDown(t *testing.T) {
 }
 
 // Metrics are opt-in: /debug/vars must not exist unless the operator asked for
-// it, because the production tunnel forwards every path it is given.
+// it, because the production reverse proxy forwards every path it is given.
 func TestDebugVarsRequiresOptIn(t *testing.T) {
 	s, _ := newTestServer(t, roundTripperFunc(func(r *http.Request) (*http.Response, error) {
 		t.Error("/debug/vars must not call ES")

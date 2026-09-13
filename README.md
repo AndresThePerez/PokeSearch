@@ -231,6 +231,10 @@ The host runbook — the deploy variables, the pinned-ref seed, backup, restore 
 
 ## License
 
+## Author
+
+Built and hosted by [Andres Perez](https://andrestheperez.com), a senior backend engineer focused on API design and platform services in Go and PHP. PokéSearch is the Elasticsearch relevance project I keep public, and [Courier](https://github.com/AndresThePerez/Courier) is the API tooling I test it with; the [portfolio](https://andrestheperez.com) and [resume](https://andrestheperez.com/resume.html) carry the rest.
+
 [MIT](LICENSE) © 2026 Andres Perez.
 
 Pokémon and Pokémon character names are trademarks of Nintendo, Creatures Inc., and GAME FREAK inc. Card data comes from the `pokemon-tcg-data` dataset. This project is unaffiliated with those companies and is non-commercial.

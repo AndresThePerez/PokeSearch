@@ -217,10 +217,22 @@ a:focus-visible {
   opacity: .45;
 }
 
-#suggest-list [role="option"]:hover,
+#suggest-list [role="option"]:hover {
+  color: var(--ink);
+  background: var(--accent-soft);
+}
+
 #suggest-list [role="option"][aria-selected="true"] {
   color: var(--ink);
   background: var(--accent-soft);
+}
+
+#suggest-list [role="option"][aria-selected="true"]::before {
+  width: 3px;
+  height: 1.1em;
+  aspect-ratio: auto;
+  border-radius: 2px;
+  opacity: 1;
 }
 
 .archive-note {

@@ -2126,10 +2126,6 @@ func (s *Server) handleSuggest(w http.ResponseWriter, r *http.Request) {
 	// earlier of the two deadlines, so deriving the request's context once here
 	// caps all three calls at the single per-request ES budget instead of three
 	// times it. handleExplain and handleCompare derive theirs the same way.
-	// One budget for the whole handler, not one per pass: WithTimeout takes the
-	// earlier of the two deadlines, so deriving the request's context once here
-	// caps all three calls at the single per-request ES budget instead of three
-	// times it. handleExplain and handleCompare derive theirs the same way.
 	ctx, cancel := s.esCtx(r)
 	defer cancel()
 	r = r.WithContext(ctx)

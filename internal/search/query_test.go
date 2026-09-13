@@ -64,9 +64,9 @@ func TestBuildQueryFullText(t *testing.T) {
 	    "should": [
 	      {"term": {"name.kw": {"value": "pikuchu", "boost": 8, "_name": "exact"}}},
 	      {"multi_match": {"query": "Pikuchu", "type": "bool_prefix",
-	        "fields": ["name.sayt", "name.sayt._2gram", "name.sayt._3gram"], "boost": 4,
+	        "fields": ["name.sayt", "name.sayt._2gram", "name.sayt._3gram"], "boost": 2,
 	        "_name": "prefix"}},
-	      {"match": {"name": {"query": "Pikuchu", "fuzziness": "AUTO", "boost": 3,
+	      {"match": {"name": {"query": "Pikuchu", "fuzziness": "AUTO", "boost": 1.5,
 	        "_name": "fuzzy-name"}}},
 	      {"multi_match": {"query": "Pikuchu", "type": "best_fields", "fuzziness": "AUTO",
 	        "fields": ["attacks.name^2", "abilities.name^2", "attacks.text", "abilities.text",

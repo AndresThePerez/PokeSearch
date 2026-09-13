@@ -131,14 +131,14 @@ The `#stats` view renders that payload in hand-rolled CSS charts — no charting
 
 ### Relevance design
 
-A text query becomes four scored `should` branches. The boosts encode an intended *ordering* — exact beats prefix beats typo beats card text — rather than measured weights:
+A text query becomes four scored `should` branches. The boosts encode an *ordering* — exact beats prefix beats typo beats card text — and a 27-point sweep over the judged set of [ADR 9](docs/DECISIONS.md#adr-9--how-relevance-is-evaluated) kept that ordering while halving two of the sizes inside it. The **Measured** column is what the sweep found, and [ADR 10](docs/DECISIONS.md#adr-10--measured-branch-weights) is the record:
 
-| Branch | Query | Boost | What it is for |
-|---|---|---|---|
-| `exact` | `term` on `name.kw` | **8** | An exact name always wins. Searching "Pikachu" must not rank a Pikachu-adjacent card first. |
-| `prefix` | `multi_match` `bool_prefix` over `name.sayt` + 2/3-grams | **4** | Instant as-you-type matching, so partial names still rank highly. |
-| `fuzzy-name` | `match` on `name`, `fuzziness: AUTO` | **3** | Typo tolerance — "pikuchu" finds Pikachu — ranked below a real prefix match. |
-| `text` | `multi_match` `best_fields` over attack/ability names and text, flavor text, set name, artist | *implicit 1* | Discovery through card text: "flip a coin" finds cards by what they do. |
+| Branch | Query | Boost | Measured | What it is for |
+|---|---|---|---|---|
+| `exact` | `term` on `name.kw` | **8** | Inert from 4 to 16 — every metric identical to the last digit, so the sweep gives no reason to move it | An exact name always wins. Searching "Pikachu" must not rank a Pikachu-adjacent card first. |
+| `prefix` | `multi_match` `bool_prefix` over `name.sayt` + 2/3-grams | **2** | Swept over 2 / 4 / 8; **2** won, halving the old 4 | Instant as-you-type matching, so partial names still rank highly. |
+| `fuzzy-name` | `match` on `name`, `fuzziness: AUTO` | **1.5** | Swept over 1.5 / 3 / 6; **1.5** won, halving the old 3 | Typo tolerance — "pikuchu" finds Pikachu — ranked below a real prefix match. |
+| `text` | `multi_match` `best_fields` over attack/ability names and text, flavor text, set name, artist | *implicit 1* | Not swept — it is the unit the other three are ratios of, so moving it would only rescale them | Discovery through card text: "flip a coin" finds cards by what they do. |
 
 The four branch names are a contract, not a comment. Elasticsearch echoes the ones each hit matched (`matched_queries`), so a text search's response carries a `matched` array aligned index-for-index with `results` — the grid renders them as per-card badges, and the boost hierarchy becomes observable: sort by relevance and watch the badge mix shift down the page. `GET /api/explain?id=…&q=…` takes the same question one card deeper, replaying each branch against that single document through Elasticsearch's `_explain` and reporting what each contributed. A `should` query's clauses sum, so the matched branches add back up to the score the card was ranked by — which is what the modal's score bars draw. It is deliberately on demand and single-document: Lucene explain on 24 hits per keystroke is pure waste. One case is worth pre-empting, because it can read as a broken badge strip: on an exact-name query the mix does not shift at the top of the list at all — `q=charizard` returns `["exact","prefix","fuzzy-name","text"]` for each of the first three hits, because a name typed exactly satisfies all four branches at once. What separates those hits there is not which badges they carry but how much each branch contributed — the per-branch **scores**, one click away in the explain modal.
 

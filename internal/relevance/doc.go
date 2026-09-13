@@ -39,8 +39,12 @@
 // windows no judgment covers — so a score that fell can be read correctly: if
 // unrated@10 held steady the ranking put judged cards in a worse order, and if
 // it rose the ranking reached outside the pool and the set needs re-pooling
-// before the number means anything. It is zero across every stratum while the
-// full window is judged, which is the state the set was written in.
+// before the number means anything. It was zero across every stratum when the
+// set was written, because the pool was drawn from the windows the weights of
+// the day returned. ADR 10 then moved two of those weights on the strength of
+// this harness, so the current baseline carries a nonzero unrated@10 and the
+// set is owed the re-pool ADR 10 records — which is the predicted cost of the
+// bias above arriving, not a surprise.
 //
 // Every judged card id is checked against the index before any number is
 // computed. _rank_eval answers a rating that names a document the index does

@@ -186,6 +186,13 @@ func loadJudgments(t *testing.T) judgmentSet {
 	return set
 }
 
+// bodyBuilder produces the _rank_eval request body for one judged query.
+// evaluatedBody is the served one, and the baseline uses nothing else. The
+// sweep passes a builder that overwrites the branch boosts on top of it, so
+// both measure the same query built by the same code and differ only in the
+// numbers under test.
+type bodyBuilder func(t *testing.T, q string) map[string]any
+
 // evaluatedBody is the body _rank_eval is handed for one judged query: the
 // served body, minus the two keys the API refuses. It goes through ParseParams
 // first so the request is canonicalized exactly as an /api/search request with
@@ -231,10 +238,10 @@ type rankEvalResponse struct {
 var client = &http.Client{Timeout: 60 * time.Second}
 
 // runRankEval posts the whole judgment set as one _rank_eval request for a
-// single metric. It returns the overall score, the per-query scores, and the
-// per-query count of window hits no judgment covers — all three keyed by query
-// text.
-func runRankEval(t *testing.T, set judgmentSet, m metricDef) (overall float64, perQuery map[string]float64, unrated map[string]int) {
+// single metric, building every request body with buildBody. It returns the
+// overall score, the per-query scores, and the per-query count of window hits
+// no judgment covers — all three keyed by query text.
+func runRankEval(t *testing.T, set judgmentSet, m metricDef, buildBody bodyBuilder) (overall float64, perQuery map[string]float64, unrated map[string]int) {
 	t.Helper()
 	index := indexName()
 	requests := make([]map[string]any, 0, len(set.Queries))
@@ -249,7 +256,7 @@ func runRankEval(t *testing.T, set judgmentSet, m metricDef) (overall float64, p
 		}
 		requests = append(requests, map[string]any{
 			"id":      q.Query,
-			"request": evaluatedBody(t, q.Query),
+			"request": buildBody(t, q.Query),
 			"ratings": ratings,
 		})
 	}
@@ -307,6 +314,102 @@ func runRankEval(t *testing.T, set judgmentSet, m metricDef) (overall float64, p
 		unrated[id] = len(d.UnratedDocs)
 	}
 	return out.MetricScore, perQuery, unrated
+}
+
+// groupByStratum indexes the judged queries by the stratum they belong to, in
+// the order the file lists them, so everything that reports per stratum groups
+// the same queries the same way.
+func groupByStratum(set judgmentSet) map[string][]string {
+	byStratum := make(map[string][]string, len(strata))
+	for _, q := range set.Queries {
+		byStratum[q.Stratum] = append(byStratum[q.Stratum], q.Query)
+	}
+	return byStratum
+}
+
+// scored is one full pass of every metric over the judged set: the headline
+// score, the per-stratum means, and the per-query detail each of those is made
+// of. unrated is a per-query count of window hits no judgment covers — a
+// property of the search rather than of any one metric — and it is folded into
+// overall and stratum under unratedKey, because a score that moved can only be
+// read with it in the same row.
+type scored struct {
+	overall  map[string]float64
+	stratum  map[string]map[string]float64
+	perQuery map[string]map[string]float64
+	unrated  map[string]int
+}
+
+// scoreSet runs every metric over the judged set with one body builder. It is
+// the shared engine of the baseline and the sweep: the baseline scores the
+// served query, the sweep scores that same query once per grid point, and
+// neither restates what a stratum mean is or which metrics get reported.
+func scoreSet(t *testing.T, set judgmentSet, buildBody bodyBuilder) scored {
+	t.Helper()
+	byStratum := groupByStratum(set)
+	out := scored{
+		overall:  make(map[string]float64, len(metricDefs)+1),
+		stratum:  make(map[string]map[string]float64, len(strata)),
+		perQuery: make(map[string]map[string]float64, len(metricDefs)),
+	}
+	for _, s := range strata {
+		out.stratum[s] = make(map[string]float64, len(metricDefs)+1)
+	}
+	unratedByMetric := make(map[string]map[string]int, len(metricDefs))
+
+	for _, m := range metricDefs {
+		score, perQuery, unrated := runRankEval(t, set, m, buildBody)
+		unratedByMetric[m.Key] = unrated
+		out.perQuery[m.Key] = perQuery
+
+		// ES's own metric_score is the mean over the requests. Recomputing it
+		// from the details proves the per-stratum means below are grouping the
+		// same numbers the headline is made of.
+		all := make([]float64, 0, len(set.Queries))
+		for _, q := range set.Queries {
+			v, ok := perQuery[q.Query]
+			if !ok {
+				t.Fatalf("%s: no score returned for query %q", m.Key, q.Query)
+			}
+			all = append(all, v)
+		}
+		if recomputed := mean(all); !closeEnough(recomputed, score) {
+			t.Errorf("%s: ES reported %v overall, the per-query details mean %v", m.Key, score, recomputed)
+		}
+		out.overall[m.Key] = score
+
+		for _, s := range strata {
+			values := make([]float64, 0, len(byStratum[s]))
+			for _, q := range byStratum[s] {
+				values = append(values, perQuery[q])
+			}
+			out.stratum[s][m.Key] = mean(values)
+		}
+	}
+
+	// The unrated window is a property of the search, not of the metric, so
+	// all three metrics must report the same counts. Asserting it rather than
+	// assuming it is what lets the rest of this read one metric's numbers.
+	out.unrated = unratedByMetric[metricDefs[0].Key]
+	for _, m := range metricDefs[1:] {
+		for _, q := range set.Queries {
+			if got, want := unratedByMetric[m.Key][q.Query], out.unrated[q.Query]; got != want {
+				t.Errorf("query %q: %s reports %d unrated docs, %s reports %d",
+					q.Query, m.Key, got, metricDefs[0].Key, want)
+			}
+		}
+	}
+	totalUnrated := 0
+	for _, s := range strata {
+		n := 0
+		for _, q := range byStratum[s] {
+			n += out.unrated[q]
+		}
+		out.stratum[s][unratedKey] = float64(n)
+		totalUnrated += n
+	}
+	out.overall[unratedKey] = float64(totalUnrated)
+	return out
 }
 
 // mgetBatch is how many ids go into one _mget. The judged set is a few hundred
@@ -588,81 +691,20 @@ func TestEvaluatedBodyCoversEveryServedKey(t *testing.T) {
 // baseline.
 func TestRelevanceBaseline(t *testing.T) {
 	set := loadJudgments(t)
-
-	byStratum := make(map[string][]string, len(strata))
-	for _, q := range set.Queries {
-		byStratum[q.Stratum] = append(byStratum[q.Stratum], q.Query)
-	}
+	byStratum := groupByStratum(set)
 
 	// An invented id is ignored by _rank_eval inside a 200, so this has to
 	// happen before a single number is computed.
 	assertJudgedIDsExist(t, set)
 
-	overall := make(map[string]float64, len(metricDefs)+1)
-	stratumScores := make(map[string]map[string]float64, len(strata))
-	for _, s := range strata {
-		stratumScores[s] = make(map[string]float64, len(metricDefs)+1)
-	}
-	unratedByMetric := make(map[string]map[string]int, len(metricDefs))
-
-	for _, m := range metricDefs {
-		score, perQuery, unrated := runRankEval(t, set, m)
-		unratedByMetric[m.Key] = unrated
-
-		// ES's own metric_score is the mean over the requests. Recomputing it
-		// from the details proves the per-stratum means below are grouping the
-		// same numbers the headline is made of.
-		all := make([]float64, 0, len(set.Queries))
-		for _, q := range set.Queries {
-			v, ok := perQuery[q.Query]
-			if !ok {
-				t.Fatalf("%s: no score returned for query %q", m.Key, q.Query)
-			}
-			all = append(all, v)
-		}
-		if recomputed := mean(all); !closeEnough(recomputed, score) {
-			t.Errorf("%s: ES reported %v overall, the per-query details mean %v", m.Key, score, recomputed)
-		}
-		overall[m.Key] = score
-
-		for _, s := range strata {
-			values := make([]float64, 0, len(byStratum[s]))
-			for _, q := range byStratum[s] {
-				values = append(values, perQuery[q])
-			}
-			stratumScores[s][m.Key] = mean(values)
-		}
-	}
-
-	// The unrated window is a property of the search, not of the metric, so
-	// all three metrics must report the same counts. Asserting it rather than
-	// assuming it is what lets the rest of this read one metric's numbers.
-	unrated := unratedByMetric[metricDefs[0].Key]
-	for _, m := range metricDefs[1:] {
-		for _, q := range set.Queries {
-			if got, want := unratedByMetric[m.Key][q.Query], unrated[q.Query]; got != want {
-				t.Errorf("query %q: %s reports %d unrated docs, %s reports %d",
-					q.Query, m.Key, got, metricDefs[0].Key, want)
-			}
-		}
-	}
-	totalUnrated := 0
-	for _, s := range strata {
-		n := 0
-		for _, q := range byStratum[s] {
-			n += unrated[q]
-		}
-		stratumScores[s][unratedKey] = float64(n)
-		totalUnrated += n
-	}
-	overall[unratedKey] = float64(totalUnrated)
+	result := scoreSet(t, set, evaluatedBody)
 
 	report := baselineReport{
 		Index:   indexName(),
 		Docs:    fetchDocCount(t),
 		Queries: len(set.Queries),
 		K:       k,
-		Metrics: overall,
+		Metrics: result.overall,
 	}
 	meta := fetchBuildIdentity(t)
 	report.Build = buildIdentity{Version: meta.Version, Commit: meta.Commit, Built: meta.Built}
@@ -671,7 +713,7 @@ func TestRelevanceBaseline(t *testing.T) {
 		report.Strata = append(report.Strata, stratumReport{
 			Name:    s,
 			Queries: len(byStratum[s]),
-			Metrics: stratumScores[s],
+			Metrics: result.stratum[s],
 		})
 	}
 

@@ -58,9 +58,18 @@ type Branch struct {
 
 // Branches is the relevance registry, the sibling of Facets: one list, read by
 // the query builder and by /api/explain, so the two can never rank a card by
-// different clauses. The boosts encode an ordering — an exact name beats a
-// prefix beats a fuzzy name beats a body-text hit — not measured weights; the
-// fourth branch deliberately carries no boost and takes ES's implicit 1.
+// different clauses.
+//
+// The boosts are measured rather than asserted. A 27-point sweep over ADR 9's
+// judged set on 2026-09-13 picked the prefix and fuzzy-name weights by nDCG@10,
+// and found the exact weight inert anywhere between 4 and 16 — an exact term
+// match either fires for a card or it does not, and 4 already lifts every card
+// it fires for clear of the rest, so raising it reorders nothing. That one is
+// therefore unmeasured and stays where it was. The ordering the four encode —
+// an exact name above a prefix above a fuzzy name above a body-text hit —
+// survived the sweep; the sizes inside it did not. The fourth branch carries no
+// boost and takes ES's implicit 1, which is the unit the other three are ratios
+// of. See ADR 10.
 func Branches(q string) []Branch {
 	exact := map[string]any{
 		"value": strings.ToLower(q),
@@ -74,12 +83,12 @@ func Branches(q string) []Branch {
 			"name.sayt._2gram",
 			"name.sayt._3gram",
 		},
-		"boost": 4,
+		"boost": 2,
 	}
 	fuzzy := map[string]any{
 		"query":     q,
 		"fuzziness": "AUTO",
-		"boost":     3,
+		"boost":     1.5,
 	}
 	text := map[string]any{
 		"query":     q,

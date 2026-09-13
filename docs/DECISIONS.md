@@ -270,3 +270,75 @@ feature. It stays on the stretch list.
 [Courier](https://github.com/AndresThePerez/Courier), ships. Because its
 fixtures assert exact corpus cardinalities, a reseed is a coordinated
 two-project change, not a unilateral one.
+
+---
+
+## ADR 9 — How relevance is evaluated
+
+**Decision.** Ranking changes are judged against a fixed judgment set with
+graded relevance, scored offline by a harness that builds every query it sends
+through the same `internal/search` functions the server calls. A change to the
+boosts ships on what that harness reports, not on how the first page of one
+query looked to the person who made the change.
+
+**Why.** Every boost in this repository is an *intended* ordering: name above
+attack text, exact above prefix, weights chosen because they read as sensible
+and never checked against anything. The gap that matters is not that they might
+be wrong — it is that nothing in the repository can tell a ranking change that
+helped from one that hurt. Spot-checking a few queries in the browser finds the
+regression you thought to look for and misses the rest. A judgment set is what
+makes ranking something that can fail a test.
+
+**The judgment set.** Roughly 50 to 70 queries, grouped into named strata:
+exact name, prefix, typo, attack text, artist, set name, and natural-language
+intent. Each stratum is a distinct failure mode, so a metric that moves can be
+attributed to one of them rather than averaged into invisibility — a typo fix
+that quietly costs artist search is exactly the trade this is meant to expose.
+Each query lists the documents judged for it on a graded scale of 0 to 3, from
+irrelevant, through defensible, to the card the searcher plainly meant. Graded
+rather than binary because relevance here is not binary: a different print of
+the right card is not the answer, but it is not noise either.
+
+**Every judgment carries a reason.** One line, stored beside the grade, saying
+why that document earned it. That is what makes the set auditable rather than
+asserted: a disagreement later is then a conversation about a stated reason
+instead of an argument about a number somebody typed. It is also the honest way
+to record that these are judgments and not facts.
+
+**The metrics.** nDCG@10 is the headline, with precision@10 and MRR reported
+alongside it. nDCG earns the headline because it is the metric that reads both
+halves of what the judgments say — the grade of a hit *and* where the hit
+landed — so moving a grade-3 card from the bottom of the window to the top is
+visible in it, while precision@10 counts hits in the window and can see neither
+the grade nor the order. Precision@10 stays because it is the one number a
+reader interprets correctly at a glance. MRR stays for the exact-name and
+prefix strata, where there is a single right answer and its rank is the whole
+story.
+
+**It reuses the served query builder.** The harness calls `BuildQuery` and
+sends what it returns; it does not restate the DSL in a fixture of its own.
+This is the second thing ADR 2's purity buys. An evaluation of a query the
+server does not issue measures nothing, and the only durable defence against
+that drift is for there to be one builder rather than two. The intended shape
+follows from that: a build-tagged package under `internal/relevance`, so a
+plain `go test ./...` stays cluster-free; the judgments checked in as JSON
+beside it; an Elasticsearch `_rank_eval` request per stratum against the cards
+index; a baseline written under `docs/relevance/` recording the index, the
+document count and the build it was measured on; and the written report in
+`docs/RELEVANCE.md`. The acceptance workflow gates on that baseline on demand
+and against a stated tolerance, rather than on every push — an evaluation needs
+a seeded cluster, which a unit test deliberately does not.
+
+**None of this is measured yet.** As of this record the harness does not exist,
+no judgment has been written, and the boosts remain what they have always been:
+an intended ordering. This ADR fixes the method so that the first numbers, when
+they arrive, mean something. It reports none, and any relevance figure quoted
+before the harness runs is a guess wearing a decimal point.
+
+**Cost.** A judgment set is an opinion with a timestamp. It has to be
+maintained — a reseed to a newer corpus can invalidate judgments that name
+documents which moved or vanished — and it encodes one person's view of what a
+good result is for this corpus, which is not the same thing as what a searcher
+wanted. A metric that moves is only as trustworthy as the judgments underneath
+it. The reasons are recorded so that trustworthiness can be argued with rather
+than assumed.

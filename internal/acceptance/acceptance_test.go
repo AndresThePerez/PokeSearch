@@ -11,7 +11,6 @@ package acceptance
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -55,7 +54,9 @@ func baseURL() string {
 // link, not the service, so the assertions only apply on loopback. An unset
 // POKESEARCH_URL defaults to http://localhost:8080 and is loopback. A set
 // POKESEARCH_URL is loopback only when its host is localhost, 127.0.0.1 or
-// ::1.
+// ::1. Hostname() is what reads that host: it strips the port and the IPv6
+// brackets on its own, so a bracketed ::1 with no port is recognised too, and
+// the value is lowercased because a host name is case-insensitive.
 func latencyGated() bool {
 	raw := os.Getenv("POKESEARCH_URL")
 	if raw == "" {
@@ -65,11 +66,7 @@ func latencyGated() bool {
 	if err != nil {
 		return false
 	}
-	host := u.Host
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
-	switch host {
+	switch strings.ToLower(u.Hostname()) {
 	case "localhost", "127.0.0.1", "::1":
 		return true
 	default:

@@ -126,7 +126,7 @@ func TestAnalyzeNameTokenStreams(t *testing.T) {
 			want: []string{"pokemon"},
 		},
 		{
-			// The modern spacing-and-lowercase spelling of the suffix, 919
+			// The modern spacing-and-lowercase spelling of the suffix, 915
 			// cards of it, which the synonyms tie back to -GX and -EX.
 			name: "lowercase spaced ex suffix",
 			text: "Charizard ex",

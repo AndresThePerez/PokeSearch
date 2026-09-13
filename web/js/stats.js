@@ -3,11 +3,11 @@
 //
 // No chart library, by design (D7) — every mark here is a CSS box or an SVG
 // node built with textContent, the same discipline the rest of the frontend
-// keeps. The visual grammar follows one rule: bar LENGTH carries magnitude and
-// colour carries nothing, so there is exactly one accent hue on the page and
-// no categorical palette to misread. Where identity matters (the energy
-// types), it is carried by the label and the type's own canonical dot — the
-// same dot the filter rail already uses for that type.
+// keeps. The visual grammar follows one rule: bar LENGTH carries magnitude.
+// Colour is the accent everywhere it means nothing, and the type's own
+// canonical hue on the energy rows, where it means identity — the bar and the
+// dot beside it take that hue from the same --type-color the filter rail uses,
+// so the two can never disagree. Nothing here is readable by colour alone.
 //
 // Every value on this page is also readable as text: each bar row prints its
 // own count, and the response inspector beside the charts holds the raw
@@ -170,8 +170,9 @@ function hpChart(hp, maxHP) {
 }
 
 // The energy types. Colour is identity here and it comes from the type's own
-// canonical dot — the same one the filter rail shows — while the bar stays the
-// single accent hue, because what the bars compare is magnitude.
+// canonical dot — the same one the filter rail shows — and the bar now carries
+// that same hue, so the mark encoding the number is the mark carrying the
+// identity. Length still carries the magnitude; the count is printed either way.
 function typeChart(types) {
   return chartBlock(
     "Energy types",

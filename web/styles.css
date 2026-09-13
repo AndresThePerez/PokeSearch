@@ -1178,9 +1178,9 @@ mark {
 }
 
 /* ── Stats view (#stats) ────────────────────────────────────────────────────
-   One accent hue for every mark on the page: bar length carries magnitude, so
-   colour is free to mean nothing — except on the energy-type rows, where the
-   type's own canonical dot carries identity beside the label. Marks stay thin,
+   Bar length carries magnitude, so colour is free to mean nothing and stays the
+   one accent hue — except on the energy-type rows, where the type's canonical
+   hue carries identity on the dot and on the bar alike. Marks stay thin,
    grid and axis are hairlines one shade off the surface, and every bar prints
    its own value, so nothing here is readable by colour alone. */
 

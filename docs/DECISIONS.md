@@ -14,6 +14,7 @@ append-only: a superseded decision keeps its entry and gains a pointer forward.
 | [6](#adr-6--the-set-catalog-is-cached-separately-from-hot-search) | The set catalog is cached separately from hot search | Accepted (bug fixed 2026-08-22) |
 | [7](#adr-7--a-strictlenient-error-contract) | A strict/lenient error contract | Accepted — supersedes drop-don't-reject |
 | [8](#adr-8--what-was-deliberately-not-built) | What was deliberately not built | Accepted |
+| [9](#adr-9--how-relevance-is-evaluated) | How relevance is evaluated | Accepted |
 
 ---
 

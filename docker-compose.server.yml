@@ -3,7 +3,7 @@
 # Usage: docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build
 #
 # demo-net is created once on the server: docker network create demo-net
-# The alias MUST be unique — both Pokesearch and Courier name their service
+# The alias MUST be unique — both PokéSearch and Courier name their service
 # "app", and duplicate names on a shared network round-robin (Courier gotcha).
 services:
   es:

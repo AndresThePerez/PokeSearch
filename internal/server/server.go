@@ -1,4 +1,4 @@
-// Package server is Pokesearch's HTTP layer: JSON endpoints plus the embedded
+// Package server is PokéSearch's HTTP layer: JSON endpoints plus the embedded
 // static frontend. Elasticsearch is only reached from this package.
 package server
 

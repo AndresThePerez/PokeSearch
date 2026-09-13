@@ -1,9 +1,9 @@
 // Package tcg models the pokemon-tcg-data source format and its
-// transformation into the documents Pokesearch indexes.
+// transformation into the documents PokéSearch indexes.
 package tcg
 
 // SourceSet is one record of sets/en.json in the pokemon-tcg-data repo.
-// Only fields Pokesearch uses are decoded.
+// Only fields PokéSearch uses are decoded.
 type SourceSet struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`

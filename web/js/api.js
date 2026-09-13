@@ -1,4 +1,4 @@
-// Every call to the Pokesearch API, and the request lifecycle around it:
+// Every call to the PokéSearch API, and the request lifecycle around it:
 // debouncing, in-flight cancellation and the degraded-state signal.
 //
 // Imports state, render and telemetry — never suggest.js or modal.js, which

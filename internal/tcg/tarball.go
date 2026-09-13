@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// Archive holds everything Pokesearch needs from one pokemon-tcg-data
+// Archive holds everything PokéSearch needs from one pokemon-tcg-data
 // tarball, entirely in memory. Keys are set ids ("base1").
 type Archive struct {
 	Sets  map[string]SourceSet

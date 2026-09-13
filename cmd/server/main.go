@@ -1,4 +1,4 @@
-// Command server is the single Pokesearch binary: JSON API plus embedded
+// Command server is the single PokéSearch binary: JSON API plus embedded
 // frontend. It never seeds and never touches GitHub.
 package main
 
@@ -57,7 +57,7 @@ func main() {
 		metrics: os.Getenv("METRICS") == "1",
 	}
 	if err := run(ctx, cfg); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		slog.Error("pokesearch stopped", "err", err)
+		slog.Error("PokéSearch stopped", "err", err)
 		os.Exit(1)
 	}
 }
@@ -89,7 +89,7 @@ func run(ctx context.Context, cfg config) error {
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()
-	slog.Info("pokesearch listening", "port", cfg.port, "es", cfg.esURL)
+	slog.Info("PokéSearch listening", "port", cfg.port, "es", cfg.esURL)
 
 	select {
 	case err := <-errCh:

@@ -1,4 +1,4 @@
-# Pokesearch
+# PokéSearch
 
 [![ci](https://github.com/AndresThePerez/PokeSearch/actions/workflows/ci.yml/badge.svg)](https://github.com/AndresThePerez/PokeSearch/actions/workflows/ci.yml)
 [![Go 1.26](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
@@ -6,13 +6,13 @@
 
 ### **[Live demo → pokesearch.andrestheperez.com](https://pokesearch.andrestheperez.com)**
 
-Pokesearch is a full-text search engine over all 20,324 English Pokémon TCG cards — a Go API, an Elasticsearch relevance model with disjunctive facets, and a dependency-free ES-module frontend, shipped as a single containerized binary. Searching the corpus is the easy half. The half worth reading the code for is that the engine explains itself.
+PokéSearch is a full-text search engine over all 20,324 English Pokémon TCG cards — a Go API, an Elasticsearch relevance model with disjunctive facets, and a dependency-free ES-module frontend, shipped as a single containerized binary. Searching the corpus is the easy half. The half worth reading the code for is that the engine explains itself.
 
 Every result page carries an observability rail: the exact Elasticsearch DSL that answered the query, the cluster's own latency broken out from the browser round trip, a sparkline of the session's last twenty requests, and the live SLA targets — while the same query goes to the application log as one replayable JSON line tagged with the request ID printed on screen.
 
 Relevance is equally legible. A text query fans into four *named*, boosted `should` branches; Elasticsearch echoes which branches each hit matched, so the grid renders them as per-card badges and the boost hierarchy becomes something you can watch shift down the page. `GET /api/explain` takes it one card deeper through Lucene's `_explain`, and because a `should` query's clauses sum, the modal's score bars add back up to the number the card was ranked by. The treatment generalizes: `#stats` profiles the entire archive in hand-rolled CSS charts and shows the aggregation DSL behind them in the same inspector.
 
-![Pokesearch search results with the observability rail open](docs/media/hero.png)
+![PokéSearch search results with the observability rail open](docs/media/hero.png)
 
 ## Quick start
 

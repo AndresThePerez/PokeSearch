@@ -7,7 +7,7 @@ import (
 )
 
 // Transform joins one source card with its set metadata and produces the
-// document Pokesearch indexes. Pure — no I/O.
+// document PokéSearch indexes. Pure — no I/O.
 func Transform(sc SourceCard, set SourceSet) Card {
 	c := Card{
 		ID:                     sc.ID,

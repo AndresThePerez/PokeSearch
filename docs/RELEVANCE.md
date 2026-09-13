@@ -246,7 +246,7 @@ Four environment variables, no flags and no config file:
 | Variable | Default | What it does |
 |---|---|---|
 | `POKESEARCH_ES` | `http://localhost:9200` | Elasticsearch base URL the `_rank_eval` requests go to. |
-| `POKESEARCH_URL` | `http://localhost:8080` | Pokesearch base URL, read for the `/api/meta` build identity stamped into the baseline. |
+| `POKESEARCH_URL` | `http://localhost:8080` | PokéSearch base URL, read for the `/api/meta` build identity stamped into the baseline. |
 | `POKESEARCH_INDEX` | `cards` | The index the requests target and the ratings name. Point it at a shadow index to evaluate one. |
 | `POKESEARCH_BASELINE_OUT` | `docs/relevance/baseline.json` | Where the run is written. Point it elsewhere for a comparison run. |
 

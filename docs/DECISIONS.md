@@ -1,6 +1,6 @@
 # Architecture decision records
 
-Why Pokesearch is built the way it is. Each record states the decision, the
+Why PokéSearch is built the way it is. Each record states the decision, the
 forces behind it, and — the part that matters most — what it costs. Records are
 append-only: a superseded decision keeps its entry and gains a pointer forward.
 

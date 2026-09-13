@@ -1,7 +1,7 @@
 // Package esindex owns the cards index definition and bulk-body encoding.
 package esindex
 
-// IndexName is the one index Pokesearch reads and writes.
+// IndexName is the one index PokéSearch reads and writes.
 const IndexName = "cards"
 
 // Mapping is the create-index body: write-once/read-many settings, the

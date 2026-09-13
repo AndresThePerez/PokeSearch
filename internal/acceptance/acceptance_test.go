@@ -1,7 +1,7 @@
 //go:build acceptance
 
 // Package acceptance runs the seeded-stack API matrix against a live
-// Pokesearch instance (the pinned 20,324-card index). It is tag-gated:
+// PokéSearch instance (the pinned 20,324-card index). It is tag-gated:
 //
 //	go test -tags acceptance ./internal/acceptance -v
 //

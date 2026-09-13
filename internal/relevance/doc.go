@@ -72,7 +72,7 @@
 // Four environment variables, no flags and no config file:
 //
 //	POKESEARCH_ES           Elasticsearch base URL. Default http://localhost:9200.
-//	POKESEARCH_URL          Pokesearch base URL, read for /api/meta build
+//	POKESEARCH_URL          PokéSearch base URL, read for /api/meta build
 //	                        identity. Default http://localhost:8080.
 //	POKESEARCH_INDEX        Index the _rank_eval requests target, and the index
 //	                        the ratings name. Default "cards"; a shadow index

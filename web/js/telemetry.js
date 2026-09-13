@@ -1,8 +1,10 @@
 // The observability rail: the stats grid, the SLA readouts, the service-status
-// pill, and the two inspector panes that show the generated DSL and the raw
-// response. Imports util only.
+// pill, the two inspector panes that show the generated DSL and the raw
+// response, and the Ranking lab below them. Imports util and state — state
+// imports nothing app-level, so the graph stays acyclic.
 
-import { $ } from "./util.js";
+import { $, element } from "./util.js";
+import { queryText } from "./state.js";
 
 let hadDSL = false;
 
@@ -154,4 +156,145 @@ export function renderStats(data, roundTripMs) {
   $("stat-page").textContent = data.pages ? `${data.page} / ${data.pages}` : BLANK;
   $("sla-engine-state").textContent = data.took_ms < 100 ? "within target" : "above target";
   $("sla-roundtrip-state").textContent = roundTripMs < 250 ? "within target" : "above target";
+  // A search landed, so the lab is stale if the query moved. It is the rail's
+  // own panel, and this is the moment the rail learns a search completed —
+  // which is why the refresh hangs here rather than off every call site that
+  // can start one.
+  refreshRankingLab();
+}
+
+// The Ranking lab: the same query ranked under two named weight profiles, and
+// what moved between the two windows.
+//
+// It is the one panel in the rail that asks for something of its own, and it
+// asks only while it is open — a comparison is two searches, and nobody is owed
+// them per keystroke behind a closed panel. That policy is the panel's, which
+// is why the request lives here rather than in api.js: api.js owns the search
+// lifecycle, and this is not part of it.
+const LAB_IDLE = "Open this panel with a search running to rank it under two weight profiles.";
+const LAB_UNAVAILABLE = "The ranking comparison is unavailable right now.";
+
+// The branches a profile moves, in the order ADR 10 reports them. The fourth,
+// text, is in no profile: it carries Elasticsearch's implicit 1 everywhere, and
+// is the unit the other three are ratios of.
+const LAB_WEIGHTED_BRANCHES = ["exact", "prefix", "fuzzy-name"];
+
+// How many movers the panel names. The rail is a column, not a table: five is
+// what fits without turning the panel into a second results grid, and the
+// server sends them largest-movement first, so five is the top five.
+const LAB_MOVERS_SHOWN = 5;
+
+// The query the panel is currently showing, or null when it is showing nothing.
+// A comparison only depends on the query text — filters live in post_filter and
+// cannot reorder anything — so a search that did not change it needs no refetch.
+let labQuery = null;
+
+// Only the newest comparison may paint. Typing produces several, and the one
+// that answers last is not necessarily the one that was asked last.
+let labRequest = 0;
+
+export async function refreshRankingLab() {
+  if (!$("ranking-lab").open) return;
+  const q = queryText();
+  if (!q) {
+    labQuery = "";
+    clearRankingLab(LAB_IDLE);
+    return;
+  }
+  if (q === labQuery) return;
+
+  const request = ++labRequest;
+  labQuery = q;
+  clearRankingLab("Ranking under both profiles…");
+  try {
+    const res = await fetch(`/api/compare?${new URLSearchParams({ q })}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (request !== labRequest) return;
+    renderRankingLab(data);
+  } catch {
+    if (request !== labRequest) return;
+    // Nothing is on screen, so the next search is allowed to try again rather
+    // than being deduplicated against a comparison that never arrived.
+    labQuery = null;
+    clearRankingLab(LAB_UNAVAILABLE);
+  }
+}
+
+function clearRankingLab(message) {
+  $("lab-status").textContent = message;
+  $("lab-columns").replaceChildren();
+  $("lab-movers").replaceChildren();
+}
+
+function renderRankingLab(data) {
+  const deltas = new Map((data.deltas ?? []).map((delta) => [delta.id, delta]));
+  const counted = deltas.size;
+  $("lab-status").textContent =
+    `Spearman ρ ${formatRho(data.spearman_rho_union)} over ${counted} ${counted === 1 ? "card" : "cards"}`
+    + ` · top ${data.window} of ${Number(data.a.total ?? 0).toLocaleString()}`;
+  $("lab-columns").replaceChildren(labColumn(data.a, deltas), labColumn(data.b, deltas));
+  $("lab-movers").replaceChildren(...labMovers(data.deltas ?? []));
+}
+
+// ρ is a correlation, not a measurement of anything countable, and the panel is
+// two short lists wide: two decimals is as much of it as means anything here.
+// Null is the server saying there was nothing to correlate, which is not zero.
+function formatRho(rho) {
+  return typeof rho === "number" ? rho.toFixed(2) : BLANK;
+}
+
+function labColumn(side, deltas) {
+  const column = element("div", "lab-col");
+  column.append(
+    element("p", "lab-col-name", side.profile),
+    element("p", "lab-col-weights", LAB_WEIGHTED_BRANCHES.map((name) => side.boosts?.[name] ?? BLANK).join(" / ")),
+  );
+  const list = element("ul", "lab-list");
+  for (const row of side.results ?? []) {
+    const item = element("li", "lab-row");
+    item.title = `${row.id} · score ${row.score}`;
+    item.append(
+      element("span", "lab-rank", String(row.rank)),
+      element("span", "lab-name", row.name || row.id),
+      labDelta(deltas.get(row.id)),
+    );
+    list.append(item);
+  }
+  column.append(list);
+  return column;
+}
+
+// The mark beside a row. Every state carries its own glyph or word, so the
+// colour behind it is emphasis and never the only way to read the row.
+function labDelta(delta) {
+  switch (delta?.status) {
+    case "up":
+      return element("span", "lab-delta is-up", `▲${delta.delta}`);
+    case "down":
+      return element("span", "lab-delta is-down", `▼${-delta.delta}`);
+    case "entered":
+      return element("span", "lab-delta is-entered", "new");
+    case "dropped":
+      return element("span", "lab-delta is-dropped", "out");
+    default:
+      return element("span", "lab-delta", "–");
+  }
+}
+
+// The movers, in the order the server ranked them: what crossed the window edge
+// first, then the largest moves inside it.
+function labMovers(deltas) {
+  const moved = deltas.filter((delta) => delta.status !== "same").slice(0, LAB_MOVERS_SHOWN);
+  if (moved.length === 0) {
+    return [element("li", "lab-movers-none", "Both profiles rank the same cards in the same order.")];
+  }
+  return moved.map((delta) => {
+    const item = element("li");
+    item.append(
+      element("b", "", delta.name || delta.id),
+      element("span", "", `${delta.rank_a ?? BLANK} → ${delta.rank_b ?? BLANK}`),
+    );
+    return item;
+  });
 }

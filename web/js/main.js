@@ -11,7 +11,7 @@ import {
 import { runSearch, scheduleSearch, refreshHealth } from "./api.js";
 import { scheduleSuggest, closeSuggestions, handleSuggestKeydown } from "./suggest.js";
 import { bindModalEvents, openDeepLink } from "./modal.js";
-import { lastResponseHadDSL } from "./telemetry.js";
+import { lastResponseHadDSL, refreshRankingLab } from "./telemetry.js";
 import { showStats } from "./stats.js";
 
 // The app has two views and one hash router. #stats is a route; #card= is not
@@ -222,6 +222,12 @@ function bindCoreEvents() {
     if (statsViewOpen()) showStats();
     else runSearch();
   });
+
+  // A comparison is two searches, so the lab only ever asks for one while it
+  // is open: here when it is opened, and from the rail itself when a search
+  // with a new query lands under an already-open panel. Closing fires this too
+  // and the panel declines it, the same shape the inspector above it uses.
+  $("ranking-lab").addEventListener("toggle", () => refreshRankingLab());
 
   // The stats link is a plain anchor on the way in, so it is a real link; on
   // the way back it clears the hash instead of leaving a bare "#" behind.

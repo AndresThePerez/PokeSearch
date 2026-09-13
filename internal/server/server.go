@@ -82,6 +82,7 @@ func New(es *elasticsearch.Client, static fs.FS, logW io.Writer, now func() time
 	s.mux.HandleFunc("GET /api/search", s.handleSearch)
 	s.mux.HandleFunc("GET /api/suggest", s.handleSuggest)
 	s.mux.HandleFunc("GET /api/explain", s.handleExplain)
+	s.mux.HandleFunc("GET /api/compare", s.handleCompare)
 	s.mux.HandleFunc("GET /api/stats", s.handleStats)
 	s.mux.HandleFunc("GET /api/meta", s.handleMeta)
 
@@ -561,6 +562,8 @@ func routeLabel(path string) string {
 		return "suggest"
 	case "/api/explain":
 		return "explain"
+	case "/api/compare":
+		return "compare"
 	case "/api/stats":
 		return "stats"
 	case "/api/meta":
@@ -1327,20 +1330,58 @@ func (s *Server) searchES(r *http.Request, dsl map[string]any) (*esSearchRespons
 // this is a mistake, and a 400 says so more usefully than found:false.
 const maxCardIDLen = 128
 
-// esExplainResponse is the part of _explain this endpoint reads. The full
-// Lucene explanation tree is deliberately not decoded: with one named branch
-// per call, the root value is that branch's contribution.
+// esExplainNode is one node of the Lucene explanation tree: what this step of
+// the calculation contributed, and what Lucene called it.
+type esExplainNode struct {
+	Value       float64 `json:"value"`
+	Description string  `json:"description"`
+}
+
+// esExplainResponse is the part of _explain this endpoint reads: the root, plus
+// its immediate children. With one named branch per call the root value is that
+// branch's whole contribution, which is all the score bars needed; its children
+// are the terms that contribution is made of ("weight(name:charizard …)",
+// "boost"), which is what lets a bar open into the calculation behind it.
+//
+// The tree is decoded exactly one level down, not to the leaves. A Lucene
+// explanation nests as deep as the similarity does, and the levels below the
+// first are the parts of a single term's BM25 — idf, tf, field length — which
+// is a different question from "what is this score made of".
 type esExplainResponse struct {
 	Matched     bool `json:"matched"`
 	Explanation struct {
-		Value float64 `json:"value"`
+		Value       float64         `json:"value"`
+		Description string          `json:"description"`
+		Details     []esExplainNode `json:"details"`
 	} `json:"explanation"`
 }
 
+// explainComponent is one child of a branch's explanation, as the client sees
+// it. Values are Lucene's own, unrounded: the branch total is the display
+// number and is rounded once by the handler, while these are the arithmetic
+// behind it and a reader comparing them to the total should see what ES sent.
+//
+// They do not necessarily add up to it, which is why the parent's description
+// travels with them. It names the operation — the card-text branch comes back
+// as "max of:" over its fields, where the total is the largest child and not
+// the sum, while a single-field branch is "sum of:" or "result of:" and does
+// add. Anything rendering these has to read the description to know which.
+type explainComponent struct {
+	Description string  `json:"description"`
+	Value       float64 `json:"value"`
+}
+
+// explainBranch is one relevance branch's contribution. Name, matched and score
+// are the shape this endpoint has always returned and must keep returning;
+// description and components are the level below it, added without moving any
+// of the three. Both are omitted when ES offered nothing, so a branch with
+// nothing further to say is serialized exactly as it was before.
 type explainBranch struct {
-	Name    string  `json:"name"`
-	Matched bool    `json:"matched"`
-	Score   float64 `json:"score"`
+	Name        string             `json:"name"`
+	Matched     bool               `json:"matched"`
+	Score       float64            `json:"score"`
+	Description string             `json:"description,omitempty"`
+	Components  []explainComponent `json:"components,omitempty"`
 }
 
 type explainResponse struct {
@@ -1412,9 +1453,11 @@ func (s *Server) handleExplain(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		resp.Branches = append(resp.Branches, explainBranch{
-			Name:    b.Name,
-			Matched: esr.Matched,
-			Score:   esr.Explanation.Value,
+			Name:        b.Name,
+			Matched:     esr.Matched,
+			Score:       esr.Explanation.Value,
+			Description: esr.Explanation.Description,
+			Components:  explainComponents(esr.Explanation.Details),
 		})
 		if esr.Matched {
 			resp.Score += esr.Explanation.Value
@@ -1430,6 +1473,21 @@ func (s *Server) handleExplain(w http.ResponseWriter, r *http.Request) {
 	entry.Status = http.StatusOK
 	s.writeLog(entry)
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// explainComponents flattens the explanation's immediate children. nil rather
+// than an empty slice when there are none, so the response key disappears
+// instead of arriving empty — this level is additive, and a branch ES said
+// nothing further about must look exactly as it did before.
+func explainComponents(details []esExplainNode) []explainComponent {
+	if len(details) == 0 {
+		return nil
+	}
+	components := make([]explainComponent, 0, len(details))
+	for _, d := range details {
+		components = append(components, explainComponent{Description: d.Description, Value: d.Value})
+	}
+	return components
 }
 
 // explainParamError enforces the two parameters the endpoint cannot work
@@ -1460,6 +1518,521 @@ func (s *Server) explainBranch(r *http.Request, id string, b search.Branch) (*es
 			s.es.Explain.WithBody(bytes.NewReader(body)),
 		)
 	})
+}
+
+// compareWindow is how many ranked documents each profile contributes to a
+// comparison. Ten is not an arbitrary page size: ADR 9 evaluates relevance at
+// @10 and ADR 10 chose the served weights on nDCG@10, so this is exactly the
+// window those weights were picked on — the comparison shows the part of the
+// ranking the decision was actually made about.
+const compareWindow = 10
+
+// compareMissingRank is the rank a document takes in the window it is absent
+// from. It is the first position below the window, which says the honest thing:
+// a document the other profile did not surface is not unranked, it is somewhere
+// at or below eleventh. Pinning it to one value is what lets a single
+// correlation cover the union of two windows that do not hold the same
+// documents, and the response reports the number so a reader can see the
+// convention rather than infer it.
+const compareMissingRank = compareWindow + 1
+
+// rankingProfile is one named weighting /api/compare can rank a query under.
+//
+// Boosts maps a relevance branch's name — the same _name search.Branches stamps
+// into the clause, the same name /api/explain and the grid badges use — to the
+// boost that branch takes under this profile. A nil map means "whatever the
+// builder emits", which is how the served profile is defined rather than
+// restated: it cannot drift from what /api/search actually ranks by.
+type rankingProfile struct {
+	Name   string
+	Boosts map[string]float64
+}
+
+// rankingProfiles is the whole vocabulary of the endpoint, and it is a fixed
+// list on purpose. A profile is a name in this list, never a weight off the
+// query string, so no number a client sends can reach the cluster as a boost
+// and /api/search's parameter surface is untouched by any of this.
+//
+// The three are the points ADR 10 argued over: what is served now, what was
+// served before it, and the runner-up it names as the place to start if the
+// decision is ever reopened. text is in none of them — it carries Elasticsearch's
+// implicit 1 at every point, and it is the unit the other three are ratios of.
+var rankingProfiles = []rankingProfile{
+	// The served point. Left to the builder deliberately: reading it out of
+	// BuildQuery is what makes "served" mean served, so adopting new weights
+	// moves this profile with them and needs no edit here.
+	{Name: "served"},
+	// The weights served before ADR 10, and the point every figure in that
+	// record is reported against.
+	{Name: "previous", Boosts: map[string]float64{"exact": 8, "prefix": 4, "fuzzy-name": 3}},
+	// ADR 10's runner-up: prefix left alone, fuzzy-name halved. It loses the
+	// headline by 0.003791, which is thin enough that the record tells a reader
+	// reopening the decision to start here.
+	{Name: "runner-up", Boosts: map[string]float64{"exact": 8, "prefix": 4, "fuzzy-name": 1.5}},
+}
+
+// The two profiles a bare ?q= compares: what the application ranks by today
+// against what it ranked by before ADR 10. Defaulting rather than requiring
+// both names keeps the endpoint answerable from a URL somebody can type.
+const (
+	defaultProfileA = "served"
+	defaultProfileB = "previous"
+)
+
+func profileByName(name string) (rankingProfile, bool) {
+	for _, p := range rankingProfiles {
+		if p.Name == name {
+			return p, true
+		}
+	}
+	return rankingProfile{}, false
+}
+
+// profileNames lists the vocabulary for the 400 message, in registry order, so
+// a client that got a name wrong is told what the names are.
+func profileNames() string {
+	names := make([]string, 0, len(rankingProfiles))
+	for _, p := range rankingProfiles {
+		names = append(names, p.Name)
+	}
+	return strings.Join(names, "|")
+}
+
+func profileOrDefault(raw, fallback string) string {
+	if raw = strings.TrimSpace(raw); raw != "" {
+		return raw
+	}
+	return fallback
+}
+
+// compareShouldClauses digs the relevance branches out of a built body. Every
+// failed assertion yields nil rather than a panic: a body with no text query in
+// it simply has no branches to reweight.
+func compareShouldClauses(body map[string]any) []any {
+	query, _ := body["query"].(map[string]any)
+	boolQuery, _ := query["bool"].(map[string]any)
+	should, _ := boolQuery["should"].([]any)
+	return should
+}
+
+// namedClauseOptions finds the options map inside one should clause — the map
+// carrying that clause's _name, which is also the map a boost belongs in. Each
+// clause type nests it differently (a term clause under its field name, a
+// multi_match at the top), so this walks for it: the branch names are the
+// contract, their nesting is an implementation detail of each query type.
+func namedClauseOptions(clause any) (string, map[string]any) {
+	m, ok := clause.(map[string]any)
+	if !ok {
+		return "", nil
+	}
+	if name, ok := m["_name"].(string); ok {
+		return name, m
+	}
+	for _, child := range m {
+		if name, options := namedClauseOptions(child); options != nil {
+			return name, options
+		}
+	}
+	return "", nil
+}
+
+// clauseBoost reads a boost the builder wrote as an untyped int literal, a
+// profile wrote as a float64, or a decoder read back out of JSON — and reads a
+// missing boost as Elasticsearch's implicit 1, which is what the text branch
+// relies on.
+func clauseBoost(options map[string]any) float64 {
+	switch n := options["boost"].(type) {
+	case int:
+		return float64(n)
+	case float64:
+		return n
+	default:
+		return 1
+	}
+}
+
+// applyProfile overwrites the boost of each named should clause in place and
+// reports the boosts the body carries afterwards.
+//
+// The rewrite happens out here rather than through a knob on internal/search:
+// ADR 2 keeps that package a pure builder with no configuration surface, and
+// the sweep that produced ADR 10's weights rewrote the same clauses the same
+// way. Every body this endpoint sends is therefore the body BuildQuery emits
+// with at most three numbers overwritten and nothing else — what is compared is
+// two versions of the served query rather than two different queries.
+//
+// The returned map is read back out of the body rather than restated from the
+// profile, so the response reports the weights the cluster was actually given.
+// A branch renamed out from under a profile then shows up as an unchanged
+// weight a reader can see, instead of as a silent absence of movement.
+func applyProfile(body map[string]any, boosts map[string]float64) map[string]float64 {
+	applied := make(map[string]float64)
+	for _, clause := range compareShouldClauses(body) {
+		name, options := namedClauseOptions(clause)
+		if options == nil {
+			continue
+		}
+		if boost, ok := boosts[name]; ok {
+			options["boost"] = boost
+		}
+		applied[name] = clauseBoost(options)
+	}
+	return applied
+}
+
+// compareBody builds one side of a comparison: the served query for q, at the
+// comparison's window size, with that profile's weights written over the served
+// ones. It is deliberately the whole served body, aggregations, highlighting
+// and all, rather than a cheaper approximation — a lab that compares something
+// other than what is served answers a question nobody asked. The cost is two
+// searches, which is why the panel only asks for one while it is open.
+func compareBody(q string, p rankingProfile) (map[string]any, map[string]float64) {
+	body := search.BuildQuery(search.Params{
+		Q:        q,
+		Sort:     "relevance",
+		Page:     1,
+		PageSize: compareWindow,
+	})
+	return body, applyProfile(body, p.Boosts)
+}
+
+// esCompareResponse is the part of a ranked window this endpoint reads: the
+// order, the identity and the score. The id comes from _source, which is where
+// the card's own id lives, and falls back to the document id the seeder set it
+// from.
+type esCompareResponse struct {
+	Took int `json:"took"`
+	Hits struct {
+		Total struct {
+			Value int `json:"value"`
+		} `json:"total"`
+		Hits []struct {
+			ID     string  `json:"_id"`
+			Score  float64 `json:"_score"`
+			Source struct {
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			} `json:"_source"`
+		} `json:"hits"`
+	} `json:"hits"`
+}
+
+// compareEntry is one document's position in one profile's window. Name travels
+// with the id because the panel renders a ranking a person reads, and a column
+// of card ids is not one.
+type compareEntry struct {
+	Rank  int     `json:"rank"`
+	ID    string  `json:"id"`
+	Name  string  `json:"name"`
+	Score float64 `json:"score"`
+}
+
+// compareSide is one profile's answer: the weights it was given, what the
+// cluster did with them, and how long that took.
+type compareSide struct {
+	Profile string             `json:"profile"`
+	Boosts  map[string]float64 `json:"boosts"`
+	Total   int                `json:"total"`
+	TookMs  int                `json:"took_ms"`
+	Results []compareEntry     `json:"results"`
+}
+
+// Where a document ended up between the two windows.
+const (
+	compareUp      = "up"      // nearer the top under b
+	compareDown    = "down"    // further from the top under b
+	compareSame    = "same"    // same position in both
+	compareEntered = "entered" // in b's window only
+	compareDropped = "dropped" // in a's window only
+)
+
+// compareDelta is one document of the union, and what happened to it.
+type compareDelta struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	// RankA and RankB are the 1-based positions, null in the window that does
+	// not hold the document.
+	RankA *int `json:"rank_a"`
+	RankB *int `json:"rank_b"`
+	// Delta is rank_a - rank_b: positive means the document sits nearer the top
+	// under b. Null for a document only one window holds, because a movement
+	// needs two positions and inventing one would report a number as a
+	// measurement when it is a convention.
+	Delta *int `json:"delta"`
+}
+
+type compareResponse struct {
+	Q      string      `json:"q"`
+	Window int         `json:"window"`
+	A      compareSide `json:"a"`
+	B      compareSide `json:"b"`
+	// Deltas covers the union of the two windows, largest movement first, so a
+	// client that wants only the movers can take the head of it and one that
+	// wants to annotate both columns can index it by id.
+	Deltas []compareDelta `json:"deltas"`
+	// SpearmanRhoUnion is Spearman's rank correlation over that union, with a
+	// document only one profile surfaced ranked missing_rank in the window that
+	// does not hold it. 1 is the same ranking, 0 is no relationship, -1 is the
+	// reverse. Null when there is nothing to correlate — see spearmanRhoUnion.
+	SpearmanRhoUnion *float64 `json:"spearman_rho_union"`
+	MissingRank      int      `json:"missing_rank"`
+	TookMs           int64    `json:"took_ms"`
+	RequestID        string   `json:"request_id"`
+}
+
+// handleCompare answers "what would the other weights have ranked?": it runs
+// one query twice, under two named weight profiles, and reports the two windows
+// side by side with the movement between them.
+//
+// Parameters are q, and a and b, the two profiles to rank it under. a defaults
+// to "served" and b to "previous", so a bare ?q=charizard compares what the
+// application ranks by today against what it ranked by before ADR 10. An
+// unknown profile name is a 400 rather than a fall back to a default: a typo'd
+// profile that silently became the served one would report no movement, and be
+// believed.
+//
+// Only those three are read. Filters cannot change a ranking — they live in
+// post_filter — so the remaining search parameters are ignored rather than
+// rejected, the same exemption /api/suggest and /api/explain have. The weights
+// are never read off the query string at all: see rankingProfiles.
+//
+// It reuses esQuery, the error envelope and the one per-request Elasticsearch
+// budget, and it is registered in the same block as every other route, so it
+// inherits the request id, the access line and the security headers with them.
+func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	q := strings.TrimSpace(query.Get("q"))
+	aName := profileOrDefault(query.Get("a"), defaultProfileA)
+	bName := profileOrDefault(query.Get("b"), defaultProfileB)
+	entry := s.queryLog(r, "compare")
+	entry.Params = map[string]any{"q": q, "a": aName, "b": bName}
+
+	if bad, field, message := compareParamError(q, aName, bName); bad {
+		entry.Status = http.StatusBadRequest
+		entry.Error = message
+		s.writeLog(entry)
+		s.writeError(w, r, http.StatusBadRequest, codeInvalidParam, field, message)
+		return
+	}
+	// Both names are known by the time the profiles are looked up, so the
+	// second return can be dropped: compareParamError has already rejected
+	// anything profileByName would fail on.
+	a, _ := profileByName(aName)
+	b, _ := profileByName(bName)
+
+	// One budget for the whole handler rather than one per side, the same
+	// reason /api/explain derives its context once: WithTimeout takes the
+	// earlier of two deadlines, so deriving here caps both searches at the
+	// single per-request ES budget instead of twice it.
+	ctx, cancel := s.esCtx(r)
+	defer cancel()
+	r = r.WithContext(ctx)
+
+	started := s.now()
+	bodyA, boostsA := compareBody(q, a)
+	bodyB, boostsB := compareBody(q, b)
+	// One line carries one replayable body, so it carries a's — the side the
+	// comparison is read from. b's differs from it only in the boosts, which
+	// the response reports.
+	entry.DSL = bodyA
+
+	esA, err := esQuery[esCompareResponse](s, r, bodyA)
+	if err != nil {
+		s.writeES503(w, r, entry, err)
+		return
+	}
+	esB, err := esQuery[esCompareResponse](s, r, bodyB)
+	if err != nil {
+		s.writeES503(w, r, entry, err)
+		return
+	}
+
+	resp := compareResponse{
+		Q:      q,
+		Window: compareWindow,
+		A:      compareSide{Profile: a.Name, Boosts: boostsA, Total: esA.Hits.Total.Value, TookMs: esA.Took, Results: compareResults(esA)},
+		B:      compareSide{Profile: b.Name, Boosts: boostsB, Total: esB.Hits.Total.Value, TookMs: esB.Took, Results: compareResults(esB)},
+
+		MissingRank: compareMissingRank,
+		RequestID:   requestID(r),
+	}
+	resp.Deltas = compareDeltas(resp.A.Results, resp.B.Results)
+	resp.SpearmanRhoUnion = spearmanRhoUnion(resp.Deltas)
+	resp.TookMs = s.now().Sub(started).Milliseconds()
+
+	entry.TookMs = esA.Took + esB.Took
+	entry.Total = esA.Hits.Total.Value
+	entry.Status = http.StatusOK
+	s.writeLog(entry)
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// compareParamError enforces the three parameters the endpoint cannot work
+// without, in a fixed order so a request that gets two of them wrong is told
+// about the first one.
+func compareParamError(q, a, b string) (bool, string, string) {
+	switch {
+	case q == "":
+		return true, "q", "q is required"
+	case !hasProfile(a):
+		return true, "a", "a must be one of " + profileNames()
+	case !hasProfile(b):
+		return true, "b", "b must be one of " + profileNames()
+	}
+	return false, "", ""
+}
+
+func hasProfile(name string) bool {
+	_, ok := profileByName(name)
+	return ok
+}
+
+// compareResults numbers one window. Scores are rounded here for the same
+// reason /api/explain rounds its total: they are display values, and float
+// noise in the last four digits of a bar label is not information.
+func compareResults(esr *esCompareResponse) []compareEntry {
+	entries := make([]compareEntry, 0, len(esr.Hits.Hits))
+	for i, hit := range esr.Hits.Hits {
+		id := hit.Source.ID
+		if id == "" {
+			id = hit.ID
+		}
+		entries = append(entries, compareEntry{
+			Rank:  i + 1,
+			ID:    id,
+			Name:  hit.Source.Name,
+			Score: math.Round(hit.Score*1e3) / 1e3,
+		})
+	}
+	return entries
+}
+
+// compareDeltas pairs the two windows by document id and reports the union,
+// largest movement first.
+//
+// A document only one window holds is the largest movement there is — it
+// crossed the window edge — so entered and dropped sort above every in-window
+// move, whose magnitude cannot exceed compareWindow-1. Ties break on id, so two
+// runs against an unchanged index print the same list in the same order.
+func compareDeltas(a, b []compareEntry) []compareDelta {
+	ranksB := make(map[string]int, len(b))
+	for _, e := range b {
+		ranksB[e.ID] = e.Rank
+	}
+	seen := make(map[string]bool, len(a)+len(b))
+	deltas := make([]compareDelta, 0, len(a)+len(b))
+	magnitude := make(map[string]int, len(a)+len(b))
+
+	for _, e := range a {
+		seen[e.ID] = true
+		d := compareDelta{ID: e.ID, Name: e.Name, RankA: intPtr(e.Rank), Status: compareDropped}
+		magnitude[e.ID] = compareWindow
+		if rankB, ok := ranksB[e.ID]; ok {
+			moved := e.Rank - rankB
+			d.RankB, d.Delta = intPtr(rankB), intPtr(moved)
+			d.Status = movementStatus(moved)
+			magnitude[e.ID] = abs(moved)
+		}
+		deltas = append(deltas, d)
+	}
+	for _, e := range b {
+		if seen[e.ID] {
+			continue
+		}
+		deltas = append(deltas, compareDelta{
+			ID: e.ID, Name: e.Name, RankB: intPtr(e.Rank), Status: compareEntered,
+		})
+		magnitude[e.ID] = compareWindow
+	}
+
+	slices.SortFunc(deltas, func(x, y compareDelta) int {
+		if magnitude[x.ID] != magnitude[y.ID] {
+			return magnitude[y.ID] - magnitude[x.ID]
+		}
+		return strings.Compare(x.ID, y.ID)
+	})
+	return deltas
+}
+
+func movementStatus(moved int) string {
+	switch {
+	case moved > 0:
+		return compareUp
+	case moved < 0:
+		return compareDown
+	default:
+		return compareSame
+	}
+}
+
+func intPtr(n int) *int { return &n }
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+// spearmanRhoUnion is one number for "how much did the ranking move": Spearman's
+// rank correlation over the union of the two windows, with a document only one
+// profile surfaced ranked compareMissingRank in the window that does not hold
+// it.
+//
+// It is computed as Pearson's correlation of the two rank vectors rather than
+// through the 1 - 6*sum(d^2)/n(n^2-1) shortcut, because that shortcut is only
+// valid without ties and this convention manufactures them: every document a
+// window missed shares one rank in it. On a union with no ties the two agree
+// exactly; with ties only this one is right.
+//
+// Null rather than zero when the correlation is undefined — fewer than two
+// documents in the union, or a profile that matched nothing, which leaves every
+// rank on that side identical and its variance zero. Zero would claim the two
+// rankings are unrelated, which is a measurement; there is no measurement here.
+func spearmanRhoUnion(deltas []compareDelta) *float64 {
+	if len(deltas) < 2 {
+		return nil
+	}
+	xs := make([]float64, 0, len(deltas))
+	ys := make([]float64, 0, len(deltas))
+	for _, d := range deltas {
+		xs = append(xs, rankValue(d.RankA))
+		ys = append(ys, rankValue(d.RankB))
+	}
+
+	meanX, meanY := mean(xs), mean(ys)
+	var cov, varX, varY float64
+	for i := range xs {
+		dx, dy := xs[i]-meanX, ys[i]-meanY
+		cov += dx * dy
+		varX += dx * dx
+		varY += dy * dy
+	}
+	if varX == 0 || varY == 0 {
+		return nil
+	}
+	// Four decimals: the correlation is a summary a person reads next to two
+	// short lists, not a figure anything is computed from.
+	rho := math.Round(cov/math.Sqrt(varX*varY)*1e4) / 1e4
+	return &rho
+}
+
+// rankValue reads a position for the correlation, substituting the
+// out-of-window rank for a document this side never surfaced.
+func rankValue(rank *int) float64 {
+	if rank == nil {
+		return compareMissingRank
+	}
+	return float64(*rank)
+}
+
+func mean(xs []float64) float64 {
+	var sum float64
+	for _, x := range xs {
+		sum += x
+	}
+	return sum / float64(len(xs))
 }
 
 // esTermSuggestResponse decodes the term suggester. Offset and Length locate

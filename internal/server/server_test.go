@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/elastic/go-elasticsearch/v8"
 
+	"github.com/AndresThePerez/pokesearch/internal/search"
 	"github.com/AndresThePerez/pokesearch/internal/version"
 )
 
@@ -1842,8 +1844,15 @@ func explainRT(t *testing.T, calls *[]string, scores map[string]float64) roundTr
 		if !matched {
 			return esResponse(200, `{"matched":false,"explanation":{"value":0.0,"description":"no match"}}`), nil
 		}
+		// A matched branch answers with the shape ES actually sends: a root
+		// value with the two children it is the sum of. The children add up to
+		// the root, which is what makes the decoded components checkable
+		// against the branch score.
 		return esResponse(200, fmt.Sprintf(
-			`{"matched":true,"explanation":{"value":%v,"description":"sum of:"}}`, score)), nil
+			`{"matched":true,"explanation":{"value":%v,"description":"sum of:","details":[
+			   {"value":%v,"description":"weight(name.kw:charizard in 7) [PerFieldSimilarity], result of:"},
+			   {"value":%v,"description":"boost"}]}}`,
+			score, score*0.75, score*0.25)), nil
 	})
 }
 
@@ -1976,6 +1985,455 @@ func TestExplainESDown(t *testing.T) {
 	}
 	if lg := queryLine(t, logBuf); lg["endpoint"] != "explain" || lg["status"] != float64(503) {
 		t.Errorf("log line: %v", lg)
+	}
+}
+
+// The explanation tree is decoded one level below the root, and that level is
+// added without moving anything above it: id, q, found, score and the three
+// fields of every branch are exactly what they were, and a branch ES gave no
+// children for carries no components key at all.
+func TestExplainDecodesScoringComponents(t *testing.T) {
+	var calls []string
+	rt := explainRT(t, &calls, map[string]float64{"exact": 33.2, "prefix": 6.1})
+	s, _ := newTestServer(t, rt)
+
+	rec := get(t, s, "/api/explain?id=base1-4&q=charizard")
+	if rec.Code != 200 {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		ID       string  `json:"id"`
+		Found    bool    `json:"found"`
+		Score    float64 `json:"score"`
+		Branches []struct {
+			Name        string  `json:"name"`
+			Matched     bool    `json:"matched"`
+			Score       float64 `json:"score"`
+			Description string  `json:"description"`
+			Components  []struct {
+				Description string  `json:"description"`
+				Value       float64 `json:"value"`
+			} `json:"components"`
+		} `json:"branches"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	// The shape that existed before the deeper decode, unchanged.
+	if resp.ID != "base1-4" || !resp.Found || resp.Score != 39.3 {
+		t.Errorf("root fields moved: %+v", resp)
+	}
+	if len(resp.Branches) != 4 {
+		t.Fatalf("branches = %d, want 4", len(resp.Branches))
+	}
+
+	exact := resp.Branches[0]
+	if exact.Name != "exact" || !exact.Matched || exact.Score != 33.2 {
+		t.Errorf("exact branch moved: %+v", exact)
+	}
+	if exact.Description != "sum of:" {
+		t.Errorf("exact description = %q, want the root explanation's own", exact.Description)
+	}
+	if len(exact.Components) != 2 {
+		t.Fatalf("exact components = %+v, want the two children ES sent", exact.Components)
+	}
+	if !strings.Contains(exact.Components[0].Description, "PerFieldSimilarity") ||
+		exact.Components[1].Description != "boost" {
+		t.Errorf("components lost their descriptions: %+v", exact.Components)
+	}
+	// One level down is the calculation the branch total is made of, so the
+	// children have to add up to it.
+	sum := exact.Components[0].Value + exact.Components[1].Value
+	if diff := sum - exact.Score; diff > 0.01 || diff < -0.01 {
+		t.Errorf("components sum to %.3f but the branch scored %.3f", sum, exact.Score)
+	}
+
+	// An unmatched branch has no calculation to show, and must not grow an
+	// empty key for one.
+	if text := resp.Branches[3]; text.Matched || len(text.Components) != 0 {
+		t.Errorf("unmatched text branch: %+v", text)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"name":"text","matched":false,"score":0`)) {
+		t.Errorf("the unmatched branch's serialized shape moved:\n%s", rec.Body.String())
+	}
+}
+
+// The two windows /api/compare's fixtures rank: one query under two weightings,
+// sharing a document that does not move, swapping the two above it, and each
+// holding one the other does not.
+const compareServedESBody = `{
+  "took": 4,
+  "hits": {
+    "total": {"value": 61, "relation": "eq"},
+    "hits": [
+      {"_id": "base1-4", "_score": 41.7,  "_source": {"id": "base1-4", "name": "Charizard"}},
+      {"_id": "base2-4", "_score": 30.25, "_source": {"id": "base2-4", "name": "Charizard"}},
+      {"_id": "xy2-11",  "_score": 20.5,  "_source": {"id": "xy2-11",  "name": "Charizard EX"}},
+      {"_id": "sm35-7",  "_score": 10.5,  "_source": {"id": "sm35-7",  "name": "Charmander"}}
+    ]
+  }
+}`
+
+const comparePreviousESBody = `{
+  "took": 6,
+  "hits": {
+    "total": {"value": 61, "relation": "eq"},
+    "hits": [
+      {"_id": "base2-4", "_score": 44.0, "_source": {"id": "base2-4", "name": "Charizard"}},
+      {"_id": "base1-4", "_score": 43.5, "_source": {"id": "base1-4", "name": "Charizard"}},
+      {"_id": "xy2-11",  "_score": 22.0, "_source": {"id": "xy2-11",  "name": "Charizard EX"}},
+      {"_id": "det1-3",  "_score": 12.0, "_source": {"id": "det1-3",  "name": "Charizard GX"}}
+    ]
+  }
+}`
+
+// compareRT answers the two ranked windows, telling the profiles apart by the
+// boost the prefix branch carries in the body it is given. Routing on the
+// rewritten weight rather than on call order is the point: a profile that never
+// reached the request body cannot be answered, so the fake fails the test
+// instead of returning a fixture that looks right.
+func compareRT(t *testing.T, bodies *[]map[string]any) roundTripperFunc {
+	t.Helper()
+	return roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		raw, _ := io.ReadAll(r.Body)
+		var body map[string]any
+		if err := json.Unmarshal(raw, &body); err != nil {
+			t.Errorf("undecodable compare body: %v", err)
+			return esResponse(400, `{"error":"?"}`), nil
+		}
+		*bodies = append(*bodies, body)
+		// applyProfile with no rewrites is the read-back: what the clause
+		// weights actually are in the body that reached the transport.
+		switch boosts := applyProfile(body, nil); boosts["prefix"] {
+		case 2:
+			return esResponse(200, compareServedESBody), nil
+		case 4:
+			return esResponse(200, comparePreviousESBody), nil
+		default:
+			t.Errorf("a compare request carried unroutable weights: %v", boosts)
+			return esResponse(400, `{"error":"?"}`), nil
+		}
+	})
+}
+
+type compareResp struct {
+	Q      string `json:"q"`
+	Window int    `json:"window"`
+	A      struct {
+		Profile string             `json:"profile"`
+		Boosts  map[string]float64 `json:"boosts"`
+		Total   int                `json:"total"`
+		TookMs  int                `json:"took_ms"`
+		Results []struct {
+			Rank  int     `json:"rank"`
+			ID    string  `json:"id"`
+			Name  string  `json:"name"`
+			Score float64 `json:"score"`
+		} `json:"results"`
+	} `json:"a"`
+	B struct {
+		Profile string             `json:"profile"`
+		Boosts  map[string]float64 `json:"boosts"`
+		Results []struct {
+			Rank int    `json:"rank"`
+			ID   string `json:"id"`
+		} `json:"results"`
+	} `json:"b"`
+	Deltas []struct {
+		ID     string `json:"id"`
+		Name   string `json:"name"`
+		Status string `json:"status"`
+		RankA  *int   `json:"rank_a"`
+		RankB  *int   `json:"rank_b"`
+		Delta  *int   `json:"delta"`
+	} `json:"deltas"`
+	SpearmanRhoUnion *float64 `json:"spearman_rho_union"`
+	MissingRank      int      `json:"missing_rank"`
+	RequestID        string   `json:"request_id"`
+}
+
+func decodeCompare(t *testing.T, rec *httptest.ResponseRecorder) compareResp {
+	t.Helper()
+	if rec.Code != 200 {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp compareResp
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+func TestCompareHandler(t *testing.T) {
+	var bodies []map[string]any
+	s, logBuf := newTestServer(t, compareRT(t, &bodies))
+
+	// A bare q takes both defaults, which is the call the rail's panel makes.
+	recorder := get(t, s, "/api/compare?q=charizard")
+	resp := decodeCompare(t, recorder)
+	if resp.Q != "charizard" || resp.A.Profile != "served" || resp.B.Profile != "previous" {
+		t.Errorf("identity: %+v", resp)
+	}
+	if resp.Window != compareWindow || resp.MissingRank != compareWindow+1 {
+		t.Errorf("window %d / missing rank %d", resp.Window, resp.MissingRank)
+	}
+
+	// Two searches, and the second differs from the first only in the weights.
+	if len(bodies) != 2 {
+		t.Fatalf("%d ES calls, want one per profile", len(bodies))
+	}
+	for i, want := range []map[string]float64{
+		{"exact": 8, "prefix": 2, "fuzzy-name": 1.5, "text": 1},
+		{"exact": 8, "prefix": 4, "fuzzy-name": 3, "text": 1},
+	} {
+		got := applyProfile(bodies[i], nil)
+		if len(got) != len(want) {
+			t.Fatalf("body %d carries %d named branches, want %d", i, len(got), len(want))
+		}
+		for name, boost := range want {
+			if got[name] != boost {
+				t.Errorf("body %d: branch %q at boost %v, want %v", i, name, got[name], boost)
+			}
+		}
+		if size, _ := bodies[i]["size"].(float64); int(size) != compareWindow {
+			t.Errorf("body %d asks for %v documents, want the window %d", i, bodies[i]["size"], compareWindow)
+		}
+	}
+	// The weights the response reports are the ones that reached the cluster.
+	if resp.A.Boosts["prefix"] != 2 || resp.B.Boosts["prefix"] != 4 || resp.B.Boosts["fuzzy-name"] != 3 {
+		t.Errorf("reported boosts: a %v / b %v", resp.A.Boosts, resp.B.Boosts)
+	}
+
+	if len(resp.A.Results) != 4 || resp.A.Results[0].ID != "base1-4" || resp.A.Results[0].Rank != 1 {
+		t.Fatalf("a's window: %+v", resp.A.Results)
+	}
+	if resp.A.Results[0].Name != "Charizard" || resp.A.Results[0].Score != 41.7 {
+		t.Errorf("a's leader loses its display fields: %+v", resp.A.Results[0])
+	}
+	if resp.A.Total != 61 || resp.A.TookMs != 4 {
+		t.Errorf("a's cluster figures: total %d took %d", resp.A.Total, resp.A.TookMs)
+	}
+	if len(resp.B.Results) != 4 || resp.B.Results[0].ID != "base2-4" {
+		t.Errorf("b's window: %+v", resp.B.Results)
+	}
+
+	// The union, largest movement first: the two that crossed the window edge,
+	// then the swap, then the one that held.
+	want := []struct {
+		id, status string
+		rankA      int
+		rankB      int
+		delta      int
+	}{
+		{"det1-3", "entered", 0, 4, 0},
+		{"sm35-7", "dropped", 4, 0, 0},
+		{"base1-4", "down", 1, 2, -1},
+		{"base2-4", "up", 2, 1, 1},
+		{"xy2-11", "same", 3, 3, 0},
+	}
+	if len(resp.Deltas) != len(want) {
+		t.Fatalf("%d deltas, want the %d-document union: %+v", len(resp.Deltas), len(want), resp.Deltas)
+	}
+	for i, w := range want {
+		got := resp.Deltas[i]
+		if got.ID != w.id || got.Status != w.status {
+			t.Errorf("delta %d = %s/%s, want %s/%s", i, got.ID, got.Status, w.id, w.status)
+			continue
+		}
+		// A document only one window holds has no position in the other and no
+		// movement, and says so with nulls rather than with a zero.
+		switch w.status {
+		case "entered":
+			if got.RankA != nil || got.Delta != nil || got.RankB == nil || *got.RankB != w.rankB {
+				t.Errorf("entered %s: %+v", got.ID, got)
+			}
+		case "dropped":
+			if got.RankB != nil || got.Delta != nil || got.RankA == nil || *got.RankA != w.rankA {
+				t.Errorf("dropped %s: %+v", got.ID, got)
+			}
+		default:
+			if got.RankA == nil || got.RankB == nil || got.Delta == nil ||
+				*got.RankA != w.rankA || *got.RankB != w.rankB || *got.Delta != w.delta {
+				t.Errorf("%s: %+v, want %d -> %d (%+d)", got.ID, got, w.rankA, w.rankB, w.delta)
+			}
+		}
+	}
+	if resp.Deltas[0].Name != "Charizard GX" {
+		t.Errorf("a delta lost the name it is displayed by: %+v", resp.Deltas[0])
+	}
+
+	// Spearman over the union, with both one-sided documents at rank 11:
+	// a = [1,2,3,4,11] against b = [2,1,3,11,4], which is 12.8/62.8.
+	if resp.SpearmanRhoUnion == nil {
+		t.Fatal("no correlation reported for a five-document union")
+	}
+	if wantRho := math.Round(12.8/62.8*1e4) / 1e4; *resp.SpearmanRhoUnion != wantRho {
+		t.Errorf("spearman_rho_union = %v, want %v", *resp.SpearmanRhoUnion, wantRho)
+	}
+
+	if id := recorder.Header().Get("X-Request-Id"); id == "" || resp.RequestID != id {
+		t.Errorf("request_id = %q, header = %q", resp.RequestID, id)
+	}
+	if lg := queryLine(t, logBuf); lg["endpoint"] != "compare" || lg["status"] != float64(200) {
+		t.Errorf("log line: %v", lg)
+	}
+}
+
+// The same ranking under both profiles correlates at 1, and a window nobody
+// matched has no correlation at all rather than a zero that would read as a
+// measurement.
+func TestCompareCorrelationEdges(t *testing.T) {
+	identical := []compareEntry{{Rank: 1, ID: "a"}, {Rank: 2, ID: "b"}, {Rank: 3, ID: "c"}}
+	rho := spearmanRhoUnion(compareDeltas(identical, identical))
+	if rho == nil || *rho != 1 {
+		t.Errorf("two identical windows correlate at %v, want 1", rho)
+	}
+	reversed := []compareEntry{{Rank: 1, ID: "c"}, {Rank: 2, ID: "b"}, {Rank: 3, ID: "a"}}
+	if rho := spearmanRhoUnion(compareDeltas(identical, reversed)); rho == nil || *rho != -1 {
+		t.Errorf("a reversed window correlates at %v, want -1", rho)
+	}
+	if rho := spearmanRhoUnion(compareDeltas(identical, nil)); rho != nil {
+		t.Errorf("an empty window correlates at %v, want no correlation", *rho)
+	}
+	if rho := spearmanRhoUnion(compareDeltas(nil, nil)); rho != nil {
+		t.Errorf("two empty windows correlate at %v, want no correlation", *rho)
+	}
+}
+
+// Strict parameters, the same treatment /api/search gives its own: rejected
+// before Elasticsearch is touched, in a fixed order, with the field named.
+func TestCompareRejectsBadParameters(t *testing.T) {
+	rt := roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		t.Error("a rejected comparison must not reach ES")
+		return esResponse(200, `{}`), nil
+	})
+	s, _ := newTestServer(t, rt)
+	cases := []struct{ path, field string }{
+		{"/api/compare", "q"},
+		{"/api/compare?q=%20%20", "q"},
+		{"/api/compare?q=charizard&a=bogus", "a"},
+		{"/api/compare?q=charizard&b=bogus", "b"},
+		{"/api/compare?q=charizard&a=served&b=8%2F4%2F3", "b"},
+		{"/api/compare?a=bogus", "q"},
+	}
+	for _, c := range cases {
+		r := get(t, s, c.path)
+		if r.Code != 400 {
+			t.Errorf("%s: status %d, want 400", c.path, r.Code)
+			continue
+		}
+		if body := decodeError(t, r); body.Error.Code != codeInvalidParam || body.Error.Field != c.field {
+			t.Errorf("%s: error %+v, want field %q", c.path, body.Error, c.field)
+		}
+	}
+}
+
+// Every route is method-scoped, so the mux answers anything but GET itself.
+func TestCompareRejectsNonGET(t *testing.T) {
+	s, _ := newTestServer(t, roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		t.Error("a POST must not reach ES")
+		return esResponse(200, `{}`), nil
+	}))
+	req := httptest.NewRequest("POST", "/api/compare?q=charizard", nil)
+	recorder := httptest.NewRecorder()
+	s.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST /api/compare: status %d, want 405", recorder.Code)
+	}
+}
+
+func TestCompareESDown(t *testing.T) {
+	s, logBuf := newTestServer(t, roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("connection refused")
+	}))
+	r := get(t, s, "/api/compare?q=charizard")
+	if r.Code != 503 {
+		t.Fatalf("status %d, want 503: %s", r.Code, r.Body.String())
+	}
+	if body := decodeError(t, r); body.Error.Code != codeESUnavailable {
+		t.Errorf("error body: %+v", body)
+	}
+	if lg := queryLine(t, logBuf); lg["endpoint"] != "compare" || lg["status"] != float64(503) {
+		t.Errorf("log line: %v", lg)
+	}
+}
+
+// The profiles name branches that exist, and say what ADR 10 says they say.
+// The served profile is the one that cannot be restated: it is read out of the
+// builder, so adopting new weights moves it without an edit here — which is
+// exactly why the weights it produces are asserted against the record.
+func TestRankingProfilesMatchTheBranchRegistry(t *testing.T) {
+	known := map[string]bool{}
+	for _, b := range search.Branches("charizard") {
+		known[b.Name] = true
+	}
+	for _, p := range rankingProfiles {
+		for name := range p.Boosts {
+			if !known[name] {
+				t.Errorf("profile %q weights %q, which is not a branch of search.Branches", p.Name, name)
+			}
+		}
+	}
+
+	for _, c := range []struct {
+		profile string
+		want    map[string]float64
+	}{
+		{"served", map[string]float64{"exact": 8, "prefix": 2, "fuzzy-name": 1.5, "text": 1}},
+		{"previous", map[string]float64{"exact": 8, "prefix": 4, "fuzzy-name": 3, "text": 1}},
+		{"runner-up", map[string]float64{"exact": 8, "prefix": 4, "fuzzy-name": 1.5, "text": 1}},
+	} {
+		p, ok := profileByName(c.profile)
+		if !ok {
+			t.Errorf("profile %q is not registered", c.profile)
+			continue
+		}
+		_, got := compareBody("charizard", p)
+		if len(got) != len(c.want) {
+			t.Errorf("profile %q applies %d branches, want %d", c.profile, len(got), len(c.want))
+		}
+		for name, boost := range c.want {
+			if got[name] != boost {
+				t.Errorf("profile %q: branch %q at %v, want %v (ADR 10)", c.profile, name, got[name], boost)
+			}
+		}
+	}
+}
+
+// The served profile rewrites nothing: applying it to a built body has to leave
+// that body byte for byte as the builder emitted it, or "served" does not mean
+// served. Everything a profile does is a boost, so this is also the proof that
+// a comparison differs from the served query in the weights and in nothing
+// else — the same claim the relevance sweep rests on.
+func TestServedProfileLeavesTheBuiltQueryAlone(t *testing.T) {
+	served, ok := profileByName("served")
+	if !ok {
+		t.Fatal("the served profile is not registered")
+	}
+	body, _ := compareBody("charizard", served)
+	before, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyProfile(body, served.Boosts)
+	after, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Errorf("the served profile rewrote the built body:\n got %s\nwant %s", after, before)
+	}
+	// And the other two do move it, or there would be nothing to compare.
+	for _, name := range []string{"previous", "runner-up"} {
+		p, _ := profileByName(name)
+		other, _ := compareBody("charizard", p)
+		moved, err := json.Marshal(other)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(moved) == string(before) {
+			t.Errorf("profile %q builds the served body unchanged", name)
+		}
 	}
 }
 

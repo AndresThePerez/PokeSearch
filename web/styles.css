@@ -814,7 +814,8 @@ mark {
 }
 
 #query-inspector,
-#response-inspector {
+#response-inspector,
+#ranking-lab {
   margin: 0;
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -824,7 +825,8 @@ mark {
 }
 
 #query-inspector summary,
-#response-inspector summary {
+#response-inspector summary,
+#ranking-lab summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -834,13 +836,17 @@ mark {
 }
 
 #query-inspector summary::-webkit-details-marker,
-#response-inspector summary::-webkit-details-marker { display: none; }
+#response-inspector summary::-webkit-details-marker,
+#ranking-lab summary::-webkit-details-marker { display: none; }
 #query-inspector summary small,
-#response-inspector summary small { display: block; margin-bottom: .2rem; color: var(--accent-strong); font-size: .62rem; letter-spacing: .1em; text-transform: uppercase; }
+#response-inspector summary small,
+#ranking-lab summary small { display: block; margin-bottom: .2rem; color: var(--accent-strong); font-size: .62rem; letter-spacing: .1em; text-transform: uppercase; }
 #query-inspector summary > span:last-child,
-#response-inspector summary > span:last-child { transition: transform 160ms ease; }
+#response-inspector summary > span:last-child,
+#ranking-lab summary > span:last-child { transition: transform 160ms ease; }
 #query-inspector[open] summary > span:last-child,
-#response-inspector[open] summary > span:last-child { transform: rotate(45deg); }
+#response-inspector[open] summary > span:last-child,
+#ranking-lab[open] summary > span:last-child { transform: rotate(45deg); }
 
 .inspector-body {
   display: flex;
@@ -874,6 +880,134 @@ mark {
   font: .78rem/1.65 ui-monospace, SFMono-Regular, Menlo, monospace;
   background: #07080c;
 }
+
+/* The Ranking lab: one query's top ten under two weight profiles, side by side,
+   with what moved between them. It is the third inspector and borrows their
+   frame above, so everything here only describes what sits inside it. */
+.lab-body {
+  display: grid;
+  gap: .7rem;
+  padding: 0 .75rem .85rem;
+}
+
+.lab-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: .7rem;
+  line-height: 1.5;
+}
+
+.lab-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: .5rem;
+}
+
+.lab-col {
+  min-width: 0;
+  padding: .55rem .6rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: var(--surface-input);
+}
+
+.lab-col-name {
+  margin: 0;
+  overflow: hidden;
+  color: var(--accent-strong);
+  font-size: .62rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* The three weights the profile carries, in the order ADR 10 reports them. */
+.lab-col-weights {
+  margin: .12rem 0 .5rem;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+}
+
+.lab-list {
+  display: grid;
+  gap: .2rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lab-row {
+  display: grid;
+  grid-template-columns: 1.05rem minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: .3rem;
+  font-size: .72rem;
+}
+
+.lab-rank {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.lab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Movement keeps the palette the rest of the page already uses: the healthy
+   green of the service pill for a rise, the accent for a fall or a card the
+   other profile lost, and the fuzzy-name badge's blue for one it found. Each
+   mark carries its own glyph or word, so colour is emphasis and never the only
+   way to read a row. */
+.lab-delta {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.lab-delta.is-up { color: #7ed29a; }
+.lab-delta.is-down,
+.lab-delta.is-dropped { color: var(--accent-strong); }
+.lab-delta.is-entered { color: #7fb2f0; }
+
+.lab-movers {
+  display: grid;
+  gap: .24rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lab-movers li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: .5rem;
+  color: var(--muted);
+  font-size: .72rem;
+}
+
+.lab-movers b {
+  overflow: hidden;
+  color: var(--ink);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The rank pair keeps the row's own size rather than the badge's 10px: it is
+   two numbers and an arrow between them, and it has to be read, not glanced. */
+.lab-movers span {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.lab-movers-none { grid-template-columns: 1fr; line-height: 1.5; }
 
 #card-modal {
   width: min(980px, calc(100% - 2rem));

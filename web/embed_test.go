@@ -37,6 +37,7 @@ func TestEmbeddedMarkupHasRequiredElements(t *testing.T) {
 		"degraded-banner", "retry-search",
 		"total-count", "query-inspector", "response-inspector", "copy-dsl",
 		"copy-response", "dsl-json", "response-json", "card-modal", "modal-close",
+		"ranking-lab", "lab-status", "lab-columns", "lab-movers",
 		"stats-link", "stats-view", "stats-total", "stats-superlatives",
 		"stats-charts", "latency-waterfall", "waterfall-es", "waterfall-rest",
 		"wf-es-ms", "wf-rest-ms", "latency-spark", "spark-percentiles",

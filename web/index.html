@@ -167,15 +167,6 @@
           <p id="spark-percentiles"><span>p50 <b id="spark-p50">—</b></span><span>p95 <b id="spark-p95">—</b></span></p>
           <p id="request-id-line">req <code id="stat-request-id">—</code></p>
         </div>
-
-        <div class="sla-block">
-          <p class="panel-label">SLA targets</p>
-          <ul>
-            <li><span>Availability</span><strong>99.9%</strong><small>monthly target</small></li>
-            <li><span>ES query</span><strong>&lt; 100 ms</strong><small id="sla-engine-state">awaiting query</small></li>
-            <li><span>UI response</span><strong>&lt; 250 ms</strong><small id="sla-roundtrip-state">awaiting query</small></li>
-          </ul>
-        </div>
       </section>
 
       <details id="query-inspector" open>
@@ -199,6 +190,17 @@
           <pre id="response-json">The raw search response will appear here.</pre>
         </div>
       </details>
+
+      <section class="telemetry-panel" aria-label="SLA targets">
+        <div class="sla-block">
+          <p class="panel-label">SLA targets</p>
+          <ul>
+            <li><span>Availability</span><strong>99.9%</strong><small>monthly target</small></li>
+            <li><span>ES query</span><strong>&lt; 100 ms</strong><small id="sla-engine-state">awaiting query</small></li>
+            <li><span>UI response</span><strong>&lt; 250 ms</strong><small id="sla-roundtrip-state">awaiting query</small></li>
+          </ul>
+        </div>
+      </section>
     </aside>
   </div>
 

@@ -245,7 +245,7 @@ a:focus-visible {
 
 .app-layout {
   display: grid;
-  grid-template-columns: 250px minmax(0, 1fr) minmax(380px, 440px);
+  grid-template-columns: 250px minmax(0, 1fr) 380px;
   gap: clamp(1.25rem, 2vw, 2.25rem);
   width: min(1760px, 100%);
   margin: 0 auto;
@@ -1458,12 +1458,6 @@ body.route-stats .app-layout { grid-template-columns: minmax(0, 1fr) minmax(340p
   font-size: .68rem;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.sla-block {
-  margin-top: 1rem;
-  padding-top: .9rem;
-  border-top: 1px solid var(--line);
 }
 
 .panel-label {

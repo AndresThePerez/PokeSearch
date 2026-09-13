@@ -55,6 +55,87 @@ jobs:
       - name: Acceptance matrix
         run: POKESEARCH_URL=http://localhost:8080 go test -tags acceptance -count=1 -v ./internal/acceptance
 
+      # Ranking quality is gated here and not in ci.yml because it needs the
+      # seeded cluster this workflow builds and the fast job set deliberately
+      # has none. It runs after the matrix so a broken contract fails before a
+      # ranking metric is even computed. Only TestRelevanceBaseline runs: the
+      # boost sweep is an offline tool that fails by design when its best grid
+      # point reaches outside the judged pool, which is a request to judge more
+      # cards rather than a regression, and it must not paint this job red.
+      - name: Relevance baseline
+        shell: bash
+        env:
+          # How far nDCG@10 may fall below the committed baseline before this
+          # job is red. It guards against a ranking regression. A re-run against
+          # an unchanged index rewrites the baseline byte for byte, so the
+          # honest expectation is a delta of exactly zero and this budget exists
+          # only for re-seed jitter; at a sixth of the +0.059743 that ADR 10's
+          # weights bought, no change undoing them can hide inside it.
+          NDCG_TOLERANCE: "0.01"
+          # unrated@10 counts hits inside an evaluated window that no judgment
+          # covers. It guards against a boost change that reached outside the
+          # judged pool: such hits score as irrelevant because nobody looked at
+          # them, not because anybody graded them so, and a run carrying them
+          # has not been measured against the pool at all. Its number is not
+          # trustworthy until the set is re-pooled, so the only budget is zero.
+          MAX_UNRATED: "0"
+        run: |
+          set -euo pipefail
+          # The compose file publishes no port for es, so the harness reaches it
+          # on the container's bridge address; the app is the published one this
+          # job has already waited on.
+          es_ip="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' pokesearch-es-1)"
+          echo "elasticsearch: $es_ip"
+          # A scratch path, so a CI run can never rewrite the committed baseline
+          # it is about to be compared against.
+          run_file="${RUNNER_TEMP}/relevance-run.json"
+          POKESEARCH_ES="http://${es_ip}:9200" \
+            POKESEARCH_URL=http://localhost:8080 \
+            POKESEARCH_BASELINE_OUT="$run_file" \
+            go test -tags relevance -count=1 -run TestRelevanceBaseline -v ./internal/relevance
+          BASELINE_FILE=docs/relevance/baseline.json RUN_FILE="$run_file" python3 - <<'PY'
+          import json, os, sys
+
+          tolerance = float(os.environ["NDCG_TOLERANCE"])
+          max_unrated = int(os.environ["MAX_UNRATED"])
+
+
+          def metrics(path):
+              with open(path) as fh:
+                  return json.load(fh)["metrics"]
+
+
+          baseline = metrics(os.environ["BASELINE_FILE"])
+          run = metrics(os.environ["RUN_FILE"])
+
+          baseline_ndcg = baseline["ndcg@10"]
+          run_ndcg = run["ndcg@10"]
+          delta = run_ndcg - baseline_ndcg
+          unrated = run["unrated@10"]
+
+          print(f"baseline nDCG@10 : {baseline_ndcg:.6f}")
+          print(f"run      nDCG@10 : {run_ndcg:.6f}")
+          print(f"delta            : {delta:+.6f}  (tolerance {-tolerance:+.6f})")
+          print(f"run   unrated@10 : {unrated}  (budget {max_unrated})")
+
+          failed = False
+          if delta < -tolerance:
+              print(
+                  f"FAIL: nDCG@10 fell by {-delta:.6f}, past the {tolerance} tolerance."
+                  " The ranking regressed against the judged set."
+              )
+              failed = True
+          if unrated > max_unrated:
+              print(
+                  f"FAIL: unrated@10 is {unrated}, above the budget of {max_unrated}."
+                  " The run ranked cards no judgment covers, so it reached outside"
+                  " the judged pool and its score is not trustworthy. Re-pool the"
+                  " set and run again."
+              )
+              failed = True
+          sys.exit(1 if failed else 0)
+          PY
+
       - name: Stack logs on failure
         if: failure()
         run: docker compose logs --tail 200

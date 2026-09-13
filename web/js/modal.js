@@ -44,6 +44,15 @@ function setModalArt(card) {
   loader.src = largeURL;
 }
 
+// syncExplainToggle points the button's label and aria-expanded at the panel's
+// own visibility, so no path can leave the control asserting a state the panel
+// is not in. Every route through the disclosure ends here.
+function syncExplainToggle() {
+  const shown = !$("modal-explain").hidden;
+  $("modal-why").textContent = shown ? "Hide the breakdown" : "Why this card?";
+  $("modal-why").setAttribute("aria-expanded", shown ? "true" : "false");
+}
+
 // resetExplain returns the score-anatomy panel to its closed state. Opening a
 // different card must not leave the previous card's breakdown on screen, and
 // without a query there is nothing to explain at all.
@@ -53,8 +62,7 @@ function resetExplain(card) {
   $("modal-explain").hidden = true;
   $("modal-why").hidden = !queryText();
   $("modal-why").disabled = false;
-  $("modal-why").textContent = "Why this card?";
-  $("modal-why").setAttribute("aria-expanded", "false");
+  syncExplainToggle();
 }
 
 // renderExplain draws the per-branch score bars: how much each relevance
@@ -101,6 +109,27 @@ function panelRow(row, branch) {
     : `${branchLabel(branch.name)} branch did not match`);
 }
 
+// toggleExplain is the disclosure's only entry point. The panel it controls is
+// the state: shown, it collapses; already fetched, it comes back without a
+// second request; empty, it loads. The button itself never moves or goes away,
+// so the keyboard stays exactly where the reader left it.
+function toggleExplain() {
+  if ($("modal-why").getAttribute("aria-expanded") === "true") {
+    $("modal-explain").hidden = true;
+    syncExplainToggle();
+    return;
+  }
+  // A breakdown already rendered for this card cannot go stale while the card
+  // stays open — resetExplain empties the panel the moment another one does —
+  // so reopening shows it again rather than re-asking the server.
+  if ($("modal-explain").childElementCount > 0) {
+    $("modal-explain").hidden = false;
+    syncExplainToggle();
+    return;
+  }
+  loadExplain();
+}
+
 async function loadExplain() {
   const id = explainCardID;
   const q = queryText();
@@ -113,17 +142,18 @@ async function loadExplain() {
     // late answer must not describe a card that is no longer open.
     if (explainCardID !== id) return;
     renderExplain(data);
-    $("modal-why").hidden = true;
-    $("modal-why").setAttribute("aria-expanded", "true");
   } catch {
     if (explainCardID !== id) return;
     $("modal-explain").replaceChildren(
       element("p", "explain-head", "The score breakdown is unavailable right now."));
     $("modal-explain").hidden = false;
   } finally {
+    // Whatever the panel ended up showing — a breakdown, an apology, or
+    // nothing, when a late answer was discarded — the button is re-enabled and
+    // relabelled to match it. resetExplain owns the discarded case.
     if (explainCardID === id) {
       $("modal-why").disabled = false;
-      $("modal-why").textContent = "Why this card?";
+      syncExplainToggle();
     }
   }
 }
@@ -272,7 +302,7 @@ export function bindModalEvents() {
     if (entry) openModal(entry.card, { opener: button, highlight: entry.highlight });
   });
 
-  $("modal-why").addEventListener("click", loadExplain);
+  $("modal-why").addEventListener("click", toggleExplain);
   $("modal-close").addEventListener("click", closeModal);
   $("card-modal").addEventListener("click", (event) => {
     if (event.target === $("card-modal")) closeModal();

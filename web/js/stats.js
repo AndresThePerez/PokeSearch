@@ -109,7 +109,7 @@ function barRow(label, count, max, { dotClass = "" } = {}) {
   }
   name.append(element("span", "chart-label-text", label));
   const track = element("span", "chart-track");
-  const fill = element("span", "chart-fill");
+  const fill = element("span", dotClass ? `chart-fill is-typed ${dotClass}` : "chart-fill");
   fill.style.width = `${max ? ((count / max) * 100).toFixed(1) : 0}%`;
   track.append(fill);
   row.append(name, track, element("span", "chart-value", Number(count).toLocaleString()));

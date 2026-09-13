@@ -707,11 +707,11 @@ mark {
 }
 
 .match-badge {
-  padding: 1px 4px;
+  padding: 1px 3px;
   border: 1px solid currentColor;
   border-radius: 4px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 9px;
+  font-size: 10.5px;
   font-style: normal;
   font-weight: 600;
   line-height: 1.5;
@@ -1275,6 +1275,8 @@ body.route-stats .app-layout { grid-template-columns: minmax(0, 1fr) minmax(340p
   border-radius: 3px;
   background: var(--accent);
 }
+
+.chart-fill.is-typed { background: var(--type-color); }
 
 .chart-value {
   min-width: 3.4rem;

@@ -1535,18 +1535,25 @@ func (s *Server) handleSuggest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dsl := search.BuildSuggest(p.Q, false)
+	dsl := search.BuildSuggestByPrintCount(p.Q)
 	entry := s.queryLog(r, "suggest")
 	entry.Params = map[string]any{"q": p.Q}
 	entry.DSL = dsl
 
-	names, took, err := s.suggestES(r, dsl)
-	if err == nil && len(names) == 0 {
-		dsl = search.BuildSuggest(p.Q, true)
+	// Three passes, each run only because the one before it found nothing:
+	// the ranked aggregation, then the plain completion suggester for a prefix
+	// the aggregation cannot serve, then the fuzzy retry for a misspelling.
+	// The non-fuzzy-before-fuzzy ordering is the one this endpoint always had.
+	names, took, err := s.rankedSuggestES(r, dsl)
+	for _, fuzzy := range []bool{false, true} {
+		if err != nil || len(names) > 0 {
+			break
+		}
+		dsl = search.BuildSuggest(p.Q, fuzzy)
 		entry.DSL = dsl
-		var fuzzyTook int
-		names, fuzzyTook, err = s.suggestES(r, dsl)
-		took += fuzzyTook
+		var passTook int
+		names, passTook, err = s.suggestES(r, dsl)
+		took += passTook
 	}
 	if err != nil {
 		s.writeES503(w, r, entry, err)
@@ -1558,6 +1565,49 @@ func (s *Server) handleSuggest(w http.ResponseWriter, r *http.Request) {
 	entry.Status = http.StatusOK
 	s.writeLog(entry)
 	writeJSON(w, http.StatusOK, map[string]any{"suggestions": names})
+}
+
+// esRankedSuggestResponse is the part of the ranked suggest reply this
+// endpoint reads: one bucket per distinct name, already ordered by print
+// count, each carrying the single hit that holds the display casing.
+type esRankedSuggestResponse struct {
+	Took         int `json:"took"`
+	Aggregations struct {
+		Names struct {
+			Buckets []struct {
+				Display struct {
+					Hits struct {
+						Hits []struct {
+							Source struct {
+								Name string `json:"name"`
+							} `json:"_source"`
+						} `json:"hits"`
+					} `json:"hits"`
+				} `json:"display"`
+			} `json:"buckets"`
+		} `json:"names"`
+	} `json:"aggregations"`
+}
+
+// rankedSuggestES is esQuery plus the flattening BuildSuggestByPrintCount
+// needs. A bucket whose top_hits came back empty is skipped rather than
+// emitted as "": the bucket key itself is lowercase-normalized and is not a
+// display name, so there is nothing else to show for it.
+func (s *Server) rankedSuggestES(r *http.Request, dsl map[string]any) ([]string, int, error) {
+	esr, err := esQuery[esRankedSuggestResponse](s, r, dsl)
+	if err != nil {
+		return nil, 0, err
+	}
+	names := []string{}
+	for _, b := range esr.Aggregations.Names.Buckets {
+		if len(b.Display.Hits.Hits) == 0 {
+			continue
+		}
+		if name := b.Display.Hits.Hits[0].Source.Name; name != "" {
+			names = append(names, name)
+		}
+	}
+	return names, esr.Took, nil
 }
 
 // suggestES is esQuery plus the flattening the completion suggester needs:

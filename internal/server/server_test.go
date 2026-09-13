@@ -915,10 +915,29 @@ func TestESCallTimeout(t *testing.T) {
 	}
 }
 
+// rankedSuggestBody fakes the ranked aggregation reply: one bucket per
+// distinct name in the order ES returns them (print count descending), each
+// bucket keyed by the lowercase-normalized name and carrying the display
+// casing in its top_hits, exactly as name.kw plus the sub-aggregation produce.
+func rankedSuggestBody(took int, names ...string) string {
+	buckets := make([]string, 0, len(names))
+	for i, n := range names {
+		buckets = append(buckets, fmt.Sprintf(
+			`{"key":%q,"doc_count":%d,"display":{"hits":{"hits":[{"_source":{"name":%q}}]}}}`,
+			strings.ToLower(n), len(names)-i, n))
+	}
+	return fmt.Sprintf(`{"took":%d,"aggregations":{"names":{"buckets":[%s]}}}`,
+		took, strings.Join(buckets, ","))
+}
+
+// The served path: one ranked ES call, names taken from the top_hits display
+// casing rather than from the lowercase bucket key, and in the order ES
+// ranked them rather than re-sorted here.
 func TestSuggestHandler(t *testing.T) {
+	calls := 0
 	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
-		return esResponse(200, `{"took":2,"suggest":{"card":[{"text":"alak","offset":0,"length":4,
-		  "options":[{"text":"Alakazam","_id":"base1-1"},{"text":"Alakazam ex","_id":"ex10-98"}]}]}}`), nil
+		calls++
+		return esResponse(200, rankedSuggestBody(2, "Alakazam", "Alakazam ex")), nil
 	})
 	s, logBuf := newTestServer(t, rt)
 	rec := get(t, s, "/api/suggest?q=alak")
@@ -931,20 +950,74 @@ func TestSuggestHandler(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if len(resp.Suggestions) != 2 || resp.Suggestions[0] != "Alakazam" {
+	if len(resp.Suggestions) != 2 || resp.Suggestions[0] != "Alakazam" ||
+		resp.Suggestions[1] != "Alakazam ex" {
 		t.Errorf("suggestions: %v", resp.Suggestions)
+	}
+	if calls != 1 {
+		t.Errorf("a ranked pass that found something must cost 1 ES call, got %d", calls)
 	}
 	if !strings.Contains(logBuf.String(), `"endpoint":"suggest"`) {
 		t.Errorf("suggest must log: %q", logBuf.String())
 	}
 }
 
-func TestSuggestFuzzyRetry(t *testing.T) {
+// A bucket whose top_hits came back empty has no display name to show, and the
+// lowercase key is not one — it is skipped rather than emitted as "".
+func TestSuggestSkipsBucketWithoutDisplayHit(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return esResponse(200, `{"took":1,"aggregations":{"names":{"buckets":[
+		  {"key":"alakazam","doc_count":9,"display":{"hits":{"hits":[]}}},
+		  {"key":"alakazam ex","doc_count":4,"display":{"hits":{"hits":[
+		    {"_source":{"name":"Alakazam ex"}}]}}}]}}}`), nil
+	})
+	s, _ := newTestServer(t, rt)
+	rec := get(t, s, "/api/suggest?q=alak")
+	if body := strings.TrimSpace(rec.Body.String()); body != `{"suggestions":["Alakazam ex"]}` {
+		t.Errorf("body: %q", body)
+	}
+}
+
+// A prefix the aggregation cannot serve still answers: the ranked pass finding
+// nothing falls back to the completion suggester, non-fuzzy first.
+func TestSuggestRankedFallsBackToCompletion(t *testing.T) {
 	var bodies [][]byte
 	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
 		b, _ := io.ReadAll(r.Body)
 		bodies = append(bodies, b)
 		if len(bodies) == 1 {
+			return esResponse(200, `{"took":1,"aggregations":{"names":{"buckets":[]}}}`), nil
+		}
+		return esResponse(200, `{"took":1,"suggest":{"card":[{"text":"alak","offset":0,"length":4,
+		  "options":[{"text":"Alakazam","_id":"base1-1"}]}]}}`), nil
+	})
+	s, _ := newTestServer(t, rt)
+	rec := get(t, s, "/api/suggest?q=alak")
+	if len(bodies) != 2 {
+		t.Fatalf("want 2 ES calls (ranked then plain completion), got %d", len(bodies))
+	}
+	if !bytes.Contains(bodies[0], []byte(`"bool_prefix"`)) {
+		t.Errorf("pass 1 must be the ranked aggregation: %s", bodies[0])
+	}
+	if !bytes.Contains(bodies[1], []byte(`"name.suggest"`)) || bytes.Contains(bodies[1], []byte("fuzzy")) {
+		t.Errorf("pass 2 must be the plain completion suggester: %s", bodies[1])
+	}
+	if !strings.Contains(rec.Body.String(), "Alakazam") {
+		t.Errorf("body: %s", rec.Body.String())
+	}
+}
+
+// A misspelling reaches the fuzzy retry the endpoint always had, now behind
+// the ranked pass: ranked, then plain completion, then fuzzy completion.
+func TestSuggestFuzzyRetry(t *testing.T) {
+	var bodies [][]byte
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		b, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, b)
+		switch len(bodies) {
+		case 1:
+			return esResponse(200, `{"took":1,"aggregations":{"names":{"buckets":[]}}}`), nil
+		case 2:
 			return esResponse(200, `{"took":1,"suggest":{"card":[{"text":"alakazm","offset":0,"length":7,"options":[]}]}}`), nil
 		}
 		return esResponse(200, `{"took":1,"suggest":{"card":[{"text":"alakazm","offset":0,"length":7,
@@ -952,14 +1025,59 @@ func TestSuggestFuzzyRetry(t *testing.T) {
 	})
 	s, _ := newTestServer(t, rt)
 	rec := get(t, s, "/api/suggest?q=alakazm")
-	if len(bodies) != 2 {
-		t.Fatalf("want 2 ES calls (plain then fuzzy), got %d", len(bodies))
+	if len(bodies) != 3 {
+		t.Fatalf("want 3 ES calls (ranked, plain, fuzzy), got %d", len(bodies))
 	}
-	if bytes.Contains(bodies[0], []byte("fuzzy")) || !bytes.Contains(bodies[1], []byte(`"fuzziness":"AUTO"`)) {
-		t.Errorf("pass 1 must be plain, pass 2 fuzzy:\n%s\n%s", bodies[0], bodies[1])
+	if !bytes.Contains(bodies[0], []byte(`"bool_prefix"`)) {
+		t.Errorf("pass 1 must be the ranked aggregation: %s", bodies[0])
+	}
+	if bytes.Contains(bodies[1], []byte("fuzzy")) || !bytes.Contains(bodies[2], []byte(`"fuzziness":"AUTO"`)) {
+		t.Errorf("pass 2 must be plain, pass 3 fuzzy:\n%s\n%s", bodies[1], bodies[2])
 	}
 	if !strings.Contains(rec.Body.String(), "Alakazam") {
 		t.Errorf("body: %s", rec.Body.String())
+	}
+}
+
+// Nothing anywhere answers with an empty list, not an error and not a 500:
+// all three passes run and the endpoint still returns its contract shape.
+func TestSuggestNoMatchAnywhere(t *testing.T) {
+	calls := 0
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			return esResponse(200, `{"took":1,"aggregations":{"names":{"buckets":[]}}}`), nil
+		}
+		return esResponse(200, `{"took":1,"suggest":{"card":[{"text":"zzzzzzzz","offset":0,"length":8,"options":[]}]}}`), nil
+	})
+	s, _ := newTestServer(t, rt)
+	rec := get(t, s, "/api/suggest?q=zzzzzzzz")
+	if rec.Code != 200 {
+		t.Fatalf("status %d", rec.Code)
+	}
+	if body := strings.TrimSpace(rec.Body.String()); body != `{"suggestions":[]}` {
+		t.Errorf("body: %q", body)
+	}
+	if calls != 3 {
+		t.Errorf("want 3 ES calls, got %d", calls)
+	}
+}
+
+// An ES failure on the ranked pass is the endpoint's 503 contract, not a
+// silent slide into the fallback that would hide a broken cluster.
+func TestSuggestRankedESFailureIs503(t *testing.T) {
+	calls := 0
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		return esResponse(500, `{"error":{"type":"search_phase_execution_exception"}}`), nil
+	})
+	s, _ := newTestServer(t, rt)
+	rec := get(t, s, "/api/suggest?q=alak")
+	if rec.Code != 503 {
+		t.Fatalf("status %d, want 503: %s", rec.Code, rec.Body.String())
+	}
+	if calls != 1 {
+		t.Errorf("a failed ranked pass must not retry, got %d calls", calls)
 	}
 }
 

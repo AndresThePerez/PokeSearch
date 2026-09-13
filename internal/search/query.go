@@ -466,3 +466,47 @@ func BuildSuggest(q string, fuzzy bool) map[string]any {
 		"completion": completion,
 	}}}
 }
+
+// BuildSuggestByPrintCount produces the ranked body /api/suggest asks for
+// first. The completion suggester behind BuildSuggest carries no weight on any
+// input, so its ties resolve alphabetically and a common prefix completes to a
+// rarely meant card ("chari" led with Charity, not Charizard). This builder
+// ranks by how often a name was printed instead, which is an honest popularity
+// proxy: a heavily reprinted name is the one a reader is more likely to mean.
+//
+// The shape is the set catalog's (BuildSetCatalogQuery), scoped by a query
+// rather than matching everything: a bool_prefix match over name.sayt selects
+// the candidate cards, a terms aggregation on name.kw collapses their prints
+// into one bucket per distinct name ordered by doc_count, and a top_hits
+// sub-aggregation recovers the display casing, because name.kw is normalized
+// to lowercase and its bucket keys cannot be shown to a reader.
+//
+// Size is SuggestSize, so the endpoint returns the same count it always did.
+// A prefix the aggregation cannot serve yields no buckets, and the handler
+// falls back to BuildSuggest for it.
+func BuildSuggestByPrintCount(q string) map[string]any {
+	return map[string]any{
+		"track_total_hits": false,
+		"size":             0,
+		"query": map[string]any{"multi_match": map[string]any{
+			"query": q,
+			"type":  "bool_prefix",
+			"fields": []any{
+				"name.sayt",
+				"name.sayt._2gram",
+				"name.sayt._3gram",
+			},
+		}},
+		"aggs": map[string]any{"names": map[string]any{
+			"terms": map[string]any{
+				"field": "name.kw",
+				"size":  SuggestSize,
+				"order": map[string]any{"_count": "desc"},
+			},
+			"aggs": map[string]any{"display": map[string]any{"top_hits": map[string]any{
+				"size":    1,
+				"_source": map[string]any{"includes": []string{"name"}},
+			}}},
+		}},
+	}
+}

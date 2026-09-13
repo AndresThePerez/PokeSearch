@@ -333,6 +333,30 @@ func TestBuildSuggest(t *testing.T) {
 	}
 }
 
+// The ranked suggest body, byte for byte. The count is SuggestSize and the
+// ordering is doc_count descending: those two together are what make the
+// endpoint return the same eight it always did, in the order a reader means
+// rather than in alphabetical order. The top_hits sub-aggregation is not
+// decoration either — name.kw is lowercase-normalized, so the bucket key
+// cannot be shown and the display casing has to come from _source.
+func TestBuildSuggestByPrintCount(t *testing.T) {
+	got := canonV(t, BuildSuggestByPrintCount("alak"))
+	want := canonS(t, `{
+	  "track_total_hits": false,
+	  "size": 0,
+	  "query": {"multi_match": {"query": "alak", "type": "bool_prefix",
+	    "fields": ["name.sayt", "name.sayt._2gram", "name.sayt._3gram"]}},
+	  "aggs": {"names": {
+	    "terms": {"field": "name.kw", "size": 8, "order": {"_count": "desc"}},
+	    "aggs": {"display": {"top_hits": {
+	      "size": 1, "_source": {"includes": ["name"]}}}}
+	  }}
+	}`)
+	if got != want {
+		t.Errorf("ranked suggest\n got %s\nwant %s", got, want)
+	}
+}
+
 // The corpus's own shape, in one request: two numeric distributions (prints
 // per year, HP bands), the facet breakdowns, and the maximum HP. Nothing in it
 // depends on a request, which is what makes it cacheable for the process

@@ -38,7 +38,7 @@ function orderDslForDisplay(dsl) {
     }
   }
   for (const key of Object.keys(dsl)) {
-    if (!(key in ordered)) {
+    if (!Object.prototype.hasOwnProperty.call(ordered, key)) {
       ordered[key] = dsl[key];
     }
   }
@@ -60,9 +60,9 @@ export function setDegraded(isDegraded) {
   $("degraded-banner").hidden = !isDegraded;
   setServiceStatus(isDegraded ? "Degraded" : "Online", isDegraded);
   // A failed search leaves the previous query's totals on screen, where they
-  // read as a count of what is showing now. Blank them to the same dash the
-  // page starts with — the elements and their live regions stay put, so the
-  // next success has somewhere to land and the change is still announced.
+  // read as a count of what is showing now. Blank them to a dash — the
+  // elements and their live regions stay put, so the next success has
+  // somewhere to land and the change is still announced.
   if (isDegraded) {
     $("total-count").textContent = BLANK;
     $("stat-results").textContent = BLANK;

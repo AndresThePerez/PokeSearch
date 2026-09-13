@@ -86,10 +86,13 @@ function releasePageScroll() {
 
 // Everything the open sheet covers. The filter rail is not in the list: the
 // drawer and the toggle that owns it live there, and they have to stay
-// reachable. Between them these three are every focusable thing outside the
-// rail — the dialog is the only other child of body, and it is inert to the
-// page in the other direction, by showModal.
-const BEHIND_DRAWER = [".site-header", "main", ".observability-rail"];
+// reachable. The skip link is its own entry because it is a direct child of
+// body rather than part of any of the three regions, so nothing else can take
+// it out of the tab order — and it jumps to a grid the sheet covers. Between
+// them these four are every focusable thing outside the rail: the dialog is
+// the only other child of body, and it is inert to the page in the other
+// direction, by showModal.
+const BEHIND_DRAWER = [".skip-link", ".site-header", "main", ".observability-rail"];
 
 // Covering the page is not the same as taking it out of the tab order, so Tab
 // past the close button used to land on the search box behind the sheet, with

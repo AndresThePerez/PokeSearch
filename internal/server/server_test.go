@@ -917,6 +917,65 @@ func TestESCallTimeout(t *testing.T) {
 	}
 }
 
+// TestSuggestSharesOneESBudget: the endpoint's three passes run under one
+// per-request budget, not one each. A ranked pass that eats almost all of it
+// and finds nothing leaves the fallback the remainder, so a fallback that then
+// exceeds the budget fails the request instead of extending it to twice or
+// three times the cap.
+func TestSuggestSharesOneESBudget(t *testing.T) {
+	const budget = 400 * time.Millisecond
+	var mu sync.Mutex
+	var deadlines []time.Time
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		mu.Lock()
+		pass := len(deadlines) + 1
+		d, ok := r.Context().Deadline()
+		if !ok {
+			mu.Unlock()
+			t.Error("an ES call ran with no deadline at all")
+			return nil, errors.New("no deadline")
+		}
+		deadlines = append(deadlines, d)
+		mu.Unlock()
+
+		if pass == 1 {
+			// Slow, and it finds nothing: the fallback starts with 100 ms left.
+			select {
+			case <-time.After(budget - 100*time.Millisecond):
+			case <-r.Context().Done():
+				return nil, r.Context().Err()
+			}
+			return esResponse(200, `{"took":1,"aggregations":{"names":{"buckets":[]}}}`), nil
+		}
+		<-r.Context().Done() // a fallback that never answers
+		return nil, r.Context().Err()
+	})
+	s, _ := newTestServer(t, rt)
+	s.esTimeout = budget
+
+	start := time.Now()
+	rec := get(t, s, "/api/suggest?q=alak")
+	elapsed := time.Since(start)
+
+	if rec.Code != 503 {
+		t.Fatalf("status %d, want the 503 contract: %s", rec.Code, rec.Body.String())
+	}
+	if elapsed > budget+budget/2 {
+		t.Errorf("handler took %s against a %s budget: a later pass got a budget of its own", elapsed, budget)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(deadlines) < 2 {
+		t.Fatalf("want at least 2 ES calls (ranked then fallback), got %d", len(deadlines))
+	}
+	for i, d := range deadlines[1:] {
+		if !d.Equal(deadlines[0]) {
+			t.Errorf("pass %d expires at %s, pass 1 at %s: the passes do not share one budget",
+				i+2, d, deadlines[0])
+		}
+	}
+}
+
 // rankedSuggestBody fakes the ranked aggregation reply: one bucket per
 // distinct name in the order ES returns them (print count descending), each
 // bucket keyed by the lowercase-normalized name and carrying the display
@@ -2276,6 +2335,44 @@ func TestCompareHandler(t *testing.T) {
 	}
 	if lg := queryLine(t, logBuf); lg["endpoint"] != "compare" || lg["status"] != float64(200) {
 		t.Errorf("log line: %v", lg)
+	}
+}
+
+// Disjoint windows: every document crossed the edge, so every magnitude ties
+// and the rank each document does have is what orders them. The card that fell
+// out of rank 1 leads, and the panel's five movers are the five biggest
+// crossings rather than the five alphabetically first ids.
+func TestCompareDisjointWindowsOrderByTheRankTheyHave(t *testing.T) {
+	a := []compareEntry{
+		{Rank: 1, ID: "zz-1", Name: "Dropped from one"},
+		{Rank: 2, ID: "mm-2", Name: "Dropped from two"},
+		{Rank: 3, ID: "aa-3", Name: "Dropped from three"},
+	}
+	b := []compareEntry{
+		{Rank: 1, ID: "zz-9", Name: "Entered at one"},
+		{Rank: 2, ID: "aa-8", Name: "Entered at two"},
+	}
+	deltas := compareDeltas(a, b)
+	// By rank, not by id: the two rank-1 crossings, then the two rank-2 ones
+	// (which tie, so id breaks them), then rank 3. Id order alone would put
+	// aa-3 at the head and bury both rank-1 crossings.
+	want := []string{"zz-1", "zz-9", "aa-8", "mm-2", "aa-3"}
+	if len(deltas) != len(want) {
+		t.Fatalf("%d deltas, want the %d-document union: %+v", len(deltas), len(want), deltas)
+	}
+	for i, id := range want {
+		if deltas[i].ID != id {
+			got := make([]string, len(deltas))
+			for j, d := range deltas {
+				got[j] = d.ID
+			}
+			t.Fatalf("union order %v, want %v — the head fell back to id order", got, want)
+		}
+	}
+	// Rank 1 on either side is a bigger crossing than rank 3, and both sides
+	// interleave by rank rather than one window sorting ahead of the other.
+	if deltas[0].Status != compareDropped || deltas[1].Status != compareEntered {
+		t.Errorf("the two rank-1 crossings lead as %s/%s", deltas[0].Status, deltas[1].Status)
 	}
 }
 

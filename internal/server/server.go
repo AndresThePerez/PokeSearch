@@ -1913,8 +1913,11 @@ func compareResults(esr *esCompareResponse) []compareEntry {
 //
 // A document only one window holds is the largest movement there is — it
 // crossed the window edge — so entered and dropped sort above every in-window
-// move, whose magnitude cannot exceed compareWindow-1. Ties break on id, so two
-// runs against an unchanged index print the same list in the same order.
+// move, whose magnitude cannot exceed compareWindow-1. Every one of those
+// crossings carries the same magnitude, so the rank the document does have is
+// the second key: on a disjoint pair of windows the card that fell out of rank
+// 1 leads the list instead of whichever id sorts first. Ties break on id last,
+// so two runs against an unchanged index print the same list in the same order.
 func compareDeltas(a, b []compareEntry) []compareDelta {
 	ranksB := make(map[string]int, len(b))
 	for _, e := range b {
@@ -1923,9 +1926,11 @@ func compareDeltas(a, b []compareEntry) []compareDelta {
 	seen := make(map[string]bool, len(a)+len(b))
 	deltas := make([]compareDelta, 0, len(a)+len(b))
 	magnitude := make(map[string]int, len(a)+len(b))
+	position := make(map[string]int, len(a)+len(b))
 
 	for _, e := range a {
 		seen[e.ID] = true
+		position[e.ID] = e.Rank
 		d := compareDelta{ID: e.ID, Name: e.Name, RankA: intPtr(e.Rank), Status: compareDropped}
 		magnitude[e.ID] = compareWindow
 		if rankB, ok := ranksB[e.ID]; ok {
@@ -1944,11 +1949,15 @@ func compareDeltas(a, b []compareEntry) []compareDelta {
 			ID: e.ID, Name: e.Name, RankB: intPtr(e.Rank), Status: compareEntered,
 		})
 		magnitude[e.ID] = compareWindow
+		position[e.ID] = e.Rank
 	}
 
 	slices.SortFunc(deltas, func(x, y compareDelta) int {
 		if magnitude[x.ID] != magnitude[y.ID] {
 			return magnitude[y.ID] - magnitude[x.ID]
+		}
+		if position[x.ID] != position[y.ID] {
+			return position[x.ID] - position[y.ID]
 		}
 		return strings.Compare(x.ID, y.ID)
 	})
@@ -2112,6 +2121,18 @@ func (s *Server) handleSuggest(w http.ResponseWriter, r *http.Request) {
 	entry := s.queryLog(r, "suggest")
 	entry.Params = map[string]any{"q": p.Q}
 	entry.DSL = dsl
+
+	// One budget for the whole handler, not one per pass: WithTimeout takes the
+	// earlier of the two deadlines, so deriving the request's context once here
+	// caps all three calls at the single per-request ES budget instead of three
+	// times it. handleExplain and handleCompare derive theirs the same way.
+	// One budget for the whole handler, not one per pass: WithTimeout takes the
+	// earlier of the two deadlines, so deriving the request's context once here
+	// caps all three calls at the single per-request ES budget instead of three
+	// times it. handleExplain and handleCompare derive theirs the same way.
+	ctx, cancel := s.esCtx(r)
+	defer cancel()
+	r = r.WithContext(ctx)
 
 	// Three passes, each run only because the one before it found nothing:
 	// the ranked aggregation, then the plain completion suggester for a prefix

@@ -23,12 +23,17 @@ jobs:
       # The acceptance suite is build-tagged, so vet it explicitly — otherwise
       # it can stop compiling without anything noticing until a manual run.
       - run: go vet -tags acceptance ./internal/acceptance
+      # The relevance harness is build-tagged too, and the vet is cluster-free,
+      # so the same reasoning applies: vet it or it can stop compiling unseen.
+      - run: go vet -tags relevance ./internal/relevance
       - run: go test -race ./...
       - uses: golangci/golangci-lint-action@v8
         with:
           version: v2.13.1
-      # Pinned: an unpinned scanner turns master red on a newly published
-      # advisory with no code change — bump this version deliberately.
+      # Pinned so the scanner itself cannot change under CI. A newly published
+      # advisory will still turn master red — the vulnerability database is
+      # fetched from vuln.go.dev at run time — so bump this deliberately:
+      # go run golang.org/x/vuln/cmd/govulncheck@vX.Y.Z ./...
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
 

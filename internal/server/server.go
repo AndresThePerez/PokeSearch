@@ -489,8 +489,13 @@ func (w *gzipResponseWriter) close() {
 // gzipEligible decides, from the status and the headers the handler has just
 // set, whether a response may be compressed at all.
 func gzipEligible(status int, h http.Header) bool {
-	// A 304 and a 204 carry no body; compressing either would invent one.
-	if status == http.StatusNotModified || status == http.StatusNoContent {
+	// A 304 and a 204 carry no body; compressing either would invent one. A 206
+	// carries part of one, and its Content-Range names that part in identity
+	// bytes — compressing the body would leave the declared span and the
+	// delivered length disagreeing, so a resuming client writes the wrong bytes
+	// at the wrong offset. Partial content goes out uncompressed.
+	switch status {
+	case http.StatusNotModified, http.StatusNoContent, http.StatusPartialContent:
 		return false
 	}
 	// Something upstream already encoded this. Re-encoding it would produce a

@@ -59,7 +59,9 @@ func newTestServerLogging(t *testing.T, rt http.RoundTripper, logW io.Writer) *S
 		"index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>Pokesearch</title>")},
 		// Deliberately past minGzipBody: the cache and compression tests need a
 		// real asset, and the size threshold is one of the things under test.
-		"styles.css": &fstest.MapFile{Data: []byte(strings.Repeat("body { color: #0b1020; }\n", 80))},
+		// Large enough that a Range request over the threshold is still a
+		// genuine partial slice rather than the whole file.
+		"styles.css": &fstest.MapFile{Data: []byte(strings.Repeat("body { color: #0b1020; }\n", 200))},
 	}
 	fixed := func() time.Time { return time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC) }
 	return New(es, static, logW, fixed)
@@ -1165,6 +1167,44 @@ func TestGzipSkipsNotModified(t *testing.T) {
 	}
 	if got := rec.Header().Get("Content-Encoding"); got != "" {
 		t.Errorf("Content-Encoding = %q, want none on a 304", got)
+	}
+}
+
+// A 206 is the one success status whose body describes part of the
+// representation rather than all of it, and Content-Range names that part in
+// identity bytes. Compressing it makes the header lie: the declared span and
+// the delivered length disagree, and a client resuming a download writes the
+// wrong bytes at the wrong offset.
+func TestGzipSkipsPartialContent(t *testing.T) {
+	s, _ := newTestServer(t, staticRT(t))
+	full := get(t, s, "/styles.css").Body.Bytes()
+
+	rec := getWith(t, s, "/styles.css", map[string]string{
+		"Range":           "bytes=0-4000",
+		"Accept-Encoding": "gzip",
+	})
+	if rec.Code != 206 {
+		t.Fatalf("status %d, want 206", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Encoding"); got != "" {
+		t.Errorf("Content-Encoding = %q, want none on partial content", got)
+	}
+
+	contentRange := rec.Header().Get("Content-Range")
+	var first, last, total int
+	if _, err := fmt.Sscanf(contentRange, "bytes %d-%d/%d", &first, &last, &total); err != nil {
+		t.Fatalf("Content-Range %q: %v", contentRange, err)
+	}
+	if total != len(full) {
+		t.Errorf("Content-Range %q names a total of %d, want %d", contentRange, total, len(full))
+	}
+	// The whole point: the span the header declares and the number of bytes
+	// actually delivered have to agree.
+	if span := last - first + 1; span != rec.Body.Len() {
+		t.Errorf("Content-Range %q declares %d bytes, body carries %d", contentRange, span, rec.Body.Len())
+	}
+	if !bytes.Equal(rec.Body.Bytes(), full[first:last+1]) {
+		t.Error("partial body is not the identity slice its Content-Range names")
 	}
 }
 

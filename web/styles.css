@@ -10,6 +10,7 @@
   --muted: #a2a7b2;
   --accent: #e6394c;
   --accent-strong: #ff5a6a;
+  --accent-deep: #c81f32;
   --accent-soft: rgba(230, 57, 76, .14);
   --danger-soft: rgba(230, 57, 76, .12);
   --radius: 16px;
@@ -273,7 +274,7 @@ a:focus-visible {
   font-size: .7rem;
   font-weight: 750;
   font-variant-numeric: tabular-nums;
-  background: var(--accent);
+  background: var(--accent-deep);
 }
 
 .filter-count:not([hidden]) ~ .filter-chevron { margin-left: 0; }
@@ -482,7 +483,7 @@ main { min-width: 0; }
   margin-bottom: 1.5rem;
 }
 
-.eyebrow { margin: 0 0 .4rem; color: var(--accent); }
+.eyebrow { margin: 0 0 .4rem; color: var(--accent-strong); }
 
 #total-count {
   margin: 0;
@@ -769,7 +770,7 @@ mark {
   border-radius: 999px;
   color: white;
   font-weight: 750;
-  background: var(--accent);
+  background: var(--accent-deep);
   cursor: pointer;
 }
 
@@ -796,7 +797,7 @@ mark {
 #query-inspector summary::-webkit-details-marker,
 #response-inspector summary::-webkit-details-marker { display: none; }
 #query-inspector summary small,
-#response-inspector summary small { display: block; margin-bottom: .2rem; color: var(--accent); font-size: .62rem; letter-spacing: .1em; text-transform: uppercase; }
+#response-inspector summary small { display: block; margin-bottom: .2rem; color: var(--accent-strong); font-size: .62rem; letter-spacing: .1em; text-transform: uppercase; }
 #query-inspector summary > span:last-child,
 #response-inspector summary > span:last-child { transition: transform 160ms ease; }
 #query-inspector[open] summary > span:last-child,
@@ -1368,7 +1369,7 @@ body.route-stats .app-layout { grid-template-columns: minmax(0, 1fr) minmax(340p
   box-shadow: 0 0 0 3px rgba(126, 210, 154, .12);
 }
 
-.service-status.is-degraded { color: var(--accent); }
+.service-status.is-degraded { color: var(--accent-strong); }
 .service-status.is-degraded span { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 
 .stats-grid {
@@ -1486,7 +1487,7 @@ body.route-stats .app-layout { grid-template-columns: minmax(0, 1fr) minmax(340p
 
 .panel-label {
   margin: 0 0 .55rem;
-  color: var(--accent);
+  color: var(--accent-strong);
   font-size: .64rem;
   font-weight: 800;
   letter-spacing: .1em;

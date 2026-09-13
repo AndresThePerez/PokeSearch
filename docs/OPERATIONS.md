@@ -25,8 +25,8 @@ The stack is deployed by pulling the repository onto a host and building there. 
 | Variable | Example | Meaning |
 |---|---|---|
 | `DEPLOY_HOST` | `user@server` | SSH target running Docker |
-| `DEPLOY_DIR` | `~/apps/pokesearch` | Checkout location on that host |
-| `APP_PORT` | `8083` | Host port to publish the application on (defaults to `8080`) |
+| `DEPLOY_DIR` | `/srv/pokesearch` | Checkout location on that host |
+| `APP_PORT` | `8090` | Host port to publish the application on (defaults to `8080`) |
 | `SEED_REF` | `0af6250a…` | `pokemon-tcg-data` commit to index |
 
 ```bash
@@ -37,7 +37,7 @@ printf 'APP_PORT=%s\n' "$APP_PORT" > .env      # git-ignored
 docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build
 ```
 
-`docker-compose.server.yml` adds `restart: unless-stopped` and memory caps (`es` 1g — twice the 512m JVM heap, per Elastic's container guidance; `app` 256m) so the stack coexists with a host's other tenants. Elasticsearch remains on the Compose-internal network with no host port in any topology.
+`docker-compose.server.yml` adds `restart: unless-stopped` and memory caps (`es` 2g, four times the 512m JVM heap, so the page cache is not starved; `app` 256m) so the stack coexists with a host's other tenants. Elasticsearch remains on the Compose-internal network with no host port in any topology.
 
 ### Seeding
 

@@ -1,5 +1,5 @@
 # Server topology: restart policy + memory caps. Port comes from .env
-# (APP_PORT=8083). ES stays internal — this file must never map 9200.
+# (APP_PORT). ES stays internal — this file must never map 9200.
 # Usage: docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build
 #
 # demo-net is created once on the server: docker network create demo-net
@@ -8,7 +8,9 @@
 services:
   es:
     restart: unless-stopped
-    mem_limit: 1g
+    # 2g, four times the 512m JVM heap: the difference is page cache for the
+    # Lucene files. At 1g the cache sat at the cap and tail latency spiked.
+    mem_limit: 2g
   app:
     restart: unless-stopped
     mem_limit: 256m

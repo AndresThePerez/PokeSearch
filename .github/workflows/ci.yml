@@ -27,8 +27,10 @@ jobs:
       - uses: golangci/golangci-lint-action@v8
         with:
           version: v2.13.1
+      # Pinned: an unpinned scanner turns master red on a newly published
+      # advisory with no code change — bump this version deliberately.
       - name: govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
 
   frontend:
     runs-on: ubuntu-latest

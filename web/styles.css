@@ -385,6 +385,14 @@ legend,
   background: color-mix(in srgb, var(--type-color) 13%, transparent);
 }
 
+/* A facet control at zero is disabled unless it is the active filter, so this
+   never lands on a pressed chip: the pressed border stays the only indicator. */
+.segmented-control button:disabled,
+.type-chip:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
 .type-dot {
   width: 7px;
   aspect-ratio: 1;

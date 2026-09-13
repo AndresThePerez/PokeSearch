@@ -235,12 +235,21 @@ function renderFacets(facets = {}) {
   document.querySelectorAll("#supertype-toggle button").forEach((button) => {
     const labels = { pokemon: "Pokémon", trainer: "Trainer", energy: "Energy" };
     const value = button.dataset.supertype;
-    button.querySelector(".facet-count").textContent = Number(value ? supertypeCounts.get(labels[value]) ?? 0 : supertypeAll).toLocaleString();
+    const count = Number(value ? supertypeCounts.get(labels[value]) ?? 0 : supertypeAll);
+    button.querySelector(".facet-count").textContent = count.toLocaleString();
+    // A control already reporting zero is a one-click route into the empty
+    // state, so take the click away — except on the value that is currently
+    // selected, which has to stay clickable or the filter could not be undone.
+    const isSelected = value === state.supertype;
+    button.disabled = count === 0 && !isSelected;
   });
 
   const typeCounts = bucketMap(facets.types);
   document.querySelectorAll(".type-chip").forEach((button) => {
-    button.querySelector(".facet-count").textContent = Number(typeCounts.get(button.dataset.type) ?? 0).toLocaleString();
+    const count = Number(typeCounts.get(button.dataset.type) ?? 0);
+    button.querySelector(".facet-count").textContent = count.toLocaleString();
+    const isSelected = state.types.includes(button.dataset.type);
+    button.disabled = count === 0 && !isSelected;
   });
 
   populateSetSelect(facets.sets, state.set);

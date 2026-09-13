@@ -522,10 +522,13 @@ main { min-width: 0; }
 
 /* The did-you-mean button only exists on a zero-result search (D8), so it can
    afford to be the most prominent thing on an otherwise empty screen. The
-   banner's retry is the same kind of offer after a different kind of dead end,
-   so it wears the same pill rather than introducing a second one. */
+   banner's retry and the empty card's two ways out are the same kind of offer
+   after a different kind of dead end, so they wear the same pill rather than
+   introducing a second one. */
 #did-you-mean,
-#retry-search {
+#retry-search,
+#empty-clear,
+#empty-browse {
   margin-top: 1.1rem;
   padding: .6rem 1.15rem;
   border: 1px solid rgba(230, 57, 76, .5);
@@ -538,8 +541,14 @@ main { min-width: 0; }
 }
 
 #did-you-mean:hover,
-#retry-search:hover { border-color: var(--accent-strong); background: rgba(230, 57, 76, .22); }
+#retry-search:hover,
+#empty-clear:hover,
+#empty-browse:hover { border-color: var(--accent-strong); background: rgba(230, 57, 76, .22); }
 #did-you-mean strong { color: var(--accent-strong); font-weight: 600; }
+/* A correction to take and a way out of the state can be offered together, so
+   the card's action keeps a gap rather than touching the pill beside it. */
+#empty-clear,
+#empty-browse { margin-left: .35rem; margin-right: .35rem; }
 
 #results-grid {
   display: grid;

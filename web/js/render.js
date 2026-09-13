@@ -325,7 +325,16 @@ function renderActiveFilters() {
     return button;
   });
   container.replaceChildren(...chips);
-  $("clear-filters").hidden = active.length === 0;
+  const hasFilters = active.length > 0;
+  $("clear-filters").hidden = !hasFilters;
+  // The empty card's own way out, decided by the same count the rail's control
+  // uses rather than by a second reading of the state. Exactly one of the two
+  // is ever offered: dropping the filters is the smaller undo, so a search
+  // narrowed by both a query and filters gets that one, and only a query
+  // standing alone gets the browse route. With neither, nothing narrowed the
+  // search and there is nothing to offer undoing.
+  $("empty-clear").hidden = !hasFilters;
+  $("empty-browse").hidden = hasFilters || !queryText();
   $("stat-filters").textContent = String(active.length);
   $("filter-count").textContent = String(active.length);
   $("filter-count").hidden = active.length === 0;

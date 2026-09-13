@@ -52,6 +52,19 @@ function leaveStatsRoute() {
   renderRoute();
 }
 
+// Dropping every filter, shared by the rail's control and the empty card's.
+// Two buttons in two places that have to mean the same thing, and would
+// otherwise be two lists of fields for a later filter to be forgotten from.
+function clearAllFilters() {
+  state.supertype = "";
+  state.types = [];
+  state.set = "";
+  state.rarity = "";
+  state.series = "";
+  syncFilterControls();
+  runSearch({ push: true });
+}
+
 function bindCoreEvents() {
   $("search-input").addEventListener("input", (event) => {
     // Typing is a search, and a search belongs on the search view.
@@ -128,6 +141,21 @@ function bindCoreEvents() {
     runSearch({ push: true });
   });
 
+  // The empty card's two ways out. Both are searches the reader asked for, so
+  // both push a history entry — Back returns to the search that found nothing
+  // rather than skipping past it.
+  $("empty-clear").addEventListener("click", clearAllFilters);
+
+  $("empty-browse").addEventListener("click", () => {
+    state.q = "";
+    // Leaving the query behind takes its sort with it: relevance means nothing
+    // without one, and the archive's own order is what browse is for.
+    state.sort = "";
+    state.order = "";
+    syncControls();
+    runSearch({ push: true });
+  });
+
   $("query-inspector").addEventListener("toggle", () => {
     if (!$("query-inspector").open || lastResponseHadDSL()) return;
     // Whichever view is open owes the inspector its own DSL.
@@ -194,15 +222,7 @@ function bindFilterEvents() {
     runSearch({ push: true });
   });
 
-  $("clear-filters").addEventListener("click", () => {
-    state.supertype = "";
-    state.types = [];
-    state.set = "";
-    state.rarity = "";
-    state.series = "";
-    syncFilterControls();
-    runSearch({ push: true });
-  });
+  $("clear-filters").addEventListener("click", clearAllFilters);
 
   $("filter-toggle").addEventListener("click", () => {
     const expanded = $("filter-toggle").getAttribute("aria-expanded") === "true";

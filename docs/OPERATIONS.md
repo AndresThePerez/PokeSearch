@@ -1,6 +1,6 @@
 # Operations
 
-This file is the seeding, backup and recovery runbook for a PokéSearch stack on any Docker host.
+This file is the topology, deployment, seeding, backup and recovery runbook for a PokéSearch stack on any Docker host.
 
 ## Topology
 

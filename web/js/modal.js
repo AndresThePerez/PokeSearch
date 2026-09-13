@@ -18,13 +18,16 @@ let explainRendered = false;
 // route, not a route of its own, so closing it has to put the reader back on
 // the page they were on — #stats included.
 let hashBeforeModal = "";
-// What the body's inline overflow was before the dialog locked it. The phone
-// filter drawer locks the page the same way, so this puts the old value back
-// rather than blanking it; the two locks cannot be held at once and so need no
-// counting between them. The drawer is a fixed full-viewport sheet, so no card
-// button in the grid can be clicked behind it, and the only other way into the
-// dialog — the #card= deep link — is read once at startup; in the other
-// direction showModal makes the drawer's own toggle inert.
+// What the body's inline overflow was before the dialog locked it, put back on
+// close rather than blanked. The phone filter drawer locks the page the same
+// way, and in practice the two never overlap: the open drawer marks the
+// regions behind it inert — the results grid among them — so no card button
+// can be reached by pointer or by Tab, and in the other direction showModal
+// inerts the drawer's own toggle. They still do not have to trust each other.
+// The drawer can release its lock without anyone clicking anything — widening
+// past its breakpoint does exactly that — so the restore below is conditional:
+// it only puts this value back while the lock it took is still the one on the
+// page, and never writes a stale "hidden" over a page someone else freed.
 let overflowBeforeModal = "";
 
 // The grid's small image is already cached, so it shows instantly while the
@@ -328,8 +331,13 @@ export function bindModalEvents() {
   $("card-modal").addEventListener("close", () => {
     // The dialog's own close event, so Escape, the backdrop and the close
     // button all release the lock by the same path — and the page can scroll
-    // again before focus goes back to the card that opened it.
-    document.body.style.overflow = overflowBeforeModal;
+    // again before focus goes back to the card that opened it. Only a lock
+    // that is still held is released: if something else freed the page while
+    // the dialog was up, the value saved on open is stale and putting it back
+    // would relock a page nobody is covering.
+    if (document.body.style.overflow === "hidden") {
+      document.body.style.overflow = overflowBeforeModal;
+    }
     clearCardHash();
     const opener = modalOpener;
     modalOpener = null;

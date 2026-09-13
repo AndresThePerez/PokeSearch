@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -56,6 +57,9 @@ func newTestServerLogging(t *testing.T, rt http.RoundTripper, logW io.Writer) *S
 	}
 	static := fstest.MapFS{
 		"index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>Pokesearch</title>")},
+		// Deliberately past minGzipBody: the cache and compression tests need a
+		// real asset, and the size threshold is one of the things under test.
+		"styles.css": &fstest.MapFile{Data: []byte(strings.Repeat("body { color: #0b1020; }\n", 80))},
 	}
 	fixed := func() time.Time { return time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC) }
 	return New(es, static, logW, fixed)
@@ -1027,6 +1031,263 @@ func TestStaticServing(t *testing.T) {
 	rec := get(t, s, "/")
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Pokesearch") {
 		t.Errorf("static /: %d %q", rec.Code, rec.Body.String())
+	}
+}
+
+// staticRT fails the test if a static asset request reaches Elasticsearch.
+func staticRT(t *testing.T) roundTripperFunc {
+	t.Helper()
+	return roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		t.Error("static must not call ES")
+		return nil, nil
+	})
+}
+
+// gunzip decodes a compressed response body. It reports with Errorf rather
+// than Fatalf so the concurrency test can call it from its goroutines.
+func gunzip(t *testing.T, body []byte) []byte {
+	t.Helper()
+	zr, err := gzip.NewReader(bytes.NewReader(body))
+	if err != nil {
+		t.Errorf("gzip reader: %v", err)
+		return nil
+	}
+	plain, err := io.ReadAll(zr)
+	if err != nil {
+		t.Errorf("gzip read: %v", err)
+		return nil
+	}
+	if err := zr.Close(); err != nil {
+		t.Errorf("gzip close: %v", err)
+	}
+	return plain
+}
+
+// embed.FS reports a zero ModTime, so ServeContent emits no Last-Modified and
+// has nothing to validate against: the content-derived ETag is the only
+// validator these assets can carry, and it has to be identical across requests
+// or a conditional request can never hit.
+func TestStaticCacheValidators(t *testing.T) {
+	s, _ := newTestServer(t, staticRT(t))
+
+	first := get(t, s, "/styles.css")
+	if first.Code != 200 {
+		t.Fatalf("status %d", first.Code)
+	}
+	if got := first.Header().Get("Cache-Control"); got != staticCacheControl {
+		t.Errorf("Cache-Control = %q, want %q", got, staticCacheControl)
+	}
+	etag := first.Header().Get("ETag")
+	if !strings.HasPrefix(etag, `"`) || !strings.HasSuffix(etag, `"`) || len(etag) != etagHexLen+2 {
+		t.Fatalf("ETag = %q, want a quoted %d-character hash", etag, etagHexLen)
+	}
+	if second := get(t, s, "/styles.css").Header().Get("ETag"); second != etag {
+		t.Errorf("ETag changed between requests: %q then %q", etag, second)
+	}
+}
+
+// The point of the validator: a browser that already holds the asset gets a
+// bodyless 304 instead of the whole stylesheet. A validator that does not match
+// still gets the file.
+func TestStaticConditionalRequest(t *testing.T) {
+	s, _ := newTestServer(t, staticRT(t))
+	etag := get(t, s, "/styles.css").Header().Get("ETag")
+
+	rec := getWith(t, s, "/styles.css", map[string]string{"If-None-Match": etag})
+	if rec.Code != 304 {
+		t.Fatalf("status %d, want 304", rec.Code)
+	}
+	if rec.Body.Len() != 0 {
+		t.Errorf("304 must carry no body, got %d bytes", rec.Body.Len())
+	}
+	if got := rec.Header().Get("Cache-Control"); got != staticCacheControl {
+		t.Errorf("304 Cache-Control = %q, want %q", got, staticCacheControl)
+	}
+
+	stale := getWith(t, s, "/styles.css", map[string]string{"If-None-Match": `"0123456789abcdef"`})
+	if stale.Code != 200 || stale.Body.Len() == 0 {
+		t.Errorf("a stale validator must get the whole file: %d, %d bytes", stale.Code, stale.Body.Len())
+	}
+}
+
+// index.html names every other asset, so it must never be reused without
+// asking — but it still carries the validator that keeps the ask cheap.
+func TestIndexHTMLStaysNoCache(t *testing.T) {
+	s, _ := newTestServer(t, staticRT(t))
+	rec := get(t, s, "/")
+	if got := rec.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Errorf("Cache-Control = %q, want no-cache", got)
+	}
+	if rec.Header().Get("ETag") == "" {
+		t.Error("index.html must still carry an ETag to revalidate against")
+	}
+}
+
+func TestGzipNegotiation(t *testing.T) {
+	s, _ := newTestServer(t, staticRT(t))
+	plain := get(t, s, "/styles.css")
+	if plain.Header().Get("Content-Encoding") != "" || plain.Header().Get("Vary") != "" {
+		t.Errorf("a client that did not ask for gzip must get neither header: %v", plain.Header())
+	}
+
+	rec := getWith(t, s, "/styles.css", map[string]string{"Accept-Encoding": "gzip"})
+	if got := rec.Header().Get("Content-Encoding"); got != "gzip" {
+		t.Fatalf("Content-Encoding = %q, want gzip", got)
+	}
+	if got := rec.Header().Get("Vary"); got != "Accept-Encoding" {
+		t.Errorf("Vary = %q, want Accept-Encoding", got)
+	}
+	// A stale Content-Length describing the uncompressed body would truncate
+	// the response for every client that read it.
+	if got := rec.Header().Get("Content-Length"); got != "" {
+		t.Errorf("Content-Length = %q, want it dropped on a compressed body", got)
+	}
+	if got := gunzip(t, rec.Body.Bytes()); !bytes.Equal(got, plain.Body.Bytes()) {
+		t.Errorf("compressed body decodes to %d bytes, want the %d served plain",
+			len(got), plain.Body.Len())
+	}
+	if rec.Body.Len() >= plain.Body.Len() {
+		t.Errorf("compressed %d bytes is not smaller than plain %d", rec.Body.Len(), plain.Body.Len())
+	}
+}
+
+// A 304 has no body to compress, and inventing one would make it undecodable.
+func TestGzipSkipsNotModified(t *testing.T) {
+	s, _ := newTestServer(t, staticRT(t))
+	etag := get(t, s, "/styles.css").Header().Get("ETag")
+
+	rec := getWith(t, s, "/styles.css", map[string]string{
+		"If-None-Match":   etag,
+		"Accept-Encoding": "gzip",
+	})
+	if rec.Code != 304 || rec.Body.Len() != 0 {
+		t.Fatalf("status %d with %d body bytes, want 304 and none", rec.Code, rec.Body.Len())
+	}
+	if got := rec.Header().Get("Content-Encoding"); got != "" {
+		t.Errorf("Content-Encoding = %q, want none on a 304", got)
+	}
+}
+
+// The frozen fixtures other systems compare byte for byte sit under the size
+// threshold, so content negotiation cannot change them. /healthz is excluded by
+// path as well, and both facts are asserted here so neither can be lost.
+func TestFrozenFixturesNeverCompressed(t *testing.T) {
+	rt := roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		return esResponse(200, `{"count":20324,"_shards":{"total":1}}`), nil
+	})
+	s, _ := newTestServer(t, rt)
+
+	for _, path := range []string{"/healthz", "/api/search?sort=bogus"} {
+		t.Run(path, func(t *testing.T) {
+			// The error envelope echoes the request id, so the id is pinned:
+			// the comparison is about the encoding, not about the trace.
+			plain := getWith(t, s, path, map[string]string{"X-Request-Id": "frozen-fixture"})
+			offered := getWith(t, s, path, map[string]string{
+				"X-Request-Id":    "frozen-fixture",
+				"Accept-Encoding": "gzip",
+			})
+			if got := offered.Header().Get("Content-Encoding"); got != "" {
+				t.Errorf("Content-Encoding = %q, want none", got)
+			}
+			if plain.Body.String() != offered.Body.String() {
+				t.Errorf("body diverged under content negotiation:\n plain: %q\n gzip:  %q",
+					plain.Body.String(), offered.Body.String())
+			}
+		})
+	}
+	if body := get(t, s, "/healthz").Body.String(); body != `{"docs":20324,"status":"ok"}`+"\n" {
+		t.Errorf("healthz body = %q, the frozen fixture changed", body)
+	}
+}
+
+// TestStaticCacheConcurrentReads: the validator map is built once in New and
+// read by every static request afterwards, and the compressing writer holds
+// per-request state that must not leak between them. Meaningful under -race.
+func TestStaticCacheConcurrentReads(t *testing.T) {
+	s := newTestServerLogging(t, staticRT(t), io.Discard)
+	etag := get(t, s, "/styles.css").Header().Get("ETag")
+	plain := get(t, s, "/styles.css").Body.Bytes()
+
+	var wg sync.WaitGroup
+	for i := range 16 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest("GET", "/styles.css", nil)
+			req.Header.Set("Accept-Encoding", "gzip")
+			// Half the goroutines revalidate and half fetch, so the 304 branch
+			// and the compressing branch run against each other.
+			if i%2 == 0 {
+				req.Header.Set("If-None-Match", etag)
+			}
+			s.ServeHTTP(rec, req)
+
+			if i%2 == 0 {
+				if rec.Code != 304 || rec.Body.Len() != 0 {
+					t.Errorf("status %d with %d body bytes, want 304 and none", rec.Code, rec.Body.Len())
+				}
+				return
+			}
+			if rec.Code != 200 {
+				t.Errorf("status %d, want 200", rec.Code)
+			}
+			if got := gunzip(t, rec.Body.Bytes()); !bytes.Equal(got, plain) {
+				t.Errorf("concurrent compressed body decoded to %d bytes, want %d", len(got), len(plain))
+			}
+			if got := rec.Header().Get("ETag"); got != etag {
+				t.Errorf("ETag = %q, want %q", got, etag)
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+// wideSearchESBody is a search reply with enough hits to put the response
+// comfortably past minGzipBody, so the JSON-under-gzip assertion lands on the
+// compressed path rather than on the short-body passthrough beside it.
+func wideSearchESBody(hits int) string {
+	hit := `{"_id": "base1-1", "_source": {"id": "base1-1", "name": "Alakazam",` +
+		` "supertype": "Pokémon", "hp": 80, "types": ["Psychic"], "number": "1",` +
+		` "set_id": "base1", "set_name": "Base", "set_series": "Base", "set_total": 102,` +
+		` "release_date": "1999-01-09"}}`
+	return fmt.Sprintf(`{"took": 4, "hits": {"total": {"value": %d, "relation": "eq"}, "hits": [%s]},
+	  "aggregations": {"supertype": {"buckets": []}, "types": {"buckets": []},
+	  "rarity": {"buckets": []}, "set_series": {"buckets": []}, "sets": {"buckets": []}}}`,
+		hits, strings.TrimSuffix(strings.Repeat(hit+",", hits), ","))
+}
+
+// A compressed API response has to decode back to exactly the body the client
+// would otherwise have been sent — the load tester reads both.
+func TestJSONAPIDecodableUnderGzip(t *testing.T) {
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"set_catalog"`)) {
+			return esResponse(200, catalogESBody), nil
+		}
+		return esResponse(200, wideSearchESBody(24)), nil
+	})
+	s, _ := newTestServer(t, rt)
+
+	plain := get(t, s, "/api/search?page_size=24")
+	rec := getWith(t, s, "/api/search?page_size=24", map[string]string{"Accept-Encoding": "gzip"})
+	if got := rec.Header().Get("Content-Encoding"); got != "gzip" {
+		t.Fatalf("Content-Encoding = %q, want gzip (plain body was %d bytes)", got, plain.Body.Len())
+	}
+
+	decoded := gunzip(t, rec.Body.Bytes())
+	if !bytes.Equal(decoded, plain.Body.Bytes()) {
+		t.Errorf("compressed body differs from the plain one:\n gzip:  %s\n plain: %s", decoded, plain.Body.Bytes())
+	}
+	var resp struct {
+		Total   int               `json:"total"`
+		Results []json.RawMessage `json:"results"`
+	}
+	if err := json.Unmarshal(decoded, &resp); err != nil {
+		t.Fatalf("decode gzipped response: %v", err)
+	}
+	if resp.Total != 24 || len(resp.Results) != 24 {
+		t.Errorf("total=%d results=%d, want 24 and 24", resp.Total, len(resp.Results))
 	}
 }
 

@@ -4,8 +4,10 @@ package server
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	cryptorand "crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -36,9 +38,13 @@ import (
 const esRequestTimeout = 5 * time.Second
 
 type Server struct {
-	es           *elasticsearch.Client
-	mux          *http.ServeMux
-	handler      http.Handler
+	es      *elasticsearch.Client
+	mux     *http.ServeMux
+	handler http.Handler
+	// staticETags maps a request path to the validator for the embedded asset
+	// it serves. Written once in New and only read afterwards, which is what
+	// lets every request share it without a lock.
+	staticETags  map[string]string
 	logW         io.Writer
 	log          *slog.Logger
 	now          func() time.Time
@@ -78,12 +84,26 @@ func New(es *elasticsearch.Client, static fs.FS, logW io.Writer, now func() time
 	s.mux.HandleFunc("GET /api/explain", s.handleExplain)
 	s.mux.HandleFunc("GET /api/stats", s.handleStats)
 	s.mux.HandleFunc("GET /api/meta", s.handleMeta)
-	s.mux.Handle("GET /", http.FileServerFS(static))
+
+	etags, err := staticETags(static)
+	if err != nil {
+		// An unreadable static FS is a build defect, not a runtime condition,
+		// and serving the assets without validators is still correct — they
+		// only lose their conditional requests. Refusing to start would trade
+		// a degraded frontend for no frontend at all.
+		s.log.Warn("static asset validators unavailable", "err", err.Error())
+	}
+	s.staticETags = etags
+	s.mux.Handle("GET /", s.withStaticCache(http.FileServerFS(static)))
+
 	// Wrapped once: every route — including anything registered later, such as
 	// EnableMetrics' /debug/vars — inherits the request ID, the access line and
 	// the security headers. Security sits inside observability so the request
 	// ID is assigned first and the access line covers the whole request.
-	s.handler = s.withObservability(s.withSecurityHeaders(s.mux))
+	// Compression sits between them: outside the mux, so it can never see the
+	// 304 withStaticCache returns from inside it, and inside observability, so
+	// the access line's byte count reports what actually went on the wire.
+	s.handler = s.withObservability(s.withGzip(s.withSecurityHeaders(s.mux)))
 	return s
 }
 
@@ -198,6 +218,295 @@ func (s *Server) withSecurityHeaders(next http.Handler) http.Handler {
 		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		next.ServeHTTP(w, r)
 	})
+}
+
+// indexFile is the document http.FileServerFS also serves under the bare
+// directory path, which is why it needs two entries in the validator map and
+// its own cache policy below.
+const indexFile = "index.html"
+
+// etagHexLen is how much of the SHA-256 sum an ETag carries. Sixteen hex
+// characters is 64 bits of it: far more than enough to tell two builds of the
+// same asset apart, and short enough to keep the header small.
+const etagHexLen = 16
+
+// staticETags hashes every embedded asset once and maps the request path that
+// serves it to a quoted strong validator.
+//
+// This is the whole fix for the defect. embed.FS reports a zero ModTime for
+// every entry, so http.ServeContent has no Last-Modified to emit and no
+// validator to compare a conditional request against, and net/http never
+// synthesizes a Cache-Control of its own: every reload re-sent the entire
+// stylesheet. Hashing at construction rather than per request keeps SHA-256 off
+// the hot path — the embedded bytes cannot change while the process runs — and
+// leaves the map immutable, so it is safe to read concurrently.
+func staticETags(fsys fs.FS) (map[string]string, error) {
+	etags := make(map[string]string)
+	if fsys == nil {
+		return etags, nil
+	}
+	err := fs.WalkDir(fsys, ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		data, err := fs.ReadFile(fsys, name)
+		if err != nil {
+			return err
+		}
+		sum := sha256.Sum256(data)
+		tag := `"` + hex.EncodeToString(sum[:])[:etagHexLen] + `"`
+		if name == indexFile || strings.HasSuffix(name, "/"+indexFile) {
+			// http.FileServerFS redirects a request for index.html to the bare
+			// directory path and serves the document from there, so that is
+			// the only path the validator belongs on.
+			etags["/"+strings.TrimSuffix(name, indexFile)] = tag
+			return nil
+		}
+		etags["/"+name] = tag
+		return nil
+	})
+	return etags, err
+}
+
+// staticCacheControl is what a hashed-path asset pipeline would spell
+// "immutable" and this one deliberately does not. The asset paths are unhashed
+// (/styles.css, /js/main.js), so a long max-age has no way to be busted and
+// would strand a deployed fix behind a stale browser copy. Five minutes plus
+// must-revalidate collapses a session's repeat requests into one conditional
+// round trip and still picks a fix up within the same coffee break.
+const staticCacheControl = "public, max-age=300, must-revalidate"
+
+// withStaticCache wraps the static handler alone: it is the only handler whose
+// response is a fixed sequence of bytes with a validator to offer. The JSON API
+// is computed per request and has nothing to compare against.
+//
+// index.html is held at no-cache instead. It is the document that names every
+// other asset, so a new build has to be picked up on the next navigation rather
+// than up to five minutes later. It still carries an ETag, which is what keeps
+// that mandatory revalidation a 304 rather than a full re-send.
+func (s *Server) withStaticCache(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		etag, ok := s.staticETags[r.URL.Path]
+		if !ok {
+			// Not an embedded asset — a 404, or a redirect to one. Neither may
+			// be given a cache policy.
+			next.ServeHTTP(w, r)
+			return
+		}
+		h := w.Header()
+		h.Set("ETag", etag)
+		if isIndexPath(r.URL.Path) {
+			h.Set("Cache-Control", "no-cache")
+		} else {
+			h.Set("Cache-Control", staticCacheControl)
+		}
+		if etagMatches(r.Header.Get("If-None-Match"), etag) {
+			// Answered here rather than in ServeContent so a validated request
+			// never opens the file at all.
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// isIndexPath reports whether a validated request path is one an index.html is
+// served at, which by the mapping above is exactly a directory path.
+func isIndexPath(p string) bool {
+	return strings.HasSuffix(p, "/")
+}
+
+// etagMatches reports whether an If-None-Match header selects tag. The
+// comparison is the weak one the specification requires for this header, so a
+// "W/" prefix on the candidate is ignored, and "*" matches any representation
+// that exists.
+func etagMatches(inm, tag string) bool {
+	for _, candidate := range strings.Split(inm, ",") {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "*" || (candidate != "" && strings.TrimPrefix(candidate, "W/") == tag) {
+			return true
+		}
+	}
+	return false
+}
+
+// minGzipBody is the smallest body this wrapper will compress, and it is a
+// correctness boundary rather than a performance tuning knob.
+//
+// The wrapper covers the JSON API the resident load tester consumes, and two of
+// those bodies are frozen fixtures that other systems compare byte for byte:
+// /healthz answers {"docs":N,"status":"ok"} and the 400 error envelope is only
+// a little larger. Both are an order of magnitude below a kilobyte, so both sit
+// under this threshold and are served exactly as written. Lowering it would
+// pull those fixtures into the compressor; that is the argument any edit to
+// this number has to answer first. /healthz is additionally excluded by path in
+// withGzip, so no edit here can reach it at all.
+//
+// Below a kilobyte compression is also just a loss: the gzip header and trailer
+// alone are eighteen bytes and a short JSON object barely shrinks.
+const minGzipBody = 1 << 10
+
+// gzippableTypes are the four text media types this application actually
+// serves: the document, the stylesheet, the ES modules and every API response.
+// Card art comes from a third-party origin and never passes through here.
+var gzippableTypes = map[string]bool{
+	"text/html":              true,
+	"text/css":               true,
+	"text/javascript":        true,
+	"application/javascript": true,
+	"application/json":       true,
+}
+
+// gzippableType drops any charset parameter and reports whether the media type
+// is one worth compressing.
+func gzippableType(contentType string) bool {
+	mediaType, _, _ := strings.Cut(contentType, ";")
+	return gzippableTypes[strings.ToLower(strings.TrimSpace(mediaType))]
+}
+
+// acceptsGzip reports whether the client offered gzip. An explicit "gzip;q=0"
+// is a refusal and must not be read as an offer.
+func acceptsGzip(header string) bool {
+	for _, part := range strings.Split(header, ",") {
+		token, params, _ := strings.Cut(part, ";")
+		if !strings.EqualFold(strings.TrimSpace(token), "gzip") {
+			continue
+		}
+		if q, ok := strings.CutPrefix(strings.ToLower(strings.TrimSpace(params)), "q="); ok {
+			if weight, err := strconv.ParseFloat(q, 64); err == nil && weight == 0 {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+// withGzip compresses the text responses of clients that asked for one. It sits
+// outside the mux, so the 304 withStaticCache produces is already a finished
+// response by the time it gets here and is passed through untouched.
+//
+// /healthz is excluded by path, above and beyond the size threshold: it is a
+// frozen contract that other systems assert on verbatim, and belt and braces is
+// the right amount of caution for a body that is compared byte for byte.
+func (s *Server) withGzip(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" || !acceptsGzip(r.Header.Get("Accept-Encoding")) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		gw := &gzipResponseWriter{ResponseWriter: w, status: http.StatusOK}
+		defer gw.close()
+		next.ServeHTTP(gw, r)
+	})
+}
+
+// gzipResponseWriter compresses a response body on its way out, deciding as
+// late as it has to. The content type is only known once the handler has set
+// it, and the size is only known once the body has been written — the handlers
+// here stream their JSON and declare no Content-Length — so the status line is
+// held back until both questions are answered, buffering at most minGzipBody
+// bytes. A body that ends under the threshold is released verbatim; one that
+// crosses it is compressed from its first byte.
+type gzipResponseWriter struct {
+	http.ResponseWriter
+	status      int
+	wroteHeader bool
+	// settled records that the status line has gone out, either compressed or
+	// not. pending holds the body while that is still open.
+	settled bool
+	pending []byte
+	gz      *gzip.Writer
+}
+
+func (w *gzipResponseWriter) WriteHeader(code int) {
+	if w.wroteHeader {
+		return
+	}
+	w.wroteHeader = true
+	w.status = code
+	if !gzipEligible(code, w.Header()) {
+		// Nothing left to negotiate: release the status line now and let every
+		// later write go straight through.
+		w.settled = true
+		w.ResponseWriter.WriteHeader(code)
+	}
+}
+
+func (w *gzipResponseWriter) Write(b []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	switch {
+	case w.gz != nil:
+		return w.gz.Write(b)
+	case w.settled:
+		return w.ResponseWriter.Write(b)
+	}
+
+	w.pending = append(w.pending, b...)
+	if len(w.pending) <= minGzipBody {
+		return len(b), nil
+	}
+	// Past the threshold: commit to gzip and replay what was buffered.
+	h := w.Header()
+	h.Set("Content-Encoding", "gzip")
+	// Without this a shared cache can hand the compressed body to a client
+	// that never offered to decode it.
+	h.Set("Vary", "Accept-Encoding")
+	// Whatever length the handler declared describes the uncompressed body.
+	h.Del("Content-Length")
+	w.settled = true
+	w.ResponseWriter.WriteHeader(w.status)
+	w.gz = gzip.NewWriter(w.ResponseWriter)
+	pending := w.pending
+	w.pending = nil
+	if _, err := w.gz.Write(pending); err != nil {
+		return 0, err
+	}
+	return len(b), nil
+}
+
+// close releases whatever the writer is still holding: a short body that never
+// reached the threshold, or the gzip trailer. A handler that wrote nothing at
+// all is left alone, so net/http still emits its own empty 200.
+func (w *gzipResponseWriter) close() {
+	switch {
+	case w.gz != nil:
+		// The status line went out long ago, so a failing flush has nowhere to
+		// be reported and nothing to retry.
+		_ = w.gz.Close()
+	case w.wroteHeader && !w.settled:
+		w.settled = true
+		w.ResponseWriter.WriteHeader(w.status)
+		if len(w.pending) > 0 {
+			_, _ = w.ResponseWriter.Write(w.pending)
+		}
+		w.pending = nil
+	}
+}
+
+// gzipEligible decides, from the status and the headers the handler has just
+// set, whether a response may be compressed at all.
+func gzipEligible(status int, h http.Header) bool {
+	// A 304 and a 204 carry no body; compressing either would invent one.
+	if status == http.StatusNotModified || status == http.StatusNoContent {
+		return false
+	}
+	// Something upstream already encoded this. Re-encoding it would produce a
+	// body no client can decode from the single Content-Encoding it is told.
+	if h.Get("Content-Encoding") != "" {
+		return false
+	}
+	if !gzippableType(h.Get("Content-Type")) {
+		return false
+	}
+	// A declared length settles the size question before a byte is buffered,
+	// which is how the static assets take this path.
+	if n, err := strconv.Atoi(h.Get("Content-Length")); err == nil && n <= minGzipBody {
+		return false
+	}
+	return true
 }
 
 // withObservability gives every request an id (honouring the edge's, when the

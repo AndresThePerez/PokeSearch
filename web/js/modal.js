@@ -18,6 +18,14 @@ let explainRendered = false;
 // route, not a route of its own, so closing it has to put the reader back on
 // the page they were on — #stats included.
 let hashBeforeModal = "";
+// What the body's inline overflow was before the dialog locked it. The phone
+// filter drawer locks the page the same way, so this puts the old value back
+// rather than blanking it; the two locks cannot be held at once and so need no
+// counting between them. The drawer is a fixed full-viewport sheet, so no card
+// button in the grid can be clicked behind it, and the only other way into the
+// dialog — the #card= deep link — is read once at startup; in the other
+// direction showModal makes the drawer's own toggle inert.
+let overflowBeforeModal = "";
 
 // The grid's small image is already cached, so it shows instantly while the
 // large art loads detached; the swap is guarded by card id so a slow earlier
@@ -255,7 +263,15 @@ export function openModal(card, { updateHash = true, opener = null, highlight = 
     if (!location.hash.startsWith("#card=")) hashBeforeModal = location.hash;
     location.hash = `card=${encodeURIComponent(card.id)}`;
   }
-  if (!$("card-modal").open) $("card-modal").showModal();
+  if (!$("card-modal").open) {
+    $("card-modal").showModal();
+    // showModal makes the page behind the dialog inert, not unscrollable: a
+    // swipe near the edge of a phone still moves the results underneath, and a
+    // desktop shows two scrollbars. The lock is taken only on a real open, so a
+    // second call while the dialog is up cannot overwrite the saved value.
+    overflowBeforeModal = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+  }
 }
 
 export function closeModal() {
@@ -310,6 +326,10 @@ export function bindModalEvents() {
     if (event.target === $("card-modal")) closeModal();
   });
   $("card-modal").addEventListener("close", () => {
+    // The dialog's own close event, so Escape, the backdrop and the close
+    // button all release the lock by the same path — and the page can scroll
+    // again before focus goes back to the card that opened it.
+    document.body.style.overflow = overflowBeforeModal;
     clearCardHash();
     const opener = modalOpener;
     modalOpener = null;

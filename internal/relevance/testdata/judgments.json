@@ -1,0 +1,3564 @@
+{
+  "queries": [
+    {
+      "query": "charizard",
+      "stratum": "exact name",
+      "judgments": [
+        {
+          "id": "ecard3-146",
+          "grade": 3,
+          "reason": "Named exactly Charizard; the Skyridge print is the card the query names."
+        },
+        {
+          "id": "dp7-103",
+          "grade": 3,
+          "reason": "Named exactly Charizard; the Stormfront print is the card the query names."
+        },
+        {
+          "id": "pl4-1",
+          "grade": 3,
+          "reason": "Named exactly Charizard; the Arceus print is the card the query names."
+        },
+        {
+          "id": "ecard1-40",
+          "grade": 3,
+          "reason": "Named exactly Charizard; the Expedition Base Set print is the card the query names."
+        },
+        {
+          "id": "ecard1-6",
+          "grade": 3,
+          "reason": "Named exactly Charizard; the Expedition Base Set print is the card the query names."
+        },
+        {
+          "id": "dp3-3",
+          "grade": 3,
+          "reason": "Named exactly Charizard; the Secret Wonders print is the card the query names."
+        },
+        {
+          "id": "base6-3",
+          "grade": 3,
+          "reason": "Named exactly Charizard; the Legendary Collection print is the card the query names."
+        },
+        {
+          "id": "base1-4",
+          "grade": 3,
+          "reason": "Named exactly Charizard; the Base print is the card the query names."
+        },
+        {
+          "id": "base4-4",
+          "grade": 3,
+          "reason": "Named exactly Charizard; the Base Set 2 print is the card the query names."
+        },
+        {
+          "id": "cel25c-4_A",
+          "grade": 3,
+          "reason": "Named exactly Charizard; the Celebrations: Classic Collection print is the card the query names."
+        }
+      ]
+    },
+    {
+      "query": "pikachu",
+      "stratum": "exact name",
+      "judgments": [
+        {
+          "id": "dp7-70",
+          "grade": 3,
+          "reason": "Named exactly Pikachu; the Stormfront print is the card the query names."
+        },
+        {
+          "id": "dp2-94",
+          "grade": 3,
+          "reason": "Named exactly Pikachu; the Mysterious Treasures print is the card the query names."
+        },
+        {
+          "id": "dpp-DP16",
+          "grade": 3,
+          "reason": "Named exactly Pikachu; the DP Black Star Promos print is the card the query names."
+        },
+        {
+          "id": "ru1-7",
+          "grade": 3,
+          "reason": "Named exactly Pikachu; the Pokémon Rumble print is the card the query names."
+        },
+        {
+          "id": "basep-26",
+          "grade": 3,
+          "reason": "Named exactly Pikachu; the Wizards Black Star Promos print is the card the query names."
+        },
+        {
+          "id": "pop5-12",
+          "grade": 3,
+          "reason": "Named exactly Pikachu; the POP Series 5 print is the card the query names."
+        },
+        {
+          "id": "hsp-HGSS03",
+          "grade": 3,
+          "reason": "Named exactly Pikachu; the HGSS Black Star Promos print is the card the query names."
+        },
+        {
+          "id": "pop9-15",
+          "grade": 3,
+          "reason": "Named exactly Pikachu; the POP Series 9 print is the card the query names."
+        },
+        {
+          "id": "base1-58",
+          "grade": 3,
+          "reason": "Named exactly Pikachu; the Base print is the card the query names."
+        },
+        {
+          "id": "base4-87",
+          "grade": 3,
+          "reason": "Named exactly Pikachu; the Base Set 2 print is the card the query names."
+        }
+      ]
+    },
+    {
+      "query": "blastoise",
+      "stratum": "exact name",
+      "judgments": [
+        {
+          "id": "ex14-14",
+          "grade": 3,
+          "reason": "Named exactly Blastoise; the Crystal Guardians print is the card the query names."
+        },
+        {
+          "id": "pop3-1",
+          "grade": 3,
+          "reason": "Named exactly Blastoise; the POP Series 3 print is the card the query names."
+        },
+        {
+          "id": "ecard1-37",
+          "grade": 3,
+          "reason": "Named exactly Blastoise; the Expedition Base Set print is the card the query names."
+        },
+        {
+          "id": "ecard1-4",
+          "grade": 3,
+          "reason": "Named exactly Blastoise; the Expedition Base Set print is the card the query names."
+        },
+        {
+          "id": "pl1-2",
+          "grade": 3,
+          "reason": "Named exactly Blastoise; the Platinum print is the card the query names."
+        },
+        {
+          "id": "base1-2",
+          "grade": 3,
+          "reason": "Named exactly Blastoise; the Base print is the card the query names."
+        },
+        {
+          "id": "cel25c-2_A",
+          "grade": 3,
+          "reason": "Named exactly Blastoise; the Celebrations: Classic Collection print is the card the query names."
+        },
+        {
+          "id": "hgss2-13",
+          "grade": 3,
+          "reason": "Named exactly Blastoise; the HS—Unleashed print is the card the query names."
+        },
+        {
+          "id": "base4-2",
+          "grade": 3,
+          "reason": "Named exactly Blastoise; the Base Set 2 print is the card the query names."
+        },
+        {
+          "id": "dp3-2",
+          "grade": 3,
+          "reason": "Named exactly Blastoise; the Secret Wonders print is the card the query names."
+        }
+      ]
+    },
+    {
+      "query": "mewtwo",
+      "stratum": "exact name",
+      "judgments": [
+        {
+          "id": "dp5-9",
+          "grade": 3,
+          "reason": "Named exactly Mewtwo; the Majestic Dawn print is the card the query names."
+        },
+        {
+          "id": "basep-14",
+          "grade": 3,
+          "reason": "Named exactly Mewtwo; the Wizards Black Star Promos print is the card the query names."
+        },
+        {
+          "id": "basep-3",
+          "grade": 3,
+          "reason": "Named exactly Mewtwo; the Wizards Black Star Promos print is the card the query names."
+        },
+        {
+          "id": "base1-10",
+          "grade": 3,
+          "reason": "Named exactly Mewtwo; the Base print is the card the query names."
+        },
+        {
+          "id": "base4-10",
+          "grade": 3,
+          "reason": "Named exactly Mewtwo; the Base Set 2 print is the card the query names."
+        },
+        {
+          "id": "base6-29",
+          "grade": 3,
+          "reason": "Named exactly Mewtwo; the Legendary Collection print is the card the query names."
+        },
+        {
+          "id": "basep-12",
+          "grade": 3,
+          "reason": "Named exactly Mewtwo; the Wizards Black Star Promos print is the card the query names."
+        },
+        {
+          "id": "bw11-53",
+          "grade": 3,
+          "reason": "Named exactly Mewtwo; the Legendary Treasures print is the card the query names."
+        },
+        {
+          "id": "det1-12",
+          "grade": 3,
+          "reason": "Named exactly Mewtwo; the Detective Pikachu print is the card the query names."
+        },
+        {
+          "id": "dp6-11",
+          "grade": 3,
+          "reason": "Named exactly Mewtwo; the Legends Awakened print is the card the query names."
+        }
+      ]
+    },
+    {
+      "query": "rare candy",
+      "stratum": "exact name",
+      "judgments": [
+        {
+          "id": "bw10-105",
+          "grade": 3,
+          "reason": "Named exactly Rare Candy; the Plasma Blast print is the card the query names."
+        },
+        {
+          "id": "bw10-85",
+          "grade": 3,
+          "reason": "Named exactly Rare Candy; the Plasma Blast print is the card the query names."
+        },
+        {
+          "id": "bw5-100",
+          "grade": 3,
+          "reason": "Named exactly Rare Candy; the Dark Explorers print is the card the query names."
+        },
+        {
+          "id": "dp4-102",
+          "grade": 3,
+          "reason": "Named exactly Rare Candy; the Great Encounters print is the card the query names."
+        },
+        {
+          "id": "ex13-90",
+          "grade": 3,
+          "reason": "Named exactly Rare Candy; the Holon Phantoms print is the card the query names."
+        },
+        {
+          "id": "ex2-88",
+          "grade": 3,
+          "reason": "Named exactly Rare Candy; the Sandstorm print is the card the query names."
+        },
+        {
+          "id": "ex9-83",
+          "grade": 3,
+          "reason": "Named exactly Rare Candy; the Emerald print is the card the query names."
+        },
+        {
+          "id": "hgss2-82",
+          "grade": 3,
+          "reason": "Named exactly Rare Candy; the HS—Unleashed print is the card the query names."
+        },
+        {
+          "id": "me1-125",
+          "grade": 3,
+          "reason": "Named exactly Rare Candy; the Mega Evolution print is the card the query names."
+        },
+        {
+          "id": "me1-175",
+          "grade": 3,
+          "reason": "Named exactly Rare Candy; the Mega Evolution print is the card the query names."
+        }
+      ]
+    },
+    {
+      "query": "bill",
+      "stratum": "exact name",
+      "judgments": [
+        {
+          "id": "base1-91",
+          "grade": 3,
+          "reason": "Named exactly Bill; the Base print is the card the query names."
+        },
+        {
+          "id": "base4-118",
+          "grade": 3,
+          "reason": "Named exactly Bill; the Base Set 2 print is the card the query names."
+        },
+        {
+          "id": "base6-108",
+          "grade": 3,
+          "reason": "Named exactly Bill; the Legendary Collection print is the card the query names."
+        },
+        {
+          "id": "hgss1-89",
+          "grade": 3,
+          "reason": "Named exactly Bill; the HeartGold & SoulSilver print is the card the query names."
+        },
+        {
+          "id": "neo4-105",
+          "grade": 2,
+          "reason": "Mail from Bill carries the name Bill inside a longer card name; a defensible near-miss, not the card asked for."
+        },
+        {
+          "id": "sv9-142",
+          "grade": 0,
+          "reason": "Billy & O'Nare neither carries nor mentions the name Bill."
+        },
+        {
+          "id": "sm12-208",
+          "grade": 0,
+          "reason": "Will neither carries nor mentions the name Bill."
+        },
+        {
+          "id": "sv8pt5-67",
+          "grade": 0,
+          "reason": "Bronzong neither carries nor mentions the name Bill."
+        },
+        {
+          "id": "swsh5-52",
+          "grade": 0,
+          "reason": "Yamper neither carries nor mentions the name Bill."
+        },
+        {
+          "id": "xy11-12",
+          "grade": 0,
+          "reason": "Foongus neither carries nor mentions the name Bill."
+        }
+      ]
+    },
+    {
+      "query": "professor oak",
+      "stratum": "exact name",
+      "judgments": [
+        {
+          "id": "base1-88",
+          "grade": 3,
+          "reason": "Named exactly Professor Oak; the Base print is the card the query names."
+        },
+        {
+          "id": "base4-116",
+          "grade": 3,
+          "reason": "Named exactly Professor Oak; the Base Set 2 print is the card the query names."
+        },
+        {
+          "id": "cel25-23",
+          "grade": 2,
+          "reason": "Professor's Research (Professor Oak) carries the name Professor Oak inside a longer card name; a defensible near-miss, not the card asked for."
+        },
+        {
+          "id": "cel25-24",
+          "grade": 2,
+          "reason": "Professor's Research (Professor Oak) carries the name Professor Oak inside a longer card name; a defensible near-miss, not the card asked for."
+        },
+        {
+          "id": "base1-73",
+          "grade": 2,
+          "reason": "Impostor Professor Oak carries the name Professor Oak inside a longer card name; a defensible near-miss, not the card asked for."
+        },
+        {
+          "id": "base4-102",
+          "grade": 2,
+          "reason": "Imposter Professor Oak carries the name Professor Oak inside a longer card name; a defensible near-miss, not the card asked for."
+        },
+        {
+          "id": "cel25c-73_A",
+          "grade": 2,
+          "reason": "Imposter Professor Oak carries the name Professor Oak inside a longer card name; a defensible near-miss, not the card asked for."
+        },
+        {
+          "id": "dp3-122",
+          "grade": 2,
+          "reason": "Professor Oak's Visit carries the name Professor Oak inside a longer card name; a defensible near-miss, not the card asked for."
+        },
+        {
+          "id": "ecard1-149",
+          "grade": 2,
+          "reason": "Professor Oak's Research carries the name Professor Oak inside a longer card name; a defensible near-miss, not the card asked for."
+        },
+        {
+          "id": "ex15-80",
+          "grade": 2,
+          "reason": "Professor Oak's Research carries the name Professor Oak inside a longer card name; a defensible near-miss, not the card asked for."
+        }
+      ]
+    },
+    {
+      "query": "char",
+      "stratum": "prefix",
+      "judgments": [
+        {
+          "id": "ecard1-150",
+          "grade": 1,
+          "reason": "A later word of Strength Charm starts with the typed letters; defensible, not the intended completion."
+        },
+        {
+          "id": "ex15-81",
+          "grade": 1,
+          "reason": "A later word of Strength Charm starts with the typed letters; defensible, not the intended completion."
+        },
+        {
+          "id": "ex4-74",
+          "grade": 1,
+          "reason": "A later word of Strength Charm starts with the typed letters; defensible, not the intended completion."
+        },
+        {
+          "id": "ex8-92",
+          "grade": 1,
+          "reason": "A later word of Strength Charm starts with the typed letters; defensible, not the intended completion."
+        },
+        {
+          "id": "me2-122",
+          "grade": 1,
+          "reason": "A later word of Sacred Charm starts with the typed letters; defensible, not the intended completion."
+        },
+        {
+          "id": "me2-93",
+          "grade": 1,
+          "reason": "A later word of Sacred Charm starts with the typed letters; defensible, not the intended completion."
+        },
+        {
+          "id": "sv2-173",
+          "grade": 1,
+          "reason": "A later word of Bravery Charm starts with the typed letters; defensible, not the intended completion."
+        },
+        {
+          "id": "sv7-175",
+          "grade": 1,
+          "reason": "A later word of Bravery Charm starts with the typed letters; defensible, not the intended completion."
+        },
+        {
+          "id": "swsh1-158",
+          "grade": 1,
+          "reason": "A later word of Big Charm starts with the typed letters; defensible, not the intended completion."
+        },
+        {
+          "id": "swsh2-206",
+          "grade": 1,
+          "reason": "A later word of Big Charm starts with the typed letters; defensible, not the intended completion."
+        },
+        {
+          "id": "base1-4",
+          "grade": 3,
+          "reason": "Charizard is what the prefix char completes to; Base print."
+        },
+        {
+          "id": "ecard3-146",
+          "grade": 3,
+          "reason": "Charizard is what the prefix char completes to; Skyridge print."
+        },
+        {
+          "id": "dp7-103",
+          "grade": 3,
+          "reason": "Charizard is what the prefix char completes to; Stormfront print."
+        },
+        {
+          "id": "base1-46",
+          "grade": 3,
+          "reason": "Charmander is what the prefix char completes to; Base print."
+        },
+        {
+          "id": "dp7-101",
+          "grade": 3,
+          "reason": "Charmander is what the prefix char completes to; Stormfront print."
+        },
+        {
+          "id": "base5-50",
+          "grade": 3,
+          "reason": "Charmander is what the prefix char completes to; Team Rocket print."
+        },
+        {
+          "id": "base1-24",
+          "grade": 3,
+          "reason": "Charmeleon is what the prefix char completes to; Base print."
+        }
+      ]
+    },
+    {
+      "query": "pika",
+      "stratum": "prefix",
+      "judgments": [
+        {
+          "id": "sv4-172",
+          "grade": 0,
+          "reason": "Nothing in Rika starts with the typed letters pika."
+        },
+        {
+          "id": "sv4-241",
+          "grade": 0,
+          "reason": "Nothing in Rika starts with the typed letters pika."
+        },
+        {
+          "id": "sv4-258",
+          "grade": 0,
+          "reason": "Nothing in Rika starts with the typed letters pika."
+        },
+        {
+          "id": "sm10-54",
+          "grade": 3,
+          "reason": "Pikachu is what the prefix pika completes to; Unbroken Bonds print."
+        },
+        {
+          "id": "svp-85",
+          "grade": 3,
+          "reason": "Pikachu with Grey Felt Hat is what the prefix pika completes to; Scarlet & Violet Black Star Promos print."
+        },
+        {
+          "id": "swsh12-49",
+          "grade": 3,
+          "reason": "Pikachu is what the prefix pika completes to; Silver Tempest print."
+        },
+        {
+          "id": "swshp-SWSH285",
+          "grade": 3,
+          "reason": "Pikachu V is what the prefix pika completes to; SWSH Black Star Promos print."
+        },
+        {
+          "id": "smp-SM157",
+          "grade": 3,
+          "reason": "Pikachu is what the prefix pika completes to; SM Black Star Promos print."
+        },
+        {
+          "id": "swsh11-52",
+          "grade": 3,
+          "reason": "Pikachu is what the prefix pika completes to; Lost Origin print."
+        },
+        {
+          "id": "swsh11tg-TG05",
+          "grade": 3,
+          "reason": "Pikachu is what the prefix pika completes to; Lost Origin Trainer Gallery print."
+        },
+        {
+          "id": "base1-58",
+          "grade": 3,
+          "reason": "Pikachu is what the prefix pika completes to; Base print."
+        },
+        {
+          "id": "base4-87",
+          "grade": 3,
+          "reason": "Pikachu is what the prefix pika completes to; Base Set 2 print."
+        },
+        {
+          "id": "dp7-70",
+          "grade": 3,
+          "reason": "Pikachu is what the prefix pika completes to; Stormfront print."
+        },
+        {
+          "id": "dp2-94",
+          "grade": 3,
+          "reason": "Pikachu is what the prefix pika completes to; Mysterious Treasures print."
+        }
+      ]
+    },
+    {
+      "query": "blastoi",
+      "stratum": "prefix",
+      "judgments": [
+        {
+          "id": "pop3-1",
+          "grade": 3,
+          "reason": "Blastoise is what the prefix blastoi completes to; POP Series 3 print."
+        },
+        {
+          "id": "ecard1-37",
+          "grade": 3,
+          "reason": "Blastoise is what the prefix blastoi completes to; Expedition Base Set print."
+        },
+        {
+          "id": "ecard1-4",
+          "grade": 3,
+          "reason": "Blastoise is what the prefix blastoi completes to; Expedition Base Set print."
+        },
+        {
+          "id": "bw10-16",
+          "grade": 3,
+          "reason": "Blastoise is what the prefix blastoi completes to; Plasma Blast print."
+        },
+        {
+          "id": "pl1-2",
+          "grade": 3,
+          "reason": "Blastoise is what the prefix blastoi completes to; Platinum print."
+        },
+        {
+          "id": "ex14-14",
+          "grade": 3,
+          "reason": "Blastoise is what the prefix blastoi completes to; Crystal Guardians print."
+        },
+        {
+          "id": "base1-2",
+          "grade": 3,
+          "reason": "Blastoise is what the prefix blastoi completes to; Base print."
+        },
+        {
+          "id": "cel25c-2_A",
+          "grade": 3,
+          "reason": "Blastoise is what the prefix blastoi completes to; Celebrations: Classic Collection print."
+        },
+        {
+          "id": "hgss2-13",
+          "grade": 3,
+          "reason": "Blastoise is what the prefix blastoi completes to; HS—Unleashed print."
+        },
+        {
+          "id": "base4-2",
+          "grade": 3,
+          "reason": "Blastoise is what the prefix blastoi completes to; Base Set 2 print."
+        }
+      ]
+    },
+    {
+      "query": "gyara",
+      "stratum": "prefix",
+      "judgments": [
+        {
+          "id": "base1-6",
+          "grade": 3,
+          "reason": "Gyarados is what the prefix gyara completes to; Base print."
+        },
+        {
+          "id": "base4-7",
+          "grade": 3,
+          "reason": "Gyarados is what the prefix gyara completes to; Base Set 2 print."
+        },
+        {
+          "id": "base5-25",
+          "grade": 2,
+          "reason": "Dark Gyarados carries one of the names gyara completes to, with extra words attached."
+        },
+        {
+          "id": "base5-8",
+          "grade": 2,
+          "reason": "Dark Gyarados carries one of the names gyara completes to, with extra words attached."
+        },
+        {
+          "id": "base6-12",
+          "grade": 3,
+          "reason": "Gyarados is what the prefix gyara completes to; Legendary Collection print."
+        },
+        {
+          "id": "bw11-31",
+          "grade": 3,
+          "reason": "Gyarados is what the prefix gyara completes to; Legendary Treasures print."
+        },
+        {
+          "id": "bw6-24",
+          "grade": 3,
+          "reason": "Gyarados is what the prefix gyara completes to; Dragons Exalted print."
+        },
+        {
+          "id": "cel25c-8_A",
+          "grade": 2,
+          "reason": "Dark Gyarados carries one of the names gyara completes to, with extra words attached."
+        },
+        {
+          "id": "col1-7",
+          "grade": 3,
+          "reason": "Gyarados is what the prefix gyara completes to; Call of Legends print."
+        },
+        {
+          "id": "dp2-26",
+          "grade": 3,
+          "reason": "Gyarados is what the prefix gyara completes to; Mysterious Treasures print."
+        }
+      ]
+    },
+    {
+      "query": "dragoni",
+      "stratum": "prefix",
+      "judgments": [
+        {
+          "id": "mcd18-9",
+          "grade": 0,
+          "reason": "Nothing in Dratini starts with the typed letters dragoni."
+        },
+        {
+          "id": "sm1-94",
+          "grade": 0,
+          "reason": "Nothing in Dratini starts with the typed letters dragoni."
+        },
+        {
+          "id": "ecard1-43",
+          "grade": 3,
+          "reason": "Dragonite is what the prefix dragoni completes to; Expedition Base Set print."
+        },
+        {
+          "id": "ecard1-9",
+          "grade": 3,
+          "reason": "Dragonite is what the prefix dragoni completes to; Expedition Base Set print."
+        },
+        {
+          "id": "sm11-151",
+          "grade": 3,
+          "reason": "Dragonite is what the prefix dragoni completes to; Unified Minds print."
+        },
+        {
+          "id": "sm9-119",
+          "grade": 3,
+          "reason": "Dragonite is what the prefix dragoni completes to; Team Up print."
+        },
+        {
+          "id": "sv3pt5-149",
+          "grade": 3,
+          "reason": "Dragonite is what the prefix dragoni completes to; 151 print."
+        },
+        {
+          "id": "hgss4-18",
+          "grade": 3,
+          "reason": "Dragonite is what the prefix dragoni completes to; HS—Triumphant print."
+        },
+        {
+          "id": "sm1-96",
+          "grade": 3,
+          "reason": "Dragonite is what the prefix dragoni completes to; Sun & Moon print."
+        },
+        {
+          "id": "swsh12-131",
+          "grade": 3,
+          "reason": "Dragonite is what the prefix dragoni completes to; Silver Tempest print."
+        },
+        {
+          "id": "base3-19",
+          "grade": 3,
+          "reason": "Dragonite is what the prefix dragoni completes to; Fossil print."
+        },
+        {
+          "id": "base3-4",
+          "grade": 3,
+          "reason": "Dragonite is what the prefix dragoni completes to; Fossil print."
+        },
+        {
+          "id": "basep-5",
+          "grade": 3,
+          "reason": "Dragonite is what the prefix dragoni completes to; Wizards Black Star Promos print."
+        }
+      ]
+    },
+    {
+      "query": "ampha",
+      "stratum": "prefix",
+      "judgments": [
+        {
+          "id": "base1-32",
+          "grade": 0,
+          "reason": "Nothing in Kadabra starts with the typed letters ampha."
+        },
+        {
+          "id": "base4-46",
+          "grade": 0,
+          "reason": "Nothing in Kadabra starts with the typed letters ampha."
+        },
+        {
+          "id": "base6-49",
+          "grade": 0,
+          "reason": "Nothing in Kadabra starts with the typed letters ampha."
+        },
+        {
+          "id": "bw6-40",
+          "grade": 3,
+          "reason": "Ampharos is what the prefix ampha completes to; Dragons Exalted print."
+        },
+        {
+          "id": "bwp-BW67",
+          "grade": 3,
+          "reason": "Ampharos is what the prefix ampha completes to; BW Black Star Promos print."
+        },
+        {
+          "id": "col1-23",
+          "grade": 3,
+          "reason": "Ampharos is what the prefix ampha completes to; Call of Legends print."
+        },
+        {
+          "id": "dp3-1",
+          "grade": 3,
+          "reason": "Ampharos is what the prefix ampha completes to; Secret Wonders print."
+        },
+        {
+          "id": "ecard1-2",
+          "grade": 3,
+          "reason": "Ampharos is what the prefix ampha completes to; Expedition Base Set print."
+        },
+        {
+          "id": "ecard1-34",
+          "grade": 3,
+          "reason": "Ampharos is what the prefix ampha completes to; Expedition Base Set print."
+        },
+        {
+          "id": "ecard2-1",
+          "grade": 3,
+          "reason": "Ampharos is what the prefix ampha completes to; Aquapolis print."
+        },
+        {
+          "id": "ex10-1",
+          "grade": 3,
+          "reason": "Ampharos is what the prefix ampha completes to; Unseen Forces print."
+        },
+        {
+          "id": "hgss1-14",
+          "grade": 3,
+          "reason": "Ampharos is what the prefix ampha completes to; HeartGold & SoulSilver print."
+        },
+        {
+          "id": "pl1-1",
+          "grade": 3,
+          "reason": "Ampharos is what the prefix ampha completes to; Platinum print."
+        },
+        {
+          "id": "pop7-1",
+          "grade": 3,
+          "reason": "Ampharos is what the prefix ampha completes to; POP Series 7 print."
+        }
+      ]
+    },
+    {
+      "query": "lucar",
+      "stratum": "prefix",
+      "judgments": [
+        {
+          "id": "dpp-DP51",
+          "grade": 0,
+          "reason": "Nothing in Cresselia starts with the typed letters lucar."
+        },
+        {
+          "id": "sm12-102",
+          "grade": 0,
+          "reason": "Nothing in Lunala starts with the typed letters lucar."
+        },
+        {
+          "id": "sm3-68",
+          "grade": 0,
+          "reason": "Nothing in Lunatone starts with the typed letters lucar."
+        },
+        {
+          "id": "hgss4-25",
+          "grade": 0,
+          "reason": "Nothing in Lunatone starts with the typed letters lucar."
+        },
+        {
+          "id": "sm5-59",
+          "grade": 0,
+          "reason": "Nothing in Cresselia starts with the typed letters lucar."
+        },
+        {
+          "id": "ex2-8",
+          "grade": 0,
+          "reason": "Nothing in Lunatone starts with the typed letters lucar."
+        },
+        {
+          "id": "me1-74",
+          "grade": 0,
+          "reason": "Nothing in Lunatone starts with the typed letters lucar."
+        },
+        {
+          "id": "me2pt5-105",
+          "grade": 0,
+          "reason": "Nothing in Lunatone starts with the typed letters lucar."
+        },
+        {
+          "id": "sv3-82",
+          "grade": 0,
+          "reason": "Nothing in Clefable ex starts with the typed letters lucar."
+        },
+        {
+          "id": "swsh4-64",
+          "grade": 0,
+          "reason": "Nothing in Clefable starts with the typed letters lucar."
+        },
+        {
+          "id": "col1-14",
+          "grade": 3,
+          "reason": "Lucario is what the prefix lucar completes to; Call of Legends print."
+        },
+        {
+          "id": "hgss2-19",
+          "grade": 3,
+          "reason": "Lucario is what the prefix lucar completes to; HS—Unleashed print."
+        },
+        {
+          "id": "sv1-114",
+          "grade": 3,
+          "reason": "Lucario is what the prefix lucar completes to; Scarlet & Violet print."
+        },
+        {
+          "id": "sv4pt5-174",
+          "grade": 3,
+          "reason": "Lucario is what the prefix lucar completes to; Paldean Fates print."
+        },
+        {
+          "id": "pop8-2",
+          "grade": 3,
+          "reason": "Lucario is what the prefix lucar completes to; POP Series 8 print."
+        },
+        {
+          "id": "bw11-80",
+          "grade": 3,
+          "reason": "Lucario is what the prefix lucar completes to; Legendary Treasures print."
+        }
+      ]
+    },
+    {
+      "query": "charizrd",
+      "stratum": "typo",
+      "judgments": [
+        {
+          "id": "dp7-103",
+          "grade": 3,
+          "reason": "Named exactly Charizard, the correct spelling behind the typo; Stormfront print."
+        },
+        {
+          "id": "pl4-1",
+          "grade": 3,
+          "reason": "Named exactly Charizard, the correct spelling behind the typo; Arceus print."
+        },
+        {
+          "id": "ecard1-40",
+          "grade": 3,
+          "reason": "Named exactly Charizard, the correct spelling behind the typo; Expedition Base Set print."
+        },
+        {
+          "id": "ecard1-6",
+          "grade": 3,
+          "reason": "Named exactly Charizard, the correct spelling behind the typo; Expedition Base Set print."
+        },
+        {
+          "id": "dp3-3",
+          "grade": 3,
+          "reason": "Named exactly Charizard, the correct spelling behind the typo; Secret Wonders print."
+        },
+        {
+          "id": "base6-3",
+          "grade": 3,
+          "reason": "Named exactly Charizard, the correct spelling behind the typo; Legendary Collection print."
+        },
+        {
+          "id": "base1-4",
+          "grade": 3,
+          "reason": "Named exactly Charizard, the correct spelling behind the typo; Base print."
+        },
+        {
+          "id": "base4-4",
+          "grade": 3,
+          "reason": "Named exactly Charizard, the correct spelling behind the typo; Base Set 2 print."
+        },
+        {
+          "id": "cel25c-4_A",
+          "grade": 3,
+          "reason": "Named exactly Charizard, the correct spelling behind the typo; Celebrations: Classic Collection print."
+        },
+        {
+          "id": "ecard1-39",
+          "grade": 3,
+          "reason": "Named exactly Charizard, the correct spelling behind the typo; Expedition Base Set print."
+        }
+      ]
+    },
+    {
+      "query": "pikchu",
+      "stratum": "typo",
+      "judgments": [
+        {
+          "id": "dp7-70",
+          "grade": 3,
+          "reason": "Named exactly Pikachu, the correct spelling behind the typo; Stormfront print."
+        },
+        {
+          "id": "dp2-93",
+          "grade": 1,
+          "reason": "Pichu is a different Pokemon that merely sits inside the typo's edit distance."
+        },
+        {
+          "id": "dp7-45",
+          "grade": 1,
+          "reason": "Pichu is a different Pokemon that merely sits inside the typo's edit distance."
+        },
+        {
+          "id": "ex16-21",
+          "grade": 1,
+          "reason": "Pichu is a different Pokemon that merely sits inside the typo's edit distance."
+        },
+        {
+          "id": "ex2-20",
+          "grade": 1,
+          "reason": "Pichu is a different Pokemon that merely sits inside the typo's edit distance."
+        },
+        {
+          "id": "ex9-59",
+          "grade": 1,
+          "reason": "Pichu is a different Pokemon that merely sits inside the typo's edit distance."
+        },
+        {
+          "id": "pl4-25",
+          "grade": 1,
+          "reason": "Pichu is a different Pokemon that merely sits inside the typo's edit distance."
+        },
+        {
+          "id": "pop9-11",
+          "grade": 1,
+          "reason": "Pichu is a different Pokemon that merely sits inside the typo's edit distance."
+        },
+        {
+          "id": "dp2-94",
+          "grade": 3,
+          "reason": "Named exactly Pikachu, the correct spelling behind the typo; Mysterious Treasures print."
+        },
+        {
+          "id": "dpp-DP16",
+          "grade": 3,
+          "reason": "Named exactly Pikachu, the correct spelling behind the typo; DP Black Star Promos print."
+        },
+        {
+          "id": "base1-58",
+          "grade": 3,
+          "reason": "Named exactly Pikachu, the correct spelling behind the typo; Base print."
+        },
+        {
+          "id": "base4-87",
+          "grade": 3,
+          "reason": "Named exactly Pikachu, the correct spelling behind the typo; Base Set 2 print."
+        },
+        {
+          "id": "pop5-12",
+          "grade": 3,
+          "reason": "Named exactly Pikachu, the correct spelling behind the typo; POP Series 5 print."
+        },
+        {
+          "id": "hsp-HGSS03",
+          "grade": 3,
+          "reason": "Named exactly Pikachu, the correct spelling behind the typo; HGSS Black Star Promos print."
+        },
+        {
+          "id": "basep-26",
+          "grade": 3,
+          "reason": "Named exactly Pikachu, the correct spelling behind the typo; Wizards Black Star Promos print."
+        }
+      ]
+    },
+    {
+      "query": "blastoies",
+      "stratum": "typo",
+      "judgments": [
+        {
+          "id": "ex14-14",
+          "grade": 3,
+          "reason": "Named exactly Blastoise, the correct spelling behind the typo; Crystal Guardians print."
+        },
+        {
+          "id": "pop3-1",
+          "grade": 3,
+          "reason": "Named exactly Blastoise, the correct spelling behind the typo; POP Series 3 print."
+        },
+        {
+          "id": "ecard1-37",
+          "grade": 3,
+          "reason": "Named exactly Blastoise, the correct spelling behind the typo; Expedition Base Set print."
+        },
+        {
+          "id": "ecard1-4",
+          "grade": 3,
+          "reason": "Named exactly Blastoise, the correct spelling behind the typo; Expedition Base Set print."
+        },
+        {
+          "id": "pl1-2",
+          "grade": 3,
+          "reason": "Named exactly Blastoise, the correct spelling behind the typo; Platinum print."
+        },
+        {
+          "id": "base1-2",
+          "grade": 3,
+          "reason": "Named exactly Blastoise, the correct spelling behind the typo; Base print."
+        },
+        {
+          "id": "cel25c-2_A",
+          "grade": 3,
+          "reason": "Named exactly Blastoise, the correct spelling behind the typo; Celebrations: Classic Collection print."
+        },
+        {
+          "id": "hgss2-13",
+          "grade": 3,
+          "reason": "Named exactly Blastoise, the correct spelling behind the typo; HS—Unleashed print."
+        },
+        {
+          "id": "base4-2",
+          "grade": 3,
+          "reason": "Named exactly Blastoise, the correct spelling behind the typo; Base Set 2 print."
+        },
+        {
+          "id": "dp3-2",
+          "grade": 3,
+          "reason": "Named exactly Blastoise, the correct spelling behind the typo; Secret Wonders print."
+        }
+      ]
+    },
+    {
+      "query": "mewtoo",
+      "stratum": "typo",
+      "judgments": [
+        {
+          "id": "dp5-9",
+          "grade": 3,
+          "reason": "Named exactly Mewtwo, the correct spelling behind the typo; Majestic Dawn print."
+        },
+        {
+          "id": "basep-14",
+          "grade": 3,
+          "reason": "Named exactly Mewtwo, the correct spelling behind the typo; Wizards Black Star Promos print."
+        },
+        {
+          "id": "basep-3",
+          "grade": 3,
+          "reason": "Named exactly Mewtwo, the correct spelling behind the typo; Wizards Black Star Promos print."
+        },
+        {
+          "id": "base1-10",
+          "grade": 3,
+          "reason": "Named exactly Mewtwo, the correct spelling behind the typo; Base print."
+        },
+        {
+          "id": "base4-10",
+          "grade": 3,
+          "reason": "Named exactly Mewtwo, the correct spelling behind the typo; Base Set 2 print."
+        },
+        {
+          "id": "dp6-144",
+          "grade": 2,
+          "reason": "Mewtwo LV.X carries the intended name Mewtwo with extra words; a defensible near-miss."
+        },
+        {
+          "id": "dpp-DP28",
+          "grade": 2,
+          "reason": "Mewtwo LV.X carries the intended name Mewtwo with extra words; a defensible near-miss."
+        },
+        {
+          "id": "ex11-12",
+          "grade": 2,
+          "reason": "Mewtwo δ carries the intended name Mewtwo with extra words; a defensible near-miss."
+        },
+        {
+          "id": "ex1-101",
+          "grade": 2,
+          "reason": "Mewtwo ex carries the intended name Mewtwo with extra words; a defensible near-miss."
+        },
+        {
+          "id": "neo4-109",
+          "grade": 2,
+          "reason": "Shining Mewtwo carries the intended name Mewtwo with extra words; a defensible near-miss."
+        }
+      ]
+    },
+    {
+      "query": "snorlaks",
+      "stratum": "typo",
+      "judgments": [
+        {
+          "id": "col1-33",
+          "grade": 3,
+          "reason": "Named exactly Snorlax, the correct spelling behind the typo; Call of Legends print."
+        },
+        {
+          "id": "ex6-15",
+          "grade": 3,
+          "reason": "Named exactly Snorlax, the correct spelling behind the typo; FireRed & LeafGreen print."
+        },
+        {
+          "id": "pl2-81",
+          "grade": 3,
+          "reason": "Named exactly Snorlax, the correct spelling behind the typo; Rising Rivals print."
+        },
+        {
+          "id": "dp1-37",
+          "grade": 3,
+          "reason": "Named exactly Snorlax, the correct spelling behind the typo; Diamond & Pearl print."
+        },
+        {
+          "id": "ecard3-100",
+          "grade": 3,
+          "reason": "Named exactly Snorlax, the correct spelling behind the typo; Skyridge print."
+        },
+        {
+          "id": "basep-49",
+          "grade": 3,
+          "reason": "Named exactly Snorlax, the correct spelling behind the typo; Wizards Black Star Promos print."
+        },
+        {
+          "id": "base2-11",
+          "grade": 3,
+          "reason": "Named exactly Snorlax, the correct spelling behind the typo; Jungle print."
+        },
+        {
+          "id": "base2-27",
+          "grade": 3,
+          "reason": "Named exactly Snorlax, the correct spelling behind the typo; Jungle print."
+        },
+        {
+          "id": "base4-30",
+          "grade": 3,
+          "reason": "Named exactly Snorlax, the correct spelling behind the typo; Base Set 2 print."
+        },
+        {
+          "id": "base6-64",
+          "grade": 3,
+          "reason": "Named exactly Snorlax, the correct spelling behind the typo; Legendary Collection print."
+        }
+      ]
+    },
+    {
+      "query": "gengarr",
+      "stratum": "typo",
+      "judgments": [
+        {
+          "id": "ecard1-13",
+          "grade": 3,
+          "reason": "Named exactly Gengar, the correct spelling behind the typo; Expedition Base Set print."
+        },
+        {
+          "id": "ecard1-48",
+          "grade": 3,
+          "reason": "Named exactly Gengar, the correct spelling behind the typo; Expedition Base Set print."
+        },
+        {
+          "id": "pl4-16",
+          "grade": 3,
+          "reason": "Named exactly Gengar, the correct spelling behind the typo; Arceus print."
+        },
+        {
+          "id": "pl4-17",
+          "grade": 3,
+          "reason": "Named exactly Gengar, the correct spelling behind the typo; Arceus print."
+        },
+        {
+          "id": "dp1-27",
+          "grade": 3,
+          "reason": "Named exactly Gengar, the correct spelling behind the typo; Diamond & Pearl print."
+        },
+        {
+          "id": "sm10-70",
+          "grade": 3,
+          "reason": "Named exactly Gengar, the correct spelling behind the typo; Unbroken Bonds print."
+        },
+        {
+          "id": "ex12-5",
+          "grade": 3,
+          "reason": "Named exactly Gengar, the correct spelling behind the typo; Legend Maker print."
+        },
+        {
+          "id": "sm4-38",
+          "grade": 3,
+          "reason": "Named exactly Gengar, the correct spelling behind the typo; Crimson Invasion print."
+        },
+        {
+          "id": "swsh1-85",
+          "grade": 3,
+          "reason": "Named exactly Gengar, the correct spelling behind the typo; Sword & Shield print."
+        },
+        {
+          "id": "swsh11-66",
+          "grade": 3,
+          "reason": "Named exactly Gengar, the correct spelling behind the typo; Lost Origin print."
+        }
+      ]
+    },
+    {
+      "query": "machmap",
+      "stratum": "typo",
+      "judgments": [
+        {
+          "id": "g1-42",
+          "grade": 3,
+          "reason": "Named exactly Machamp, the correct spelling behind the typo; Generations print."
+        },
+        {
+          "id": "xy3-46",
+          "grade": 3,
+          "reason": "Named exactly Machamp, the correct spelling behind the typo; Furious Fists print."
+        },
+        {
+          "id": "xyp-XY13",
+          "grade": 3,
+          "reason": "Named exactly Machamp, the correct spelling behind the typo; XY Black Star Promos print."
+        },
+        {
+          "id": "hgss4-26",
+          "grade": 3,
+          "reason": "Named exactly Machamp, the correct spelling behind the typo; HS—Triumphant print."
+        },
+        {
+          "id": "hgss4-95",
+          "grade": 3,
+          "reason": "Named exactly Machamp, the correct spelling behind the typo; HS—Triumphant print."
+        },
+        {
+          "id": "base1-8",
+          "grade": 3,
+          "reason": "Named exactly Machamp, the correct spelling behind the typo; Base print."
+        },
+        {
+          "id": "base6-15",
+          "grade": 3,
+          "reason": "Named exactly Machamp, the correct spelling behind the typo; Legendary Collection print."
+        },
+        {
+          "id": "ecard3-16",
+          "grade": 3,
+          "reason": "Named exactly Machamp, the correct spelling behind the typo; Skyridge print."
+        },
+        {
+          "id": "ecard3-H15",
+          "grade": 3,
+          "reason": "Named exactly Machamp, the correct spelling behind the typo; Skyridge print."
+        },
+        {
+          "id": "ex12-9",
+          "grade": 3,
+          "reason": "Named exactly Machamp, the correct spelling behind the typo; Legend Maker print."
+        }
+      ]
+    },
+    {
+      "query": "hydro pump",
+      "stratum": "attack text",
+      "judgments": [
+        {
+          "id": "swsh11-156",
+          "grade": 0,
+          "reason": "Damage Pump merely shares a word with hydro pump in its card name; it has no such move."
+        },
+        {
+          "id": "base1-2",
+          "grade": 3,
+          "reason": "Blastoise (Base) has the attack Hydro Pump by that exact name."
+        },
+        {
+          "id": "base4-2",
+          "grade": 3,
+          "reason": "Blastoise (Base Set 2) has the attack Hydro Pump by that exact name."
+        },
+        {
+          "id": "bw1-32",
+          "grade": 3,
+          "reason": "Samurott (Black & White) has the attack Hydro Pump by that exact name."
+        },
+        {
+          "id": "bw10-16",
+          "grade": 3,
+          "reason": "Blastoise (Plasma Blast) has the attack Hydro Pump by that exact name."
+        },
+        {
+          "id": "bw11-39",
+          "grade": 3,
+          "reason": "Samurott (Legendary Treasures) has the attack Hydro Pump by that exact name."
+        },
+        {
+          "id": "bw3-31",
+          "grade": 3,
+          "reason": "Jellicent (Noble Victories) has the attack Hydro Pump by that exact name."
+        },
+        {
+          "id": "bw7-31",
+          "grade": 3,
+          "reason": "Blastoise (Boundaries Crossed) has the attack Hydro Pump by that exact name."
+        },
+        {
+          "id": "bw8-137",
+          "grade": 3,
+          "reason": "Blastoise (Plasma Storm) has the attack Hydro Pump by that exact name."
+        },
+        {
+          "id": "bwp-BW22",
+          "grade": 3,
+          "reason": "Samurott (BW Black Star Promos) has the attack Hydro Pump by that exact name."
+        }
+      ]
+    },
+    {
+      "query": "thunder jolt",
+      "stratum": "attack text",
+      "judgments": [
+        {
+          "id": "sm8-191",
+          "grade": 0,
+          "reason": "Thunder Mountain ◇ merely shares a word with thunder jolt in its card name; it has no such move."
+        },
+        {
+          "id": "sv5-123",
+          "grade": 0,
+          "reason": "Raging Bolt ex has no attack, ability or text matching thunder jolt."
+        },
+        {
+          "id": "sv5-196",
+          "grade": 0,
+          "reason": "Raging Bolt ex has no attack, ability or text matching thunder jolt."
+        },
+        {
+          "id": "sv5-208",
+          "grade": 0,
+          "reason": "Raging Bolt ex has no attack, ability or text matching thunder jolt."
+        },
+        {
+          "id": "sv5-218",
+          "grade": 0,
+          "reason": "Raging Bolt ex has no attack, ability or text matching thunder jolt."
+        },
+        {
+          "id": "sv8pt5-166",
+          "grade": 0,
+          "reason": "Raging Bolt ex has no attack, ability or text matching thunder jolt."
+        },
+        {
+          "id": "svp-145",
+          "grade": 0,
+          "reason": "Raging Bolt ex has no attack, ability or text matching thunder jolt."
+        },
+        {
+          "id": "bw4-47",
+          "grade": 3,
+          "reason": "Blitzle (Next Destinies) has the attack Thunder Jolt by that exact name."
+        },
+        {
+          "id": "me1-49",
+          "grade": 3,
+          "reason": "Electrike (Mega Evolution) has the attack Thunder Jolt by that exact name."
+        },
+        {
+          "id": "neo2-58",
+          "grade": 3,
+          "reason": "Mareep (Neo Discovery) has the attack Thunder Jolt by that exact name."
+        },
+        {
+          "id": "base1-58",
+          "grade": 3,
+          "reason": "Pikachu (Base) has the attack Thunder Jolt by that exact name."
+        },
+        {
+          "id": "base4-87",
+          "grade": 3,
+          "reason": "Pikachu (Base Set 2) has the attack Thunder Jolt by that exact name."
+        },
+        {
+          "id": "bw6-38",
+          "grade": 3,
+          "reason": "Mareep (Dragons Exalted) has the attack Thunder Jolt by that exact name."
+        },
+        {
+          "id": "cel25-5",
+          "grade": 3,
+          "reason": "Pikachu (Celebrations) has the attack Thunder Jolt by that exact name."
+        },
+        {
+          "id": "dp1-35",
+          "grade": 3,
+          "reason": "Pachirisu (Diamond & Pearl) has the attack Thunder Jolt by that exact name."
+        },
+        {
+          "id": "dpp-DP04",
+          "grade": 3,
+          "reason": "Pachirisu (DP Black Star Promos) has the attack Thunder Jolt by that exact name."
+        },
+        {
+          "id": "ecard1-77",
+          "grade": 3,
+          "reason": "Flaaffy (Expedition Base Set) has the attack Thunder Jolt by that exact name."
+        }
+      ]
+    },
+    {
+      "query": "confuse ray",
+      "stratum": "attack text",
+      "judgments": [
+        {
+          "id": "base1-1",
+          "grade": 3,
+          "reason": "Alakazam (Base) has the attack Confuse Ray by that exact name."
+        },
+        {
+          "id": "base1-68",
+          "grade": 3,
+          "reason": "Vulpix (Base) has the attack Confuse Ray by that exact name."
+        },
+        {
+          "id": "base4-1",
+          "grade": 3,
+          "reason": "Alakazam (Base Set 2) has the attack Confuse Ray by that exact name."
+        },
+        {
+          "id": "base4-99",
+          "grade": 3,
+          "reason": "Vulpix (Base Set 2) has the attack Confuse Ray by that exact name."
+        },
+        {
+          "id": "base6-1",
+          "grade": 3,
+          "reason": "Alakazam (Legendary Collection) has the attack Confuse Ray by that exact name."
+        },
+        {
+          "id": "base6-98",
+          "grade": 3,
+          "reason": "Vulpix (Legendary Collection) has the attack Confuse Ray by that exact name."
+        },
+        {
+          "id": "bw7-61",
+          "grade": 3,
+          "reason": "Duskull (Boundaries Crossed) has the attack Confuse Ray by that exact name."
+        },
+        {
+          "id": "dp5-32",
+          "grade": 3,
+          "reason": "Umbreon (Majestic Dawn) has the attack Confuse Ray by that exact name."
+        },
+        {
+          "id": "ex1-66",
+          "grade": 3,
+          "reason": "Ralts (Ruby & Sapphire) has the attack Confuse Ray by that exact name."
+        },
+        {
+          "id": "ex15-25",
+          "grade": 3,
+          "reason": "Xatu δ (Dragon Frontiers) has the attack Confuse Ray by that exact name."
+        }
+      ]
+    },
+    {
+      "query": "seismic toss",
+      "stratum": "attack text",
+      "judgments": [
+        {
+          "id": "base1-8",
+          "grade": 3,
+          "reason": "Machamp (Base) has the attack Seismic Toss by that exact name."
+        },
+        {
+          "id": "base6-15",
+          "grade": 3,
+          "reason": "Machamp (Legendary Collection) has the attack Seismic Toss by that exact name."
+        },
+        {
+          "id": "swsh7-1",
+          "grade": 3,
+          "reason": "Pinsir (Evolving Skies) has the attack Seismic Toss by that exact name."
+        },
+        {
+          "id": "xy12-59",
+          "grade": 3,
+          "reason": "Machamp (Evolutions) has the attack Seismic Toss by that exact name."
+        },
+        {
+          "id": "me2-105",
+          "grade": 3,
+          "reason": "Wigglytuff (Phantasmal Flames) has the attack Seismic Toss by that exact name."
+        },
+        {
+          "id": "me2-77",
+          "grade": 3,
+          "reason": "Wigglytuff (Phantasmal Flames) has the attack Seismic Toss by that exact name."
+        },
+        {
+          "id": "swsh11-87",
+          "grade": 3,
+          "reason": "Machoke (Lost Origin) has the attack Seismic Toss by that exact name."
+        },
+        {
+          "id": "dp1-53",
+          "grade": 3,
+          "reason": "Machoke (Diamond & Pearl) has the attack Seismic Toss by that exact name."
+        },
+        {
+          "id": "sm12-125",
+          "grade": 3,
+          "reason": "Passimian (Cosmic Eclipse) has the attack Seismic Toss by that exact name."
+        },
+        {
+          "id": "sv2-242",
+          "grade": 3,
+          "reason": "Annihilape ex (Paldea Evolved) has the attack Seismic Toss by that exact name."
+        }
+      ]
+    },
+    {
+      "query": "rain dance",
+      "stratum": "attack text",
+      "judgments": [
+        {
+          "id": "ex11-26",
+          "grade": 0,
+          "reason": "Rain Castform merely shares a word with rain dance in its card name; it has no such move."
+        },
+        {
+          "id": "ex5-23",
+          "grade": 0,
+          "reason": "Rain Castform merely shares a word with rain dance in its card name; it has no such move."
+        },
+        {
+          "id": "dp6-49",
+          "grade": 0,
+          "reason": "Castform Rain Form merely shares a word with rain dance in its card name; it has no such move."
+        },
+        {
+          "id": "swsh8-232",
+          "grade": 0,
+          "reason": "Dancer merely shares a word with rain dance in its card name; it has no such move."
+        },
+        {
+          "id": "swsh8-259",
+          "grade": 0,
+          "reason": "Dancer merely shares a word with rain dance in its card name; it has no such move."
+        },
+        {
+          "id": "swsh8-274",
+          "grade": 0,
+          "reason": "Dancer merely shares a word with rain dance in its card name; it has no such move."
+        },
+        {
+          "id": "sm75-61",
+          "grade": 0,
+          "reason": "Lance ◇ has no attack, ability or text matching rain dance."
+        },
+        {
+          "id": "swsh12-159",
+          "grade": 0,
+          "reason": "Lance has no attack, ability or text matching rain dance."
+        },
+        {
+          "id": "swsh12-192",
+          "grade": 0,
+          "reason": "Lance has no attack, ability or text matching rain dance."
+        },
+        {
+          "id": "swsh12-206",
+          "grade": 0,
+          "reason": "Lance has no attack, ability or text matching rain dance."
+        },
+        {
+          "id": "base1-2",
+          "grade": 3,
+          "reason": "Blastoise (Base) has the ability Rain Dance by that exact name."
+        },
+        {
+          "id": "base4-2",
+          "grade": 3,
+          "reason": "Blastoise (Base Set 2) has the ability Rain Dance by that exact name."
+        },
+        {
+          "id": "cel25c-2_A",
+          "grade": 3,
+          "reason": "Blastoise (Celebrations: Classic Collection) has the ability Rain Dance by that exact name."
+        },
+        {
+          "id": "hgss1-108",
+          "grade": 3,
+          "reason": "Feraligatr (HeartGold & SoulSilver) has the ability Rain Dance by that exact name."
+        },
+        {
+          "id": "hsp-HGSS07",
+          "grade": 3,
+          "reason": "Feraligatr (HGSS Black Star Promos) has the ability Rain Dance by that exact name."
+        }
+      ]
+    },
+    {
+      "query": "poison powder",
+      "stratum": "attack text",
+      "judgments": [
+        {
+          "id": "sm1-124",
+          "grade": 0,
+          "reason": "Poison Barb merely shares a word with poison powder in its card name; it has no such move."
+        },
+        {
+          "id": "ex10-80",
+          "grade": 0,
+          "reason": "Curse Powder merely shares a word with poison powder in its card name; it has no such move."
+        },
+        {
+          "id": "neo4-104",
+          "grade": 0,
+          "reason": "Heal Powder merely shares a word with poison powder in its card name; it has no such move."
+        },
+        {
+          "id": "me3-83",
+          "grade": 0,
+          "reason": "Potion has no attack, ability or text matching poison powder."
+        },
+        {
+          "id": "bw5-3",
+          "grade": 3,
+          "reason": "Venusaur (Dark Explorers) has the attack Poison Powder by that exact name."
+        },
+        {
+          "id": "sm11-5",
+          "grade": 3,
+          "reason": "Shroomish (Unified Minds) has the attack Poison Powder by that exact name."
+        },
+        {
+          "id": "sm3-4",
+          "grade": 3,
+          "reason": "Oddish (Burning Shadows) has the attack Poison Powder by that exact name."
+        },
+        {
+          "id": "bw5-2",
+          "grade": 3,
+          "reason": "Ivysaur (Dark Explorers) has the attack Poison Powder by that exact name."
+        },
+        {
+          "id": "bw2-94",
+          "grade": 0,
+          "reason": "Max Potion has no attack, ability or text matching poison powder."
+        },
+        {
+          "id": "me1-6",
+          "grade": 3,
+          "reason": "Tangela (Mega Evolution) has the attack Poison Powder by that exact name."
+        },
+        {
+          "id": "bw7-2",
+          "grade": 3,
+          "reason": "Gloom (Boundaries Crossed) has the attack Poison Powder by that exact name."
+        },
+        {
+          "id": "sm10-11",
+          "grade": 3,
+          "reason": "Venomoth (Unbroken Bonds) has the attack Poison Powder by that exact name."
+        },
+        {
+          "id": "xy1-1",
+          "grade": 3,
+          "reason": "Venusaur-EX (XY) has the attack Poison Powder by that exact name."
+        }
+      ]
+    },
+    {
+      "query": "energy burn",
+      "stratum": "attack text",
+      "judgments": [
+        {
+          "id": "xy8-151",
+          "grade": 0,
+          "reason": "Burning Energy merely shares a word with energy burn in its card name; it has no such move."
+        },
+        {
+          "id": "base1-100",
+          "grade": 0,
+          "reason": "Lightning Energy merely shares a word with energy burn in its card name; it has no such move."
+        },
+        {
+          "id": "base1-101",
+          "grade": 0,
+          "reason": "Psychic Energy merely shares a word with energy burn in its card name; it has no such move."
+        },
+        {
+          "id": "base1-102",
+          "grade": 0,
+          "reason": "Water Energy merely shares a word with energy burn in its card name; it has no such move."
+        },
+        {
+          "id": "base1-81",
+          "grade": 0,
+          "reason": "Energy Retrieval merely shares a word with energy burn in its card name; it has no such move."
+        },
+        {
+          "id": "base1-92",
+          "grade": 0,
+          "reason": "Energy Removal merely shares a word with energy burn in its card name; it has no such move."
+        },
+        {
+          "id": "base1-97",
+          "grade": 0,
+          "reason": "Fighting Energy merely shares a word with energy burn in its card name; it has no such move."
+        },
+        {
+          "id": "base1-98",
+          "grade": 0,
+          "reason": "Fire Energy merely shares a word with energy burn in its card name; it has no such move."
+        },
+        {
+          "id": "base1-99",
+          "grade": 0,
+          "reason": "Grass Energy merely shares a word with energy burn in its card name; it has no such move."
+        },
+        {
+          "id": "base3-59",
+          "grade": 0,
+          "reason": "Energy Search merely shares a word with energy burn in its card name; it has no such move."
+        },
+        {
+          "id": "base1-4",
+          "grade": 3,
+          "reason": "Charizard (Base) has the ability Energy Burn by that exact name."
+        },
+        {
+          "id": "base4-4",
+          "grade": 3,
+          "reason": "Charizard (Base Set 2) has the ability Energy Burn by that exact name."
+        },
+        {
+          "id": "base6-3",
+          "grade": 3,
+          "reason": "Charizard (Legendary Collection) has the ability Energy Burn by that exact name."
+        },
+        {
+          "id": "cel25c-4_A",
+          "grade": 3,
+          "reason": "Charizard (Celebrations: Classic Collection) has the ability Energy Burn by that exact name."
+        },
+        {
+          "id": "dp7-103",
+          "grade": 3,
+          "reason": "Charizard (Stormfront) has the ability Energy Burn by that exact name."
+        },
+        {
+          "id": "xy12-11",
+          "grade": 3,
+          "reason": "Charizard (Evolutions) has the ability Energy Burn by that exact name."
+        }
+      ]
+    },
+    {
+      "query": "Ken Sugimori",
+      "stratum": "artist",
+      "judgments": [
+        {
+          "id": "xy3-73",
+          "grade": 0,
+          "reason": "Credited to 5ban Graphics, not Ken Sugimori."
+        },
+        {
+          "id": "dp6-146",
+          "grade": 0,
+          "reason": "Credited to Shizurow, not Ken Sugimori."
+        },
+        {
+          "id": "sv3pt5-96",
+          "grade": 0,
+          "reason": "Credited to Mousho, not Ken Sugimori."
+        },
+        {
+          "id": "swsh10-66",
+          "grade": 0,
+          "reason": "Credited to zig, not Ken Sugimori."
+        },
+        {
+          "id": "swsh10tg-TG11",
+          "grade": 0,
+          "reason": "Credited to Hataya, not Ken Sugimori."
+        },
+        {
+          "id": "swsh3-145",
+          "grade": 0,
+          "reason": "Credited to Naoyo Kimura, not Ken Sugimori."
+        },
+        {
+          "id": "swsh5-102",
+          "grade": 0,
+          "reason": "Credited to Hasuno, not Ken Sugimori."
+        },
+        {
+          "id": "swsh6-223",
+          "grade": 0,
+          "reason": "Credited to Eske Yoshinob, not Ken Sugimori."
+        },
+        {
+          "id": "swshp-SWSH091",
+          "grade": 0,
+          "reason": "Credited to Atsushi Furusawa, not Ken Sugimori."
+        },
+        {
+          "id": "xy10-118",
+          "grade": 0,
+          "reason": "Credited to 5ban Graphics, not Ken Sugimori."
+        },
+        {
+          "id": "base1-1",
+          "grade": 3,
+          "reason": "Illustrated by Ken Sugimori — Alakazam (Base)."
+        },
+        {
+          "id": "base1-2",
+          "grade": 3,
+          "reason": "Illustrated by Ken Sugimori — Blastoise (Base)."
+        },
+        {
+          "id": "base1-8",
+          "grade": 3,
+          "reason": "Illustrated by Ken Sugimori — Machamp (Base)."
+        },
+        {
+          "id": "base1-10",
+          "grade": 3,
+          "reason": "Illustrated by Ken Sugimori — Mewtwo (Base)."
+        },
+        {
+          "id": "base1-32",
+          "grade": 3,
+          "reason": "Illustrated by Ken Sugimori — Kadabra (Base)."
+        },
+        {
+          "id": "base1-68",
+          "grade": 3,
+          "reason": "Illustrated by Ken Sugimori — Vulpix (Base)."
+        },
+        {
+          "id": "base5-15",
+          "grade": 3,
+          "reason": "Illustrated by Ken Sugimori — Here Comes Team Rocket! (Team Rocket)."
+        },
+        {
+          "id": "ecard2-126",
+          "grade": 3,
+          "reason": "Illustrated by Ken Sugimori — Juggler (Aquapolis)."
+        }
+      ]
+    },
+    {
+      "query": "Mitsuhiro Arita",
+      "stratum": "artist",
+      "judgments": [
+        {
+          "id": "sm1-41",
+          "grade": 0,
+          "reason": "Credited to Kagemaru Himeno, not Mitsuhiro Arita."
+        },
+        {
+          "id": "base1-15",
+          "grade": 3,
+          "reason": "Illustrated by Mitsuhiro Arita — Venusaur (Base)."
+        },
+        {
+          "id": "base1-18",
+          "grade": 3,
+          "reason": "Illustrated by Mitsuhiro Arita — Dragonair (Base)."
+        },
+        {
+          "id": "base1-24",
+          "grade": 3,
+          "reason": "Illustrated by Mitsuhiro Arita — Charmeleon (Base)."
+        },
+        {
+          "id": "base1-25",
+          "grade": 3,
+          "reason": "Illustrated by Mitsuhiro Arita — Dewgong (Base)."
+        },
+        {
+          "id": "base1-35",
+          "grade": 3,
+          "reason": "Illustrated by Mitsuhiro Arita — Magikarp (Base)."
+        },
+        {
+          "id": "base1-37",
+          "grade": 3,
+          "reason": "Illustrated by Mitsuhiro Arita — Nidorino (Base)."
+        },
+        {
+          "id": "base1-4",
+          "grade": 3,
+          "reason": "Illustrated by Mitsuhiro Arita — Charizard (Base)."
+        },
+        {
+          "id": "base1-43",
+          "grade": 3,
+          "reason": "Illustrated by Mitsuhiro Arita — Abra (Base)."
+        },
+        {
+          "id": "base1-44",
+          "grade": 3,
+          "reason": "Illustrated by Mitsuhiro Arita — Bulbasaur (Base)."
+        }
+      ]
+    },
+    {
+      "query": "Atsuko Nishida",
+      "stratum": "artist",
+      "judgments": [
+        {
+          "id": "sv7-161",
+          "grade": 0,
+          "reason": "Credited to no artist, not Atsuko Nishida."
+        },
+        {
+          "id": "sv7-80",
+          "grade": 0,
+          "reason": "Credited to no artist, not Atsuko Nishida."
+        },
+        {
+          "id": "base5-55",
+          "grade": 3,
+          "reason": "Illustrated by Atsuko Nishida — Eevee (Team Rocket)."
+        },
+        {
+          "id": "base5-62",
+          "grade": 3,
+          "reason": "Illustrated by Atsuko Nishida — Meowth (Team Rocket)."
+        },
+        {
+          "id": "base5-64",
+          "grade": 3,
+          "reason": "Illustrated by Atsuko Nishida — Ponyta (Team Rocket)."
+        },
+        {
+          "id": "base5-66",
+          "grade": 3,
+          "reason": "Illustrated by Atsuko Nishida — Rattata (Team Rocket)."
+        },
+        {
+          "id": "base5-68",
+          "grade": 3,
+          "reason": "Illustrated by Atsuko Nishida — Squirtle (Team Rocket)."
+        },
+        {
+          "id": "basep-19",
+          "grade": 3,
+          "reason": "Illustrated by Atsuko Nishida — Sabrina's Abra (Wizards Black Star Promos)."
+        },
+        {
+          "id": "basep-27",
+          "grade": 3,
+          "reason": "Illustrated by Atsuko Nishida — Pikachu (Wizards Black Star Promos)."
+        },
+        {
+          "id": "basep-37",
+          "grade": 3,
+          "reason": "Illustrated by Atsuko Nishida — Hitmontop (Wizards Black Star Promos)."
+        }
+      ]
+    },
+    {
+      "query": "Kagemaru Himeno",
+      "stratum": "artist",
+      "judgments": [
+        {
+          "id": "base2-12",
+          "grade": 3,
+          "reason": "Illustrated by Kagemaru Himeno — Vaporeon (Jungle)."
+        },
+        {
+          "id": "base2-19",
+          "grade": 3,
+          "reason": "Illustrated by Kagemaru Himeno — Flareon (Jungle)."
+        },
+        {
+          "id": "base2-20",
+          "grade": 3,
+          "reason": "Illustrated by Kagemaru Himeno — Jolteon (Jungle)."
+        },
+        {
+          "id": "base2-24",
+          "grade": 3,
+          "reason": "Illustrated by Kagemaru Himeno — Pidgeot (Jungle)."
+        },
+        {
+          "id": "base2-25",
+          "grade": 3,
+          "reason": "Illustrated by Kagemaru Himeno — Pinsir (Jungle)."
+        },
+        {
+          "id": "base2-28",
+          "grade": 3,
+          "reason": "Illustrated by Kagemaru Himeno — Vaporeon (Jungle)."
+        },
+        {
+          "id": "base2-3",
+          "grade": 3,
+          "reason": "Illustrated by Kagemaru Himeno — Flareon (Jungle)."
+        },
+        {
+          "id": "base2-33",
+          "grade": 3,
+          "reason": "Illustrated by Kagemaru Himeno — Butterfree (Jungle)."
+        },
+        {
+          "id": "base2-35",
+          "grade": 3,
+          "reason": "Illustrated by Kagemaru Himeno — Exeggutor (Jungle)."
+        },
+        {
+          "id": "base2-4",
+          "grade": 3,
+          "reason": "Illustrated by Kagemaru Himeno — Jolteon (Jungle)."
+        }
+      ]
+    },
+    {
+      "query": "5ban Graphics",
+      "stratum": "artist",
+      "judgments": [
+        {
+          "id": "bw1-102",
+          "grade": 3,
+          "reason": "Illustrated by 5ban Graphics — Revive (Black & White)."
+        },
+        {
+          "id": "bw1-113",
+          "grade": 3,
+          "reason": "Illustrated by 5ban Graphics — Reshiram (Black & White)."
+        },
+        {
+          "id": "bw1-114",
+          "grade": 3,
+          "reason": "Illustrated by 5ban Graphics — Zekrom (Black & White)."
+        },
+        {
+          "id": "bw1-16",
+          "grade": 3,
+          "reason": "Illustrated by 5ban Graphics — Tepig (Black & White)."
+        },
+        {
+          "id": "bw1-18",
+          "grade": 3,
+          "reason": "Illustrated by 5ban Graphics — Pignite (Black & White)."
+        },
+        {
+          "id": "bw1-2",
+          "grade": 3,
+          "reason": "Illustrated by 5ban Graphics — Snivy (Black & White)."
+        },
+        {
+          "id": "bw1-20",
+          "grade": 3,
+          "reason": "Illustrated by 5ban Graphics — Emboar (Black & White)."
+        },
+        {
+          "id": "bw1-26",
+          "grade": 3,
+          "reason": "Illustrated by 5ban Graphics — Reshiram (Black & White)."
+        },
+        {
+          "id": "bw1-28",
+          "grade": 3,
+          "reason": "Illustrated by 5ban Graphics — Oshawott (Black & White)."
+        },
+        {
+          "id": "bw1-30",
+          "grade": 3,
+          "reason": "Illustrated by 5ban Graphics — Dewott (Black & White)."
+        }
+      ]
+    },
+    {
+      "query": "Naoki Saito",
+      "stratum": "artist",
+      "judgments": [
+        {
+          "id": "bw1-25",
+          "grade": 3,
+          "reason": "Illustrated by Naoki Saito — Darmanitan (Black & White)."
+        },
+        {
+          "id": "bw1-60",
+          "grade": 3,
+          "reason": "Illustrated by Naoki Saito — Gurdurr (Black & White)."
+        },
+        {
+          "id": "bw1-62",
+          "grade": 3,
+          "reason": "Illustrated by Naoki Saito — Sawk (Black & White)."
+        },
+        {
+          "id": "bw1-71",
+          "grade": 3,
+          "reason": "Illustrated by Naoki Saito — Zoroark (Black & White)."
+        },
+        {
+          "id": "bw1-75",
+          "grade": 3,
+          "reason": "Illustrated by Naoki Saito — Klang (Black & White)."
+        },
+        {
+          "id": "bw1-90",
+          "grade": 3,
+          "reason": "Illustrated by Naoki Saito — Bouffalant (Black & White)."
+        },
+        {
+          "id": "bw10-29",
+          "grade": 3,
+          "reason": "Illustrated by Naoki Saito — Ducklett (Plasma Blast)."
+        },
+        {
+          "id": "bw10-49",
+          "grade": 3,
+          "reason": "Illustrated by Naoki Saito — Machamp (Plasma Blast)."
+        },
+        {
+          "id": "bw10-51",
+          "grade": 3,
+          "reason": "Illustrated by Naoki Saito — Throh (Plasma Blast)."
+        },
+        {
+          "id": "bw10-52",
+          "grade": 3,
+          "reason": "Illustrated by Naoki Saito — Sawk (Plasma Blast)."
+        }
+      ]
+    },
+    {
+      "query": "Masakazu Fukuda",
+      "stratum": "artist",
+      "judgments": [
+        {
+          "id": "bw1-24",
+          "grade": 3,
+          "reason": "Illustrated by Masakazu Fukuda — Darumaka (Black & White)."
+        },
+        {
+          "id": "bw1-27",
+          "grade": 3,
+          "reason": "Illustrated by Masakazu Fukuda — Oshawott (Black & White)."
+        },
+        {
+          "id": "bw1-29",
+          "grade": 3,
+          "reason": "Illustrated by Masakazu Fukuda — Dewott (Black & White)."
+        },
+        {
+          "id": "bw1-31",
+          "grade": 3,
+          "reason": "Illustrated by Masakazu Fukuda — Samurott (Black & White)."
+        },
+        {
+          "id": "bw1-43",
+          "grade": 3,
+          "reason": "Illustrated by Masakazu Fukuda — Zebstrika (Black & White)."
+        },
+        {
+          "id": "bw1-45",
+          "grade": 3,
+          "reason": "Illustrated by Masakazu Fukuda — Joltik (Black & White)."
+        },
+        {
+          "id": "bw1-49",
+          "grade": 3,
+          "reason": "Illustrated by Masakazu Fukuda — Musharna (Black & White)."
+        },
+        {
+          "id": "bw1-52",
+          "grade": 3,
+          "reason": "Illustrated by Masakazu Fukuda — Venipede (Black & White)."
+        },
+        {
+          "id": "bw1-53",
+          "grade": 3,
+          "reason": "Illustrated by Masakazu Fukuda — Whirlipede (Black & White)."
+        },
+        {
+          "id": "bw1-54",
+          "grade": 3,
+          "reason": "Illustrated by Masakazu Fukuda — Scolipede (Black & White)."
+        }
+      ]
+    },
+    {
+      "query": "Base Set",
+      "stratum": "set name",
+      "judgments": [
+        {
+          "id": "dc1-28",
+          "grade": 0,
+          "reason": "Team Aqua's Secret Base is printed in Double Crisis, not in Base."
+        },
+        {
+          "id": "dc1-32",
+          "grade": 0,
+          "reason": "Team Magma's Secret Base is printed in Double Crisis, not in Base."
+        },
+        {
+          "id": "sv6-143",
+          "grade": 0,
+          "reason": "Bug Catching Set is printed in Twilight Masquerade, not in Base."
+        },
+        {
+          "id": "sv8pt5-102",
+          "grade": 0,
+          "reason": "Bug Catching Set is printed in Prismatic Evolutions, not in Base."
+        },
+        {
+          "id": "swsh9-139",
+          "grade": 0,
+          "reason": "Fresh Water Set is printed in Brilliant Stars, not in Base."
+        },
+        {
+          "id": "xy5-129",
+          "grade": 0,
+          "reason": "Fresh Water Set is printed in Primal Clash, not in Base."
+        },
+        {
+          "id": "pl2-80",
+          "grade": 0,
+          "reason": "Shellos West Sea is printed in Rising Rivals, not in Base."
+        },
+        {
+          "id": "dp3-39",
+          "grade": 0,
+          "reason": "Unown [S] is printed in Secret Wonders, not in Base."
+        },
+        {
+          "id": "dp3-8",
+          "grade": 0,
+          "reason": "Gastrodon East Sea is printed in Secret Wonders, not in Base."
+        },
+        {
+          "id": "pl2-22",
+          "grade": 0,
+          "reason": "Gastrodon West Sea is printed in Rising Rivals, not in Base."
+        },
+        {
+          "id": "base1-1",
+          "grade": 3,
+          "reason": "Alakazam is printed in Base, the set Base Set names."
+        },
+        {
+          "id": "base1-2",
+          "grade": 3,
+          "reason": "Blastoise is printed in Base, the set Base Set names."
+        },
+        {
+          "id": "base1-4",
+          "grade": 3,
+          "reason": "Charizard is printed in Base, the set Base Set names."
+        },
+        {
+          "id": "base1-10",
+          "grade": 3,
+          "reason": "Mewtwo is printed in Base, the set Base Set names."
+        },
+        {
+          "id": "base1-88",
+          "grade": 3,
+          "reason": "Professor Oak is printed in Base, the set Base Set names."
+        },
+        {
+          "id": "base1-94",
+          "grade": 3,
+          "reason": "Potion is printed in Base, the set Base Set names."
+        },
+        {
+          "id": "base4-4",
+          "grade": 2,
+          "reason": "Charizard is printed in Base Set 2, a reprint set whose name contains the query; defensible, not the original Base set."
+        },
+        {
+          "id": "ecard1-4",
+          "grade": 1,
+          "reason": "Blastoise is printed in Expedition Base Set, which only shares the words; a weak match."
+        }
+      ]
+    },
+    {
+      "query": "Jungle",
+      "stratum": "set name",
+      "judgments": [
+        {
+          "id": "sv5-156",
+          "grade": 0,
+          "reason": "Perilous Jungle is printed in Temporal Forces, not in Jungle."
+        },
+        {
+          "id": "ecard2-126",
+          "grade": 0,
+          "reason": "Juggler is printed in Aquapolis, not in Jungle."
+        },
+        {
+          "id": "hgss2-78",
+          "grade": 0,
+          "reason": "Judge is printed in HS—Unleashed, not in Jungle."
+        },
+        {
+          "id": "me3-76",
+          "grade": 0,
+          "reason": "Judge is printed in Perfect Order, not in Jungle."
+        },
+        {
+          "id": "sm6-108",
+          "grade": 0,
+          "reason": "Judge is printed in Forbidden Light, not in Jungle."
+        },
+        {
+          "id": "sm8-209",
+          "grade": 0,
+          "reason": "Judge is printed in Lost Thunder, not in Jungle."
+        },
+        {
+          "id": "sv1-176",
+          "grade": 0,
+          "reason": "Judge is printed in Scarlet & Violet, not in Jungle."
+        },
+        {
+          "id": "sv10-167",
+          "grade": 0,
+          "reason": "Judge is printed in Destined Rivals, not in Jungle."
+        },
+        {
+          "id": "sv10-222",
+          "grade": 0,
+          "reason": "Judge is printed in Destined Rivals, not in Jungle."
+        },
+        {
+          "id": "sv4pt5-228",
+          "grade": 0,
+          "reason": "Judge is printed in Paldean Fates, not in Jungle."
+        },
+        {
+          "id": "base2-1",
+          "grade": 3,
+          "reason": "Clefable is printed in Jungle, the set Jungle names."
+        },
+        {
+          "id": "base2-10",
+          "grade": 3,
+          "reason": "Scyther is printed in Jungle, the set Jungle names."
+        },
+        {
+          "id": "base2-11",
+          "grade": 3,
+          "reason": "Snorlax is printed in Jungle, the set Jungle names."
+        },
+        {
+          "id": "base2-12",
+          "grade": 3,
+          "reason": "Vaporeon is printed in Jungle, the set Jungle names."
+        },
+        {
+          "id": "base2-13",
+          "grade": 3,
+          "reason": "Venomoth is printed in Jungle, the set Jungle names."
+        },
+        {
+          "id": "base2-14",
+          "grade": 3,
+          "reason": "Victreebel is printed in Jungle, the set Jungle names."
+        }
+      ]
+    },
+    {
+      "query": "Fossil",
+      "stratum": "set name",
+      "judgments": [
+        {
+          "id": "base3-62",
+          "grade": 3,
+          "reason": "Mysterious Fossil is printed in Fossil, the set Fossil names."
+        },
+        {
+          "id": "dp5-89",
+          "grade": 0,
+          "reason": "Dome Fossil is printed in Majestic Dawn, not in Fossil."
+        },
+        {
+          "id": "dp5-91",
+          "grade": 0,
+          "reason": "Helix Fossil is printed in Majestic Dawn, not in Fossil."
+        },
+        {
+          "id": "pl4-92",
+          "grade": 0,
+          "reason": "Dome Fossil is printed in Arceus, not in Fossil."
+        },
+        {
+          "id": "pl4-93",
+          "grade": 0,
+          "reason": "Helix Fossil is printed in Arceus, not in Fossil."
+        },
+        {
+          "id": "dp6-138",
+          "grade": 0,
+          "reason": "Claw Fossil is printed in Legends Awakened, not in Fossil."
+        },
+        {
+          "id": "ex12-78",
+          "grade": 0,
+          "reason": "Claw Fossil is printed in Legend Maker, not in Fossil."
+        },
+        {
+          "id": "ex13-91",
+          "grade": 0,
+          "reason": "Claw Fossil is printed in Holon Phantoms, not in Fossil."
+        },
+        {
+          "id": "ex16-84",
+          "grade": 0,
+          "reason": "Claw Fossil is printed in Power Keepers, not in Fossil."
+        },
+        {
+          "id": "ex2-90",
+          "grade": 0,
+          "reason": "Claw Fossil is printed in Sandstorm, not in Fossil."
+        },
+        {
+          "id": "base3-1",
+          "grade": 3,
+          "reason": "Aerodactyl is printed in Fossil, the set Fossil names."
+        },
+        {
+          "id": "base3-10",
+          "grade": 3,
+          "reason": "Lapras is printed in Fossil, the set Fossil names."
+        },
+        {
+          "id": "base3-11",
+          "grade": 3,
+          "reason": "Magneton is printed in Fossil, the set Fossil names."
+        },
+        {
+          "id": "base3-12",
+          "grade": 3,
+          "reason": "Moltres is printed in Fossil, the set Fossil names."
+        },
+        {
+          "id": "base3-13",
+          "grade": 3,
+          "reason": "Muk is printed in Fossil, the set Fossil names."
+        },
+        {
+          "id": "base3-14",
+          "grade": 3,
+          "reason": "Raichu is printed in Fossil, the set Fossil names."
+        },
+        {
+          "id": "base3-19",
+          "grade": 3,
+          "reason": "Dragonite is printed in Fossil, the set Fossil names."
+        },
+        {
+          "id": "base3-4",
+          "grade": 3,
+          "reason": "Dragonite is printed in Fossil, the set Fossil names."
+        }
+      ]
+    },
+    {
+      "query": "Team Rocket",
+      "stratum": "set name",
+      "judgments": [
+        {
+          "id": "sv10-154",
+          "grade": 0,
+          "reason": "Team Rocket's Porygon2 is printed in Destined Rivals, not in Team Rocket."
+        },
+        {
+          "id": "me2pt5-19",
+          "grade": 0,
+          "reason": "Team Rocket's Spidops is printed in Ascended Heroes, not in Team Rocket."
+        },
+        {
+          "id": "sv10-187",
+          "grade": 0,
+          "reason": "Team Rocket's Spidops is printed in Destined Rivals, not in Team Rocket."
+        },
+        {
+          "id": "sv10-20",
+          "grade": 0,
+          "reason": "Team Rocket's Spidops is printed in Destined Rivals, not in Team Rocket."
+        },
+        {
+          "id": "sv10-51",
+          "grade": 0,
+          "reason": "Team Rocket's Articuno is printed in Destined Rivals, not in Team Rocket."
+        },
+        {
+          "id": "base5-15",
+          "grade": 3,
+          "reason": "Here Comes Team Rocket! is printed in Team Rocket, the set Team Rocket names."
+        },
+        {
+          "id": "base5-71",
+          "grade": 3,
+          "reason": "Here Comes Team Rocket! is printed in Team Rocket, the set Team Rocket names."
+        },
+        {
+          "id": "sv10-198",
+          "grade": 0,
+          "reason": "Team Rocket's Orbeetle is printed in Destined Rivals, not in Team Rocket."
+        },
+        {
+          "id": "sv10-89",
+          "grade": 0,
+          "reason": "Team Rocket's Orbeetle is printed in Destined Rivals, not in Team Rocket."
+        },
+        {
+          "id": "sv10-82",
+          "grade": 0,
+          "reason": "Team Rocket's Wobbuffet is printed in Destined Rivals, not in Team Rocket."
+        },
+        {
+          "id": "base5-1",
+          "grade": 3,
+          "reason": "Dark Alakazam is printed in Team Rocket, the set Team Rocket names."
+        },
+        {
+          "id": "base5-10",
+          "grade": 3,
+          "reason": "Dark Machamp is printed in Team Rocket, the set Team Rocket names."
+        },
+        {
+          "id": "base5-11",
+          "grade": 3,
+          "reason": "Dark Magneton is printed in Team Rocket, the set Team Rocket names."
+        },
+        {
+          "id": "base5-12",
+          "grade": 3,
+          "reason": "Dark Slowbro is printed in Team Rocket, the set Team Rocket names."
+        },
+        {
+          "id": "base5-13",
+          "grade": 3,
+          "reason": "Dark Vileplume is printed in Team Rocket, the set Team Rocket names."
+        },
+        {
+          "id": "base5-14",
+          "grade": 3,
+          "reason": "Dark Weezing is printed in Team Rocket, the set Team Rocket names."
+        }
+      ]
+    },
+    {
+      "query": "Neo Genesis",
+      "stratum": "set name",
+      "judgments": [
+        {
+          "id": "sv5-162",
+          "grade": 0,
+          "reason": "Neo Upper Energy is printed in Temporal Forces, not in Neo Genesis."
+        },
+        {
+          "id": "neo1-95",
+          "grade": 3,
+          "reason": "New Pokédex is printed in Neo Genesis, the set Neo Genesis names."
+        },
+        {
+          "id": "neo1-1",
+          "grade": 3,
+          "reason": "Ampharos is printed in Neo Genesis, the set Neo Genesis names."
+        },
+        {
+          "id": "neo1-10",
+          "grade": 3,
+          "reason": "Meganium is printed in Neo Genesis, the set Neo Genesis names."
+        },
+        {
+          "id": "neo1-100",
+          "grade": 3,
+          "reason": "Double Gust is printed in Neo Genesis, the set Neo Genesis names."
+        },
+        {
+          "id": "neo1-101",
+          "grade": 3,
+          "reason": "Moo-Moo Milk is printed in Neo Genesis, the set Neo Genesis names."
+        },
+        {
+          "id": "neo1-102",
+          "grade": 3,
+          "reason": "Pokémon March is printed in Neo Genesis, the set Neo Genesis names."
+        },
+        {
+          "id": "neo1-103",
+          "grade": 3,
+          "reason": "Super Rod is printed in Neo Genesis, the set Neo Genesis names."
+        },
+        {
+          "id": "neo1-104",
+          "grade": 3,
+          "reason": "Darkness Energy is printed in Neo Genesis, the set Neo Genesis names."
+        },
+        {
+          "id": "neo1-105",
+          "grade": 3,
+          "reason": "Recycle Energy is printed in Neo Genesis, the set Neo Genesis names."
+        }
+      ]
+    },
+    {
+      "query": "Evolving Skies",
+      "stratum": "set name",
+      "judgments": [
+        {
+          "id": "swsh6-151",
+          "grade": 0,
+          "reason": "Rapid Strike Scroll of the Skies is printed in Chilling Reign, not in Evolving Skies."
+        },
+        {
+          "id": "pl2-19",
+          "grade": 0,
+          "reason": "Flareon is printed in Rising Rivals, not in Evolving Skies."
+        },
+        {
+          "id": "pl2-26",
+          "grade": 0,
+          "reason": "Jolteon is printed in Rising Rivals, not in Evolving Skies."
+        },
+        {
+          "id": "pl2-34",
+          "grade": 0,
+          "reason": "Vaporeon is printed in Rising Rivals, not in Evolving Skies."
+        },
+        {
+          "id": "swsh7-1",
+          "grade": 3,
+          "reason": "Pinsir is printed in Evolving Skies, the set Evolving Skies names."
+        },
+        {
+          "id": "swsh7-10",
+          "grade": 3,
+          "reason": "Lilligant is printed in Evolving Skies, the set Evolving Skies names."
+        },
+        {
+          "id": "swsh7-100",
+          "grade": 3,
+          "reason": "Garbodor V is printed in Evolving Skies, the set Evolving Skies names."
+        },
+        {
+          "id": "swsh7-101",
+          "grade": 3,
+          "reason": "Garbodor VMAX is printed in Evolving Skies, the set Evolving Skies names."
+        },
+        {
+          "id": "swsh7-102",
+          "grade": 3,
+          "reason": "Zorua is printed in Evolving Skies, the set Evolving Skies names."
+        },
+        {
+          "id": "swsh7-103",
+          "grade": 3,
+          "reason": "Zoroark is printed in Evolving Skies, the set Evolving Skies names."
+        }
+      ]
+    },
+    {
+      "query": "Hidden Fates",
+      "stratum": "set name",
+      "judgments": [
+        {
+          "id": "xy5-133",
+          "grade": 0,
+          "reason": "Maxie's Hidden Ball Trick is printed in Primal Clash, not in Hidden Fates."
+        },
+        {
+          "id": "xy5-158",
+          "grade": 0,
+          "reason": "Maxie's Hidden Ball Trick is printed in Primal Clash, not in Hidden Fates."
+        },
+        {
+          "id": "dp7-23",
+          "grade": 0,
+          "reason": "Roserade is printed in Stormfront, not in Hidden Fates."
+        },
+        {
+          "id": "pl4-41",
+          "grade": 0,
+          "reason": "Haunter is printed in Arceus, not in Hidden Fates."
+        },
+        {
+          "id": "swsh12-4",
+          "grade": 0,
+          "reason": "Ariados is printed in Silver Tempest, not in Hidden Fates."
+        },
+        {
+          "id": "swsh6-104",
+          "grade": 0,
+          "reason": "Liepard V is printed in Chilling Reign, not in Hidden Fates."
+        },
+        {
+          "id": "swsh6-180",
+          "grade": 0,
+          "reason": "Liepard V is printed in Chilling Reign, not in Hidden Fates."
+        },
+        {
+          "id": "basep-38",
+          "grade": 0,
+          "reason": "Unown [J] is printed in Wizards Black Star Promos, not in Hidden Fates."
+        },
+        {
+          "id": "dp1-65",
+          "grade": 0,
+          "reason": "Unown [A] is printed in Diamond & Pearl, not in Hidden Fates."
+        },
+        {
+          "id": "dp1-66",
+          "grade": 0,
+          "reason": "Unown [B] is printed in Diamond & Pearl, not in Hidden Fates."
+        },
+        {
+          "id": "sm115-1",
+          "grade": 3,
+          "reason": "Caterpie is printed in Hidden Fates, the set Hidden Fates names."
+        },
+        {
+          "id": "sm115-10",
+          "grade": 3,
+          "reason": "Magmar is printed in Hidden Fates, the set Hidden Fates names."
+        },
+        {
+          "id": "sm115-11",
+          "grade": 3,
+          "reason": "Psyduck is printed in Hidden Fates, the set Hidden Fates names."
+        },
+        {
+          "id": "sm115-12",
+          "grade": 3,
+          "reason": "Slowpoke is printed in Hidden Fates, the set Hidden Fates names."
+        },
+        {
+          "id": "sm115-13",
+          "grade": 3,
+          "reason": "Staryu is printed in Hidden Fates, the set Hidden Fates names."
+        },
+        {
+          "id": "sm115-14",
+          "grade": 3,
+          "reason": "Starmie-GX is printed in Hidden Fates, the set Hidden Fates names."
+        },
+        {
+          "id": "sm115-48",
+          "grade": 3,
+          "reason": "Eevee is printed in Hidden Fates, the set Hidden Fates names."
+        }
+      ]
+    },
+    {
+      "query": "fire dragon",
+      "stratum": "natural-language intent",
+      "judgments": [
+        {
+          "id": "base1-98",
+          "grade": 0,
+          "reason": "Fire Energy is a basic Energy card that matched on the word Fire alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "base4-126",
+          "grade": 0,
+          "reason": "Fire Energy is a basic Energy card that matched on the word Fire alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "bw1-106",
+          "grade": 0,
+          "reason": "Fire Energy is a basic Energy card that matched on the word Fire alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "col1-89",
+          "grade": 0,
+          "reason": "Fire Energy is a basic Energy card that matched on the word Fire alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "dp1-124",
+          "grade": 0,
+          "reason": "Fire Energy is a basic Energy card that matched on the word Fire alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "ecard1-161",
+          "grade": 0,
+          "reason": "Fire Energy is a basic Energy card that matched on the word Fire alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "ex1-108",
+          "grade": 0,
+          "reason": "Fire Energy is a basic Energy card that matched on the word Fire alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "ex13-106",
+          "grade": 0,
+          "reason": "Fire Energy is a basic Energy card that matched on the word Fire alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "ex16-104",
+          "grade": 0,
+          "reason": "Fire Energy is a basic Energy card that matched on the word Fire alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "ex9-102",
+          "grade": 0,
+          "reason": "Fire Energy is a basic Energy card that matched on the word Fire alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "base1-4",
+          "grade": 3,
+          "reason": "Charizard (Base) is a Fire-type Pokemon that reads as a dragon — exactly what the phrase describes."
+        },
+        {
+          "id": "base4-4",
+          "grade": 3,
+          "reason": "Charizard (Base Set 2) is a Fire-type Pokemon that reads as a dragon — exactly what the phrase describes."
+        },
+        {
+          "id": "base6-3",
+          "grade": 3,
+          "reason": "Charizard (Legendary Collection) is a Fire-type Pokemon that reads as a dragon — exactly what the phrase describes."
+        },
+        {
+          "id": "bw1-113",
+          "grade": 3,
+          "reason": "Reshiram (Black & White) is a Fire-type Pokemon that reads as a dragon — exactly what the phrase describes."
+        },
+        {
+          "id": "bw1-26",
+          "grade": 3,
+          "reason": "Reshiram (Black & White) is a Fire-type Pokemon that reads as a dragon — exactly what the phrase describes."
+        },
+        {
+          "id": "bw11-19",
+          "grade": 3,
+          "reason": "Charizard (Legendary Treasures) is a Fire-type Pokemon that reads as a dragon — exactly what the phrase describes."
+        },
+        {
+          "id": "bw11-28",
+          "grade": 3,
+          "reason": "Reshiram (Legendary Treasures) is a Fire-type Pokemon that reads as a dragon — exactly what the phrase describes."
+        },
+        {
+          "id": "bw11-114",
+          "grade": 3,
+          "reason": "Reshiram (Legendary Treasures) is a Fire-type Pokemon that reads as a dragon — exactly what the phrase describes."
+        }
+      ]
+    },
+    {
+      "query": "water starter pokemon",
+      "stratum": "natural-language intent",
+      "judgments": [
+        {
+          "id": "base1-102",
+          "grade": 0,
+          "reason": "Water Energy is a basic Energy card that matched on the word Water alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "base4-130",
+          "grade": 0,
+          "reason": "Water Energy is a basic Energy card that matched on the word Water alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "bw1-107",
+          "grade": 0,
+          "reason": "Water Energy is a basic Energy card that matched on the word Water alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "col1-90",
+          "grade": 0,
+          "reason": "Water Energy is a basic Energy card that matched on the word Water alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "dp1-125",
+          "grade": 0,
+          "reason": "Water Energy is a basic Energy card that matched on the word Water alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "ecard1-165",
+          "grade": 0,
+          "reason": "Water Energy is a basic Energy card that matched on the word Water alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "ex1-106",
+          "grade": 0,
+          "reason": "Water Energy is a basic Energy card that matched on the word Water alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "ex13-107",
+          "grade": 0,
+          "reason": "Water Energy is a basic Energy card that matched on the word Water alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "ex16-105",
+          "grade": 0,
+          "reason": "Water Energy is a basic Energy card that matched on the word Water alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "ex9-103",
+          "grade": 0,
+          "reason": "Water Energy is a basic Energy card that matched on the word Water alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "base1-63",
+          "grade": 3,
+          "reason": "Squirtle (Base) is one of the Water starter families the phrase describes."
+        },
+        {
+          "id": "base4-93",
+          "grade": 3,
+          "reason": "Squirtle (Base Set 2) is one of the Water starter families the phrase describes."
+        },
+        {
+          "id": "base5-68",
+          "grade": 3,
+          "reason": "Squirtle (Team Rocket) is one of the Water starter families the phrase describes."
+        },
+        {
+          "id": "base6-95",
+          "grade": 3,
+          "reason": "Squirtle (Legendary Collection) is one of the Water starter families the phrase describes."
+        },
+        {
+          "id": "bw1-27",
+          "grade": 3,
+          "reason": "Oshawott (Black & White) is one of the Water starter families the phrase describes."
+        },
+        {
+          "id": "bw1-28",
+          "grade": 3,
+          "reason": "Oshawott (Black & White) is one of the Water starter families the phrase describes."
+        },
+        {
+          "id": "bw10-14",
+          "grade": 3,
+          "reason": "Squirtle (Plasma Blast) is one of the Water starter families the phrase describes."
+        },
+        {
+          "id": "bw11-33",
+          "grade": 3,
+          "reason": "Piplup (Legendary Treasures) is one of the Water starter families the phrase describes."
+        },
+        {
+          "id": "base1-2",
+          "grade": 3,
+          "reason": "Blastoise (Base) is one of the Water starter families the phrase describes."
+        }
+      ]
+    },
+    {
+      "query": "psychic legendary",
+      "stratum": "natural-language intent",
+      "judgments": [
+        {
+          "id": "base1-101",
+          "grade": 0,
+          "reason": "Psychic Energy is a basic Energy card that matched on the word Psychic alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "base4-129",
+          "grade": 0,
+          "reason": "Psychic Energy is a basic Energy card that matched on the word Psychic alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "bw1-109",
+          "grade": 0,
+          "reason": "Psychic Energy is a basic Energy card that matched on the word Psychic alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "col1-92",
+          "grade": 0,
+          "reason": "Psychic Energy is a basic Energy card that matched on the word Psychic alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "dp1-127",
+          "grade": 0,
+          "reason": "Psychic Energy is a basic Energy card that matched on the word Psychic alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "ecard1-164",
+          "grade": 0,
+          "reason": "Psychic Energy is a basic Energy card that matched on the word Psychic alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "ex1-107",
+          "grade": 0,
+          "reason": "Psychic Energy is a basic Energy card that matched on the word Psychic alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "ex13-109",
+          "grade": 0,
+          "reason": "Psychic Energy is a basic Energy card that matched on the word Psychic alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "ex16-107",
+          "grade": 0,
+          "reason": "Psychic Energy is a basic Energy card that matched on the word Psychic alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "ex9-105",
+          "grade": 0,
+          "reason": "Psychic Energy is a basic Energy card that matched on the word Psychic alone; it is not a Pokemon at all."
+        },
+        {
+          "id": "base1-10",
+          "grade": 3,
+          "reason": "Mewtwo (Base) is a Psychic-type legendary — exactly what the phrase describes."
+        },
+        {
+          "id": "basep-47",
+          "grade": 3,
+          "reason": "Mew (Wizards Black Star Promos) is a Psychic-type legendary — exactly what the phrase describes."
+        },
+        {
+          "id": "basep-8",
+          "grade": 3,
+          "reason": "Mew (Wizards Black Star Promos) is a Psychic-type legendary — exactly what the phrase describes."
+        },
+        {
+          "id": "basep-9",
+          "grade": 3,
+          "reason": "Mew (Wizards Black Star Promos) is a Psychic-type legendary — exactly what the phrase describes."
+        },
+        {
+          "id": "bw10-36",
+          "grade": 3,
+          "reason": "Uxie (Plasma Blast) is a Psychic-type legendary — exactly what the phrase describes."
+        },
+        {
+          "id": "bw10-37",
+          "grade": 3,
+          "reason": "Mesprit (Plasma Blast) is a Psychic-type legendary — exactly what the phrase describes."
+        },
+        {
+          "id": "bw10-38",
+          "grade": 3,
+          "reason": "Azelf (Plasma Blast) is a Psychic-type legendary — exactly what the phrase describes."
+        },
+        {
+          "id": "cel25-11",
+          "grade": 3,
+          "reason": "Mew (Celebrations) is a Psychic-type legendary — exactly what the phrase describes."
+        }
+      ]
+    },
+    {
+      "query": "evolves from eevee",
+      "stratum": "natural-language intent",
+      "judgments": [
+        {
+          "id": "neo4-105",
+          "grade": 0,
+          "reason": "Mail from Bill (Neo Destiny) does not answer a Pokemon that evolves from Eevee."
+        },
+        {
+          "id": "pl2-59",
+          "grade": 2,
+          "reason": "Eevee (Rising Rivals) is Eevee itself: the Pokemon evolved from, not one that evolves from it."
+        },
+        {
+          "id": "basep-11",
+          "grade": 2,
+          "reason": "Eevee (Wizards Black Star Promos) is Eevee itself: the Pokemon evolved from, not one that evolves from it."
+        },
+        {
+          "id": "bw9-90",
+          "grade": 2,
+          "reason": "Eevee (Plasma Freeze) is Eevee itself: the Pokemon evolved from, not one that evolves from it."
+        },
+        {
+          "id": "swsh45-52",
+          "grade": 2,
+          "reason": "Eevee (Shining Fates) is Eevee itself: the Pokemon evolved from, not one that evolves from it."
+        },
+        {
+          "id": "swshp-SWSH042",
+          "grade": 2,
+          "reason": "Eevee (SWSH Black Star Promos) is Eevee itself: the Pokemon evolved from, not one that evolves from it."
+        },
+        {
+          "id": "swshp-SWSH118",
+          "grade": 2,
+          "reason": "Eevee (SWSH Black Star Promos) is Eevee itself: the Pokemon evolved from, not one that evolves from it."
+        },
+        {
+          "id": "neo2-38",
+          "grade": 2,
+          "reason": "Eevee (Neo Discovery) is Eevee itself: the Pokemon evolved from, not one that evolves from it."
+        },
+        {
+          "id": "ex10-55",
+          "grade": 2,
+          "reason": "Eevee (Unseen Forces) is Eevee itself: the Pokemon evolved from, not one that evolves from it."
+        },
+        {
+          "id": "swsh10-119",
+          "grade": 2,
+          "reason": "Eevee (Astral Radiance) is Eevee itself: the Pokemon evolved from, not one that evolves from it."
+        },
+        {
+          "id": "base2-12",
+          "grade": 3,
+          "reason": "Vaporeon (Jungle) evolves from Eevee — the card the phrase asks for."
+        },
+        {
+          "id": "base2-19",
+          "grade": 3,
+          "reason": "Flareon (Jungle) evolves from Eevee — the card the phrase asks for."
+        },
+        {
+          "id": "base2-20",
+          "grade": 3,
+          "reason": "Jolteon (Jungle) evolves from Eevee — the card the phrase asks for."
+        },
+        {
+          "id": "base2-3",
+          "grade": 3,
+          "reason": "Flareon (Jungle) evolves from Eevee — the card the phrase asks for."
+        },
+        {
+          "id": "base2-4",
+          "grade": 3,
+          "reason": "Jolteon (Jungle) evolves from Eevee — the card the phrase asks for."
+        },
+        {
+          "id": "base2-28",
+          "grade": 3,
+          "reason": "Vaporeon (Jungle) evolves from Eevee — the card the phrase asks for."
+        },
+        {
+          "id": "base6-10",
+          "grade": 3,
+          "reason": "Flareon (Legendary Collection) evolves from Eevee — the card the phrase asks for."
+        },
+        {
+          "id": "base6-14",
+          "grade": 3,
+          "reason": "Jolteon (Legendary Collection) evolves from Eevee — the card the phrase asks for."
+        },
+        {
+          "id": "bw5-12",
+          "grade": 3,
+          "reason": "Flareon (Dark Explorers) evolves from Eevee — the card the phrase asks for."
+        },
+        {
+          "id": "bw5-25",
+          "grade": 3,
+          "reason": "Vaporeon (Dark Explorers) evolves from Eevee — the card the phrase asks for."
+        }
+      ]
+    },
+    {
+      "query": "card that heals damage",
+      "stratum": "natural-language intent",
+      "judgments": [
+        {
+          "id": "g1-71",
+          "grade": 0,
+          "reason": "Red Card (Generations) does not answer a card that removes damage from a Pokemon."
+        },
+        {
+          "id": "xy1-124",
+          "grade": 0,
+          "reason": "Red Card (XY) does not answer a card that removes damage from a Pokemon."
+        },
+        {
+          "id": "me4-113",
+          "grade": 0,
+          "reason": "Special Red Card (Chaos Rising) does not answer a card that removes damage from a Pokemon."
+        },
+        {
+          "id": "me4-82",
+          "grade": 0,
+          "reason": "Special Red Card (Chaos Rising) does not answer a card that removes damage from a Pokemon."
+        },
+        {
+          "id": "neo1-92",
+          "grade": 0,
+          "reason": "Card-Flip Game (Neo Genesis) does not answer a card that removes damage from a Pokemon."
+        },
+        {
+          "id": "sm4-97",
+          "grade": 0,
+          "reason": "Peeking Red Card (Crimson Invasion) does not answer a card that removes damage from a Pokemon."
+        },
+        {
+          "id": "sm5-169",
+          "grade": 0,
+          "reason": "Peeking Red Card (Ultra Prism) does not answer a card that removes damage from a Pokemon."
+        },
+        {
+          "id": "xy4-118",
+          "grade": 0,
+          "reason": "Lysandre's Trump Card (Phantom Forces) does not answer a card that removes damage from a Pokemon."
+        },
+        {
+          "id": "xy4-99",
+          "grade": 0,
+          "reason": "Lysandre's Trump Card (Phantom Forces) does not answer a card that removes damage from a Pokemon."
+        },
+        {
+          "id": "sm35-58",
+          "grade": 0,
+          "reason": "Damage Mover (Shining Legends) does not answer a card that removes damage from a Pokemon."
+        },
+        {
+          "id": "base1-82",
+          "grade": 3,
+          "reason": "Full Heal (Base) is a healing card by name — what the phrase asks for."
+        },
+        {
+          "id": "base1-90",
+          "grade": 3,
+          "reason": "Super Potion (Base) is a healing card by name — what the phrase asks for."
+        },
+        {
+          "id": "base1-94",
+          "grade": 3,
+          "reason": "Potion (Base) is a healing card by name — what the phrase asks for."
+        },
+        {
+          "id": "base4-111",
+          "grade": 3,
+          "reason": "Full Heal (Base Set 2) is a healing card by name — what the phrase asks for."
+        },
+        {
+          "id": "base4-117",
+          "grade": 3,
+          "reason": "Super Potion (Base Set 2) is a healing card by name — what the phrase asks for."
+        },
+        {
+          "id": "base4-122",
+          "grade": 3,
+          "reason": "Potion (Base Set 2) is a healing card by name — what the phrase asks for."
+        },
+        {
+          "id": "base6-110",
+          "grade": 3,
+          "reason": "Potion (Legendary Collection) is a healing card by name — what the phrase asks for."
+        },
+        {
+          "id": "bw1-100",
+          "grade": 3,
+          "reason": "Potion (Black & White) is a healing card by name — what the phrase asks for."
+        }
+      ]
+    },
+    {
+      "query": "draw more cards",
+      "stratum": "natural-language intent",
+      "judgments": [
+        {
+          "id": "sm12-209",
+          "grade": 0,
+          "reason": "Draw Energy (Cosmic Eclipse) does not answer a Trainer that draws cards."
+        },
+        {
+          "id": "sm12-271",
+          "grade": 0,
+          "reason": "Draw Energy (Cosmic Eclipse) does not answer a Trainer that draws cards."
+        },
+        {
+          "id": "me2-120",
+          "grade": 0,
+          "reason": "Grimsley's Move (Phantasmal Flames) does not answer a Trainer that draws cards."
+        },
+        {
+          "id": "me2-90",
+          "grade": 0,
+          "reason": "Grimsley's Move (Phantasmal Flames) does not answer a Trainer that draws cards."
+        },
+        {
+          "id": "me3-70",
+          "grade": 0,
+          "reason": "Core Memory (Perfect Order) does not answer a Trainer that draws cards."
+        },
+        {
+          "id": "swsh10-46",
+          "grade": 2,
+          "reason": "Radiant Greninja (Astral Radiance) draws cards in its rules text without being a draw Trainer by name."
+        },
+        {
+          "id": "g1-71",
+          "grade": 0,
+          "reason": "Red Card (Generations) does not answer a Trainer that draws cards."
+        },
+        {
+          "id": "xy1-124",
+          "grade": 0,
+          "reason": "Red Card (XY) does not answer a Trainer that draws cards."
+        },
+        {
+          "id": "sm10-180",
+          "grade": 0,
+          "reason": "Metal Core Barrier (Unbroken Bonds) does not answer a Trainer that draws cards."
+        },
+        {
+          "id": "sm10-232",
+          "grade": 0,
+          "reason": "Metal Core Barrier (Unbroken Bonds) does not answer a Trainer that draws cards."
+        },
+        {
+          "id": "base1-88",
+          "grade": 3,
+          "reason": "Professor Oak (Base) is a draw Trainer by name — what the phrase asks for."
+        },
+        {
+          "id": "base1-91",
+          "grade": 3,
+          "reason": "Bill (Base) is a draw Trainer by name — what the phrase asks for."
+        },
+        {
+          "id": "base4-116",
+          "grade": 3,
+          "reason": "Professor Oak (Base Set 2) is a draw Trainer by name — what the phrase asks for."
+        },
+        {
+          "id": "base4-118",
+          "grade": 3,
+          "reason": "Bill (Base Set 2) is a draw Trainer by name — what the phrase asks for."
+        },
+        {
+          "id": "base6-108",
+          "grade": 3,
+          "reason": "Bill (Legendary Collection) is a draw Trainer by name — what the phrase asks for."
+        },
+        {
+          "id": "hgss1-89",
+          "grade": 3,
+          "reason": "Bill (HeartGold & SoulSilver) is a draw Trainer by name — what the phrase asks for."
+        },
+        {
+          "id": "pgo-78",
+          "grade": 3,
+          "reason": "Professor's Research (Pokémon GO) is a draw Trainer by name — what the phrase asks for."
+        },
+        {
+          "id": "pgo-84",
+          "grade": 3,
+          "reason": "Professor's Research (Pokémon GO) is a draw Trainer by name — what the phrase asks for."
+        }
+      ]
+    },
+    {
+      "query": "energy that counts as two energy",
+      "stratum": "natural-language intent",
+      "judgments": [
+        {
+          "id": "sm4-100",
+          "grade": 1,
+          "reason": "Counter Energy (Crimson Invasion) is a Special Energy — the right class of card, but not the one that plainly provides two Energy."
+        },
+        {
+          "id": "sm4-122",
+          "grade": 1,
+          "reason": "Counter Energy (Crimson Invasion) is a Special Energy — the right class of card, but not the one that plainly provides two Energy."
+        },
+        {
+          "id": "base1-100",
+          "grade": 0,
+          "reason": "Lightning Energy is a basic Energy card providing one Energy; it matched on the word Energy alone."
+        },
+        {
+          "id": "base1-101",
+          "grade": 0,
+          "reason": "Psychic Energy is a basic Energy card providing one Energy; it matched on the word Energy alone."
+        },
+        {
+          "id": "base1-102",
+          "grade": 0,
+          "reason": "Water Energy is a basic Energy card providing one Energy; it matched on the word Energy alone."
+        },
+        {
+          "id": "base1-81",
+          "grade": 0,
+          "reason": "Energy Retrieval (Base) does not answer an Energy card that provides two Energy."
+        },
+        {
+          "id": "base1-92",
+          "grade": 0,
+          "reason": "Energy Removal (Base) does not answer an Energy card that provides two Energy."
+        },
+        {
+          "id": "base1-97",
+          "grade": 0,
+          "reason": "Fighting Energy is a basic Energy card providing one Energy; it matched on the word Energy alone."
+        },
+        {
+          "id": "base1-98",
+          "grade": 0,
+          "reason": "Fire Energy is a basic Energy card providing one Energy; it matched on the word Energy alone."
+        },
+        {
+          "id": "base1-99",
+          "grade": 0,
+          "reason": "Grass Energy is a basic Energy card providing one Energy; it matched on the word Energy alone."
+        },
+        {
+          "id": "base1-96",
+          "grade": 3,
+          "reason": "Double Colorless Energy (Base) provides two Colorless Energy — the card the phrase describes."
+        },
+        {
+          "id": "base4-124",
+          "grade": 3,
+          "reason": "Double Colorless Energy (Base Set 2) provides two Colorless Energy — the card the phrase describes."
+        },
+        {
+          "id": "bw11-113",
+          "grade": 3,
+          "reason": "Double Colorless Energy (Legendary Treasures) provides two Colorless Energy — the card the phrase describes."
+        },
+        {
+          "id": "bw4-92",
+          "grade": 3,
+          "reason": "Double Colorless Energy (Next Destinies) provides two Colorless Energy — the card the phrase describes."
+        },
+        {
+          "id": "g1-74",
+          "grade": 3,
+          "reason": "Double Colorless Energy (Generations) provides two Colorless Energy — the card the phrase describes."
+        },
+        {
+          "id": "hgss1-103",
+          "grade": 3,
+          "reason": "Double Colorless Energy (HeartGold & SoulSilver) provides two Colorless Energy — the card the phrase describes."
+        }
+      ]
+    },
+    {
+      "query": "switch my active pokemon",
+      "stratum": "natural-language intent",
+      "judgments": [
+        {
+          "id": "base1-95",
+          "grade": 3,
+          "reason": "Switch (Base) swaps the Active Pokemon — what the phrase asks for."
+        },
+        {
+          "id": "base4-123",
+          "grade": 3,
+          "reason": "Switch (Base Set 2) swaps the Active Pokemon — what the phrase asks for."
+        },
+        {
+          "id": "bw1-104",
+          "grade": 3,
+          "reason": "Switch (Black & White) swaps the Active Pokemon — what the phrase asks for."
+        },
+        {
+          "id": "bw7-135",
+          "grade": 3,
+          "reason": "Switch (Boundaries Crossed) swaps the Active Pokemon — what the phrase asks for."
+        },
+        {
+          "id": "dp1-119",
+          "grade": 3,
+          "reason": "Switch (Diamond & Pearl) swaps the Active Pokemon — what the phrase asks for."
+        },
+        {
+          "id": "dp3-128",
+          "grade": 3,
+          "reason": "Switch (Secret Wonders) swaps the Active Pokemon — what the phrase asks for."
+        },
+        {
+          "id": "dp7-93",
+          "grade": 3,
+          "reason": "Switch (Stormfront) swaps the Active Pokemon — what the phrase asks for."
+        },
+        {
+          "id": "ecard1-157",
+          "grade": 3,
+          "reason": "Switch (Expedition Base Set) swaps the Active Pokemon — what the phrase asks for."
+        },
+        {
+          "id": "ex1-92",
+          "grade": 3,
+          "reason": "Switch (Ruby & Sapphire) swaps the Active Pokemon — what the phrase asks for."
+        },
+        {
+          "id": "ex11-102",
+          "grade": 3,
+          "reason": "Switch (Delta Species) swaps the Active Pokemon — what the phrase asks for."
+        },
+        {
+          "id": "bw8-120",
+          "grade": 3,
+          "reason": "Escape Rope (Plasma Storm) swaps the Active Pokemon — what the phrase asks for."
+        },
+        {
+          "id": "dp1-116",
+          "grade": 3,
+          "reason": "Warp Point (Diamond & Pearl) swaps the Active Pokemon — what the phrase asks for."
+        }
+      ]
+    }
+  ]
+}

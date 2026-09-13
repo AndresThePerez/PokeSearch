@@ -197,7 +197,7 @@ Every request gets an ID and leaves a trail that connects the browser to the log
 
 - **`X-Request-Id` on every response.** An inbound `X-Request-Id` or Cloudflare `Cf-Ray` is honoured so one trace spans edge, app and client; otherwise one is generated. An inbound value that does not look like a trace ID is replaced rather than sanitized — it ends up in a response header and in every log line.
 - **One access line per request:** `method`, `path`, `status`, `bytes`, `dur_ms`, `request_id`.
-- **One query line per search or suggestion** that reaches Elasticsearch, carrying the full generated DSL — the same JSON the UI's inspector shows. Both lines are JSON, both use UTC millisecond timestamps, and both name the same `request_id`, so correlating them never involves reasoning about time zones.
+- **One query line per search or suggestion** that reaches Elasticsearch, carrying the full generated DSL — the same query the UI's inspector shows. Both lines are JSON, both use UTC millisecond timestamps, and both name the same `request_id`, so correlating them never involves reasoning about time zones.
 - **`METRICS=1`** publishes stdlib `expvar` counters at `/debug/vars`, keyed by route and status (`search_200`, `search_400`, …). Counting is always on; publishing is opt-in, because the production tunnel forwards whatever path it is given. **Never set `METRICS=1` in the server topology.**
 
 ## Architecture

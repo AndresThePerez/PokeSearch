@@ -19,10 +19,34 @@ export function lastResponseHadDSL() {
   return hadDSL;
 }
 
+// The order the inspector prints generated-DSL fields in: the query itself
+// first, since that is what the panel exists to explain, then the clauses
+// that shape the response. This is presentational only — the API response
+// body is untouched, and Go still marshals its map keys in sorted order
+// (which is why "aggs" precedes "query" on the wire). Any key the server
+// sends that isn't listed here is appended in the order the server sent it,
+// so a future addition to the DSL is never silently dropped from the panel.
+const DSL_DISPLAY_ORDER = ["query", "highlight", "sort", "post_filter", "aggs"];
+
+function orderDslForDisplay(dsl) {
+  const ordered = {};
+  for (const key of DSL_DISPLAY_ORDER) {
+    if (Object.prototype.hasOwnProperty.call(dsl, key)) {
+      ordered[key] = dsl[key];
+    }
+  }
+  for (const key of Object.keys(dsl)) {
+    if (!(key in ordered)) {
+      ordered[key] = dsl[key];
+    }
+  }
+  return ordered;
+}
+
 export function renderInspector(dsl, response) {
   hadDSL = Boolean(dsl);
   $("dsl-json").textContent = dsl
-    ? JSON.stringify(dsl, null, 2)
+    ? JSON.stringify(orderDslForDisplay(dsl), null, 2)
     : "Open this panel to capture the query — the next search will return its DSL.";
   $("response-json").textContent = response ? JSON.stringify(response, null, 2) : "No response available.";
 }

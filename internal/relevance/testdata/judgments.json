@@ -333,6 +333,36 @@
           "id": "xy11-12",
           "grade": 0,
           "reason": "Foongus neither carries nor mentions the name Bill."
+        },
+        {
+          "id": "base5-69",
+          "grade": 0,
+          "reason": "Voltorb neither carries nor mentions the name Bill."
+        },
+        {
+          "id": "bw3-40",
+          "grade": 0,
+          "reason": "Eelektrik neither carries nor mentions the name Bill."
+        },
+        {
+          "id": "base2-64",
+          "grade": 0,
+          "reason": "Poké Ball neither carries nor mentions the name Bill."
+        },
+        {
+          "id": "base4-121",
+          "grade": 0,
+          "reason": "Poké Ball neither carries nor mentions the name Bill."
+        },
+        {
+          "id": "bw1-97",
+          "grade": 0,
+          "reason": "Poké Ball neither carries nor mentions the name Bill."
+        },
+        {
+          "id": "ecard1-137",
+          "grade": 2,
+          "reason": "Bill's Maintenance carries the name Bill inside a longer card name; a defensible near-miss, not the card asked for."
         }
       ]
     },
@@ -389,6 +419,51 @@
           "id": "ex15-80",
           "grade": 2,
           "reason": "Professor Oak's Research carries the name Professor Oak inside a longer card name; a defensible near-miss, not the card asked for."
+        },
+        {
+          "id": "pgo-78",
+          "grade": 0,
+          "reason": "Professor's Research neither carries nor mentions the name Professor Oak."
+        },
+        {
+          "id": "pgo-84",
+          "grade": 0,
+          "reason": "Professor's Research neither carries nor mentions the name Professor Oak."
+        },
+        {
+          "id": "swsh12pt5-150",
+          "grade": 0,
+          "reason": "Professor's Research neither carries nor mentions the name Professor Oak."
+        },
+        {
+          "id": "bp-3",
+          "grade": 0,
+          "reason": "Professor Elm neither carries nor mentions the name Professor Oak."
+        },
+        {
+          "id": "bw1-101",
+          "grade": 0,
+          "reason": "Professor Juniper neither carries nor mentions the name Professor Oak."
+        },
+        {
+          "id": "bw10-84",
+          "grade": 0,
+          "reason": "Professor Juniper neither carries nor mentions the name Professor Oak."
+        },
+        {
+          "id": "sm10-185",
+          "grade": 0,
+          "reason": "Samson Oak neither carries nor mentions the name Professor Oak."
+        },
+        {
+          "id": "sv1-189",
+          "grade": 0,
+          "reason": "Professor's Research (Professor Sada) neither carries nor mentions the name Professor Oak."
+        },
+        {
+          "id": "sv1-190",
+          "grade": 0,
+          "reason": "Professor's Research (Professor Turo) neither carries nor mentions the name Professor Oak."
         }
       ]
     },
@@ -480,6 +555,56 @@
           "id": "base1-24",
           "grade": 3,
           "reason": "Charmeleon is what the prefix char completes to; Base print."
+        },
+        {
+          "id": "neo1-47",
+          "grade": 0,
+          "reason": "Nothing in Quilava starts with the typed letters char."
+        },
+        {
+          "id": "ex15-41",
+          "grade": 0,
+          "reason": "Nothing in Togepi δ starts with the typed letters char."
+        },
+        {
+          "id": "bw11-RC6",
+          "grade": 0,
+          "reason": "Nothing in Piplup starts with the typed letters char."
+        },
+        {
+          "id": "dp1-83",
+          "grade": 0,
+          "reason": "Nothing in Glameow starts with the typed letters char."
+        },
+        {
+          "id": "dp5-27",
+          "grade": 0,
+          "reason": "Nothing in Phione starts with the typed letters char."
+        },
+        {
+          "id": "dpp-DP23",
+          "grade": 0,
+          "reason": "Nothing in Glameow starts with the typed letters char."
+        },
+        {
+          "id": "me1-107",
+          "grade": 0,
+          "reason": "Nothing in Buneary starts with the typed letters char."
+        },
+        {
+          "id": "mcd15-12",
+          "grade": 0,
+          "reason": "Nothing in Skitty starts with the typed letters char."
+        },
+        {
+          "id": "sv8-86",
+          "grade": 0,
+          "reason": "Nothing in Sylveon ex starts with the typed letters char."
+        },
+        {
+          "id": "sv8pt5-156",
+          "grade": 0,
+          "reason": "Nothing in Sylveon ex starts with the typed letters char."
         }
       ]
     },
@@ -556,6 +681,21 @@
           "id": "dp2-94",
           "grade": 3,
           "reason": "Pikachu is what the prefix pika completes to; Mysterious Treasures print."
+        },
+        {
+          "id": "swsh12pt5gg-GG30",
+          "grade": 3,
+          "reason": "Pikachu is what the prefix pika completes to; Crown Zenith Galarian Gallery print."
+        },
+        {
+          "id": "ex2-72",
+          "grade": 3,
+          "reason": "Pikachu is what the prefix pika completes to; Sandstorm print."
+        },
+        {
+          "id": "ex9-60",
+          "grade": 3,
+          "reason": "Pikachu is what the prefix pika completes to; Emerald print."
         }
       ]
     },
@@ -739,6 +879,31 @@
           "id": "basep-5",
           "grade": 3,
           "reason": "Dragonite is what the prefix dragoni completes to; Wizards Black Star Promos print."
+        },
+        {
+          "id": "ecard1-107",
+          "grade": 0,
+          "reason": "Nothing in Dratini starts with the typed letters dragoni."
+        },
+        {
+          "id": "sm9-116",
+          "grade": 0,
+          "reason": "Nothing in Dratini starts with the typed letters dragoni."
+        },
+        {
+          "id": "swsh7-191",
+          "grade": 3,
+          "reason": "Dragonite V is what the prefix dragoni completes to; Evolving Skies print."
+        },
+        {
+          "id": "swsh7-192",
+          "grade": 3,
+          "reason": "Dragonite V is what the prefix dragoni completes to; Evolving Skies print."
+        },
+        {
+          "id": "dv1-5",
+          "grade": 3,
+          "reason": "Dragonite is what the prefix dragoni completes to; Dragon Vault print."
         }
       ]
     },
@@ -815,6 +980,16 @@
           "id": "pop7-1",
           "grade": 3,
           "reason": "Ampharos is what the prefix ampha completes to; POP Series 7 print."
+        },
+        {
+          "id": "ecard2-H1",
+          "grade": 3,
+          "reason": "Ampharos is what the prefix ampha completes to; Aquapolis print."
+        },
+        {
+          "id": "ex15-1",
+          "grade": 3,
+          "reason": "Ampharos δ is what the prefix ampha completes to; Dragon Frontiers print."
         }
       ]
     },
@@ -1038,6 +1213,11 @@
           "id": "basep-26",
           "grade": 3,
           "reason": "Named exactly Pikachu, the correct spelling behind the typo; Wizards Black Star Promos print."
+        },
+        {
+          "id": "ex13-76",
+          "grade": 0,
+          "reason": "Pichu δ is neither Pikachu nor a near-spelling of it."
         }
       ]
     },
@@ -1150,6 +1330,21 @@
           "id": "neo4-109",
           "grade": 2,
           "reason": "Shining Mewtwo carries the intended name Mewtwo with extra words; a defensible near-miss."
+        },
+        {
+          "id": "base6-29",
+          "grade": 3,
+          "reason": "Named exactly Mewtwo, the correct spelling behind the typo; Legendary Collection print."
+        },
+        {
+          "id": "basep-12",
+          "grade": 3,
+          "reason": "Named exactly Mewtwo, the correct spelling behind the typo; Wizards Black Star Promos print."
+        },
+        {
+          "id": "bw11-53",
+          "grade": 3,
+          "reason": "Named exactly Mewtwo, the correct spelling behind the typo; Legendary Treasures print."
         }
       ]
     },
@@ -1374,6 +1569,11 @@
           "id": "bwp-BW22",
           "grade": 3,
           "reason": "Samurott (BW Black Star Promos) has the attack Hydro Pump by that exact name."
+        },
+        {
+          "id": "cel25c-2_A",
+          "grade": 3,
+          "reason": "Blastoise (Celebrations: Classic Collection) has the attack Hydro Pump by that exact name."
         }
       ]
     },
@@ -1465,6 +1665,61 @@
           "id": "ecard1-77",
           "grade": 3,
           "reason": "Flaaffy (Expedition Base Set) has the attack Thunder Jolt by that exact name."
+        },
+        {
+          "id": "smp-SM183",
+          "grade": 3,
+          "reason": "Pikachu (SM Black Star Promos) has the attack Thunder Jolt by that exact name."
+        },
+        {
+          "id": "sv3-75",
+          "grade": 3,
+          "reason": "Tadbulb (Obsidian Flames) has the attack Thunder Jolt by that exact name."
+        },
+        {
+          "id": "swsh12pt5-40",
+          "grade": 3,
+          "reason": "Shinx (Crown Zenith) has the attack Thunder Jolt by that exact name."
+        },
+        {
+          "id": "swsh2-63",
+          "grade": 3,
+          "reason": "Helioptile (Rebel Clash) has the attack Thunder Jolt by that exact name."
+        },
+        {
+          "id": "bw5-105",
+          "grade": 0,
+          "reason": "Raikou-EX has no attack, ability or text matching thunder jolt."
+        },
+        {
+          "id": "bw5-38",
+          "grade": 0,
+          "reason": "Raikou-EX has no attack, ability or text matching thunder jolt."
+        },
+        {
+          "id": "swsh9-131",
+          "grade": 0,
+          "reason": "Blunder Policy has no attack, ability or text matching thunder jolt."
+        },
+        {
+          "id": "ecard3-120",
+          "grade": 0,
+          "reason": "Relic Hunter has no attack, ability or text matching thunder jolt."
+        },
+        {
+          "id": "sv7-111",
+          "grade": 0,
+          "reason": "Raging Bolt has no attack, ability or text matching thunder jolt."
+        },
+        {
+          "id": "ex11-109",
+          "grade": 0,
+          "reason": "Jolteon ex merely shares a word with thunder jolt in its card name; it has no such move."
+        },
+        {
+          "id": "sm11-61",
+          "grade": 0,
+          "reason": "Joltik merely shares a word with thunder jolt in its card name; it has no such move."
         }
       ]
     },
@@ -1521,6 +1776,16 @@
           "id": "ex15-25",
           "grade": 3,
           "reason": "Xatu δ (Dragon Frontiers) has the attack Confuse Ray by that exact name."
+        },
+        {
+          "id": "base5-73",
+          "grade": 0,
+          "reason": "The Boss's Way has no attack, ability or text matching confuse ray."
+        },
+        {
+          "id": "base6-105",
+          "grade": 0,
+          "reason": "The Boss's Way has no attack, ability or text matching confuse ray."
         }
       ]
     },
@@ -1658,6 +1923,16 @@
           "id": "hsp-HGSS07",
           "grade": 3,
           "reason": "Feraligatr (HGSS Black Star Promos) has the ability Rain Dance by that exact name."
+        },
+        {
+          "id": "dp1-27",
+          "grade": 0,
+          "reason": "Gengar has no attack, ability or text matching rain dance."
+        },
+        {
+          "id": "ex1-35",
+          "grade": 0,
+          "reason": "Kirlia has no attack, ability or text matching rain dance."
         }
       ]
     },
@@ -1729,6 +2004,56 @@
           "id": "xy1-1",
           "grade": 3,
           "reason": "Venusaur-EX (XY) has the attack Poison Powder by that exact name."
+        },
+        {
+          "id": "xy12-6",
+          "grade": 3,
+          "reason": "Kakuna (Evolutions) has the attack Poison Powder by that exact name."
+        },
+        {
+          "id": "xy12-8",
+          "grade": 3,
+          "reason": "Tangela (Evolutions) has the attack Poison Powder by that exact name."
+        },
+        {
+          "id": "xyp-XY137",
+          "grade": 0,
+          "reason": "Vivillon has no attack, ability or text matching poison powder."
+        },
+        {
+          "id": "gym2-25",
+          "grade": 0,
+          "reason": "Koga's Arbok has no attack, ability or text matching poison powder."
+        },
+        {
+          "id": "ecard1-147",
+          "grade": 0,
+          "reason": "Power Charge has no attack, ability or text matching poison powder."
+        },
+        {
+          "id": "ecard2-139",
+          "grade": 0,
+          "reason": "Power Plant has no attack, ability or text matching poison powder."
+        },
+        {
+          "id": "ex12-76",
+          "grade": 0,
+          "reason": "Power Tree has no attack, ability or text matching poison powder."
+        },
+        {
+          "id": "sm10-183",
+          "grade": 0,
+          "reason": "Power Plant has no attack, ability or text matching poison powder."
+        },
+        {
+          "id": "sm12-269",
+          "grade": 0,
+          "reason": "Power Plant has no attack, ability or text matching poison powder."
+        },
+        {
+          "id": "swsh8-236",
+          "grade": 0,
+          "reason": "Power Tablet has no attack, ability or text matching poison powder."
         }
       ]
     },
@@ -1815,6 +2140,31 @@
           "id": "xy12-11",
           "grade": 3,
           "reason": "Charizard (Evolutions) has the ability Energy Burn by that exact name."
+        },
+        {
+          "id": "ex3-4",
+          "grade": 0,
+          "reason": "Flygon has no attack, ability or text matching energy burn."
+        },
+        {
+          "id": "pgo-10",
+          "grade": 0,
+          "reason": "Charizard has no attack, ability or text matching energy burn."
+        },
+        {
+          "id": "basep-23",
+          "grade": 0,
+          "reason": "Zapdos has no attack, ability or text matching energy burn."
+        },
+        {
+          "id": "sm11-211",
+          "grade": 0,
+          "reason": "U-Turn Board has no attack, ability or text matching energy burn."
+        },
+        {
+          "id": "sm11-255",
+          "grade": 0,
+          "reason": "U-Turn Board has no attack, ability or text matching energy burn."
         }
       ]
     },
@@ -2343,6 +2693,46 @@
           "id": "ecard1-4",
           "grade": 1,
           "reason": "Blastoise is printed in Expedition Base Set, which only shares the words; a weak match."
+        },
+        {
+          "id": "dp6-43",
+          "grade": 0,
+          "reason": "Uxie is printed in Legends Awakened, not in Base."
+        },
+        {
+          "id": "xy6-106",
+          "grade": 0,
+          "reason": "Shaymin-EX is printed in Roaring Skies, not in Base."
+        },
+        {
+          "id": "xy6-77",
+          "grade": 0,
+          "reason": "Shaymin-EX is printed in Roaring Skies, not in Base."
+        },
+        {
+          "id": "xy6-77a",
+          "grade": 0,
+          "reason": "Shaymin-EX is printed in Roaring Skies, not in Base."
+        },
+        {
+          "id": "ex5-37",
+          "grade": 0,
+          "reason": "Igglybuff is printed in Hidden Legends, not in Base."
+        },
+        {
+          "id": "ecard3-96",
+          "grade": 0,
+          "reason": "Shuckle is printed in Skyridge, not in Base."
+        },
+        {
+          "id": "sv6pt5-47",
+          "grade": 0,
+          "reason": "Kyurem is printed in Shrouded Fable, not in Base."
+        },
+        {
+          "id": "sm8-187",
+          "grade": 0,
+          "reason": "Net Ball is printed in Lost Thunder, not in Base."
         }
       ]
     },
@@ -2429,6 +2819,41 @@
           "id": "base2-14",
           "grade": 3,
           "reason": "Victreebel is printed in Jungle, the set Jungle names."
+        },
+        {
+          "id": "sm35-3",
+          "grade": 0,
+          "reason": "Venusaur is printed in Shining Legends, not in Jungle."
+        },
+        {
+          "id": "me1-155",
+          "grade": 0,
+          "reason": "Mega Venusaur ex is printed in Mega Evolution, not in Jungle."
+        },
+        {
+          "id": "me1-177",
+          "grade": 0,
+          "reason": "Mega Venusaur ex is printed in Mega Evolution, not in Jungle."
+        },
+        {
+          "id": "me1-3",
+          "grade": 0,
+          "reason": "Mega Venusaur ex is printed in Mega Evolution, not in Jungle."
+        },
+        {
+          "id": "xy5-8",
+          "grade": 0,
+          "reason": "Sceptile is printed in Primal Clash, not in Jungle."
+        },
+        {
+          "id": "hgss3-43",
+          "grade": 0,
+          "reason": "Beldum is printed in HS—Undaunted, not in Jungle."
+        },
+        {
+          "id": "sm9-105",
+          "grade": 0,
+          "reason": "Bisharp is printed in Team Up, not in Jungle."
         }
       ]
     },
@@ -2525,6 +2950,11 @@
           "id": "base3-4",
           "grade": 3,
           "reason": "Dragonite is printed in Fossil, the set Fossil names."
+        },
+        {
+          "id": "swsh12-95",
+          "grade": 0,
+          "reason": "Anorith is printed in Silver Tempest, not in Fossil."
         }
       ]
     },
@@ -2611,6 +3041,11 @@
           "id": "base5-14",
           "grade": 3,
           "reason": "Dark Weezing is printed in Team Rocket, the set Team Rocket names."
+        },
+        {
+          "id": "me2pt5-127",
+          "grade": 0,
+          "reason": "Team Rocket's Honchkrow is printed in Ascended Heroes, not in Team Rocket."
         }
       ]
     },
@@ -2667,6 +3102,46 @@
           "id": "neo1-105",
           "grade": 3,
           "reason": "Recycle Energy is printed in Neo Genesis, the set Neo Genesis names."
+        },
+        {
+          "id": "sm8-187",
+          "grade": 0,
+          "reason": "Net Ball is printed in Lost Thunder, not in Neo Genesis."
+        },
+        {
+          "id": "sm8-187a",
+          "grade": 0,
+          "reason": "Net Ball is printed in Lost Thunder, not in Neo Genesis."
+        },
+        {
+          "id": "sm8-234",
+          "grade": 0,
+          "reason": "Net Ball is printed in Lost Thunder, not in Neo Genesis."
+        },
+        {
+          "id": "ex2-87",
+          "grade": 0,
+          "reason": "Lanette's Net Search is printed in Sandstorm, not in Neo Genesis."
+        },
+        {
+          "id": "ex9-77",
+          "grade": 0,
+          "reason": "Lanette's Net Search is printed in Emerald, not in Neo Genesis."
+        },
+        {
+          "id": "me4-78",
+          "grade": 0,
+          "reason": "Great Haul Net is printed in Chaos Rising, not in Neo Genesis."
+        },
+        {
+          "id": "swsh2-165",
+          "grade": 0,
+          "reason": "Scoop Up Net is printed in Rebel Clash, not in Neo Genesis."
+        },
+        {
+          "id": "swsh2-207",
+          "grade": 0,
+          "reason": "Scoop Up Net is printed in Rebel Clash, not in Neo Genesis."
         }
       ]
     },
@@ -2723,6 +3198,11 @@
           "id": "swsh7-103",
           "grade": 3,
           "reason": "Zoroark is printed in Evolving Skies, the set Evolving Skies names."
+        },
+        {
+          "id": "swsh7-104",
+          "grade": 3,
+          "reason": "Nickit is printed in Evolving Skies, the set Evolving Skies names."
         }
       ]
     },
@@ -2910,6 +3390,16 @@
           "id": "bw11-114",
           "grade": 3,
           "reason": "Reshiram (Legendary Treasures) is a Fire-type Pokemon that reads as a dragon — exactly what the phrase describes."
+        },
+        {
+          "id": "sm75-59",
+          "grade": 0,
+          "reason": "Dragon Talon (Dragon Majesty) does not answer a Fire-type Pokemon that reads as a dragon."
+        },
+        {
+          "id": "sm75-75",
+          "grade": 0,
+          "reason": "Dragon Talon (Dragon Majesty) does not answer a Fire-type Pokemon that reads as a dragon."
         }
       ]
     },
@@ -3213,6 +3703,11 @@
           "id": "bw5-25",
           "grade": 3,
           "reason": "Vaporeon (Dark Explorers) evolves from Eevee — the card the phrase asks for."
+        },
+        {
+          "id": "ecard3-54",
+          "grade": 2,
+          "reason": "Eevee (Skyridge) is Eevee itself: the Pokemon evolved from, not one that evolves from it."
         }
       ]
     },
@@ -3309,6 +3804,16 @@
           "id": "bw1-100",
           "grade": 3,
           "reason": "Potion (Black & White) is a healing card by name — what the phrase asks for."
+        },
+        {
+          "id": "sm8-90",
+          "grade": 0,
+          "reason": "Unown (Lost Thunder) does not answer a card that removes damage from a Pokemon."
+        },
+        {
+          "id": "swsh11-156",
+          "grade": 0,
+          "reason": "Damage Pump (Lost Origin) does not answer a card that removes damage from a Pokemon."
         }
       ]
     },
@@ -3405,6 +3910,46 @@
           "id": "pgo-84",
           "grade": 3,
           "reason": "Professor's Research (Pokémon GO) is a draw Trainer by name — what the phrase asks for."
+        },
+        {
+          "id": "dp1-68",
+          "grade": 2,
+          "reason": "Unown [D] (Diamond & Pearl) draws cards in its rules text without being a draw Trainer by name."
+        },
+        {
+          "id": "sv3pt5-36",
+          "grade": 0,
+          "reason": "Clefable (151) does not answer a Trainer that draws cards."
+        },
+        {
+          "id": "cel25c-88_A",
+          "grade": 0,
+          "reason": "Mew ex (Celebrations: Classic Collection) does not answer a Trainer that draws cards."
+        },
+        {
+          "id": "ex1-12",
+          "grade": 0,
+          "reason": "Slaking (Ruby & Sapphire) does not answer a Trainer that draws cards."
+        },
+        {
+          "id": "ex10-9",
+          "grade": 0,
+          "reason": "Meganium (Unseen Forces) does not answer a Trainer that draws cards."
+        },
+        {
+          "id": "ex12-88",
+          "grade": 0,
+          "reason": "Mew ex (Legend Maker) does not answer a Trainer that draws cards."
+        },
+        {
+          "id": "ex16-13",
+          "grade": 0,
+          "reason": "Slaking (Power Keepers) does not answer a Trainer that draws cards."
+        },
+        {
+          "id": "me4-113",
+          "grade": 0,
+          "reason": "Special Red Card (Chaos Rising) does not answer a Trainer that draws cards."
         }
       ]
     },
@@ -3491,6 +4036,46 @@
           "id": "hgss1-103",
           "grade": 3,
           "reason": "Double Colorless Energy (HeartGold & SoulSilver) provides two Colorless Energy — the card the phrase describes."
+        },
+        {
+          "id": "ecard1-76",
+          "grade": 0,
+          "reason": "Electabuzz (Expedition Base Set) does not answer an Energy card that provides two Energy."
+        },
+        {
+          "id": "dp3-44",
+          "grade": 0,
+          "reason": "Xatu (Secret Wonders) does not answer an Energy card that provides two Energy."
+        },
+        {
+          "id": "dp6-1",
+          "grade": 0,
+          "reason": "Deoxys Normal Forme (Legends Awakened) does not answer an Energy card that provides two Energy."
+        },
+        {
+          "id": "dp6-23",
+          "grade": 0,
+          "reason": "Delcatty (Legends Awakened) does not answer an Energy card that provides two Energy."
+        },
+        {
+          "id": "dpp-DP39",
+          "grade": 0,
+          "reason": "Shaymin LV.X (DP Black Star Promos) does not answer an Energy card that provides two Energy."
+        },
+        {
+          "id": "ecard1-17",
+          "grade": 0,
+          "reason": "Magby (Expedition Base Set) does not answer an Energy card that provides two Energy."
+        },
+        {
+          "id": "ecard1-22",
+          "grade": 0,
+          "reason": "Pichu (Expedition Base Set) does not answer an Energy card that provides two Energy."
+        },
+        {
+          "id": "ecard1-37",
+          "grade": 0,
+          "reason": "Blastoise (Expedition Base Set) does not answer an Energy card that provides two Energy."
         }
       ]
     },

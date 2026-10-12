@@ -6,7 +6,7 @@
 
 ### **[Live demo → pokesearch.andrestheperez.com](https://pokesearch.andrestheperez.com)**
 
-PokéSearch is a full-text search engine over all 20,324 English Pokémon TCG cards — a Go API, an Elasticsearch relevance model with disjunctive facets, and a dependency-free ES-module frontend, shipped as a single containerized binary. Searching the corpus is the easy half. The half worth reading the code for is that the engine explains itself.
+PokéSearch is a full-text search engine over all 20,635 English Pokémon TCG cards — a Go API, an Elasticsearch relevance model with disjunctive facets, and a dependency-free ES-module frontend, shipped as a single containerized binary. Searching the corpus is the easy half. The half worth reading the code for is that the engine explains itself.
 
 Every result page carries an observability rail: the exact Elasticsearch DSL that answered the query, the cluster's own latency broken out from the browser round trip, a sparkline of the session's last twenty requests, and the live SLA targets — while the same query goes to the application log as one replayable JSON line tagged with the request ID printed on screen.
 
@@ -22,7 +22,7 @@ docker compose --profile seed run --rm seed
 curl -s http://localhost:8080/healthz
 ```
 
-Open <http://localhost:8080>. The first seed streams the source tarball through memory and indexes 20,324 cards; it never writes them to disk. Elasticsearch stays private to the Compose network — only the application is published.
+Open <http://localhost:8080>. The first seed streams the source tarball through memory and indexes 20,635 cards; it never writes them to disk. Elasticsearch stays private to the Compose network — only the application is published.
 
 Publish on a different host port with `APP_PORT`:
 
@@ -57,15 +57,16 @@ Run the checks the CI workflow runs:
 go build ./...
 go vet ./...
 go vet -tags acceptance ./internal/acceptance
+go vet -tags relevance ./internal/relevance
 go test -race ./...
 golangci-lint run
-go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
 find web -name '*.js' -exec node --check {} \;
 ```
 
 CI adds one job this list cannot express locally: it builds the runtime image and asserts via `docker inspect` that it does not run as root.
 
-In full, `.github/workflows/ci.yml` runs three jobs on every pull request and on every push to `master` — a Go job that builds, vets, vets the tag-gated `internal/acceptance` package separately so it cannot stop compiling unnoticed, runs the tests under `-race`, then runs golangci-lint at its pinned `v2.13.1` and `govulncheck` at a pinned version rather than the `@latest` above, so the scanner itself cannot change under CI; the vulnerability database is still fetched at run time, so a newly published advisory can still turn `master` red; a frontend job that runs `node --check` over every shipped `.js` file under `web/` and fails if that glob matches nothing; and the image job just described, whose assertion is stricter than its name — it fails if the configured user is empty as well as if it is `root`.
+In full, `.github/workflows/ci.yml` runs three jobs on every pull request and on every push to `master` — a Go job that builds, vets, vets the tag-gated `internal/acceptance` and `internal/relevance` packages separately so neither can stop compiling unnoticed, runs the tests under `-race`, then runs golangci-lint at its pinned `v2.13.1` and `govulncheck` at the same pinned `v1.8.0` as above, so the scanner itself cannot change under CI; the vulnerability database is still fetched at run time, so a newly published advisory can still turn `master` red; a frontend job that runs `node --check` over every shipped `.js` file under `web/` and fails if that glob matches nothing; and the image job just described, whose assertion is stricter than its name — it fails if the configured user is empty as well as if it is `root`.
 
 The acceptance suite is build-tagged and runs against a live stack:
 
@@ -73,7 +74,7 @@ The acceptance suite is build-tagged and runs against a live stack:
 POKESEARCH_URL=http://localhost:8080 go test -tags acceptance -count=1 ./internal/acceptance
 ```
 
-`.github/workflows/acceptance.yml` runs that same suite end to end on demand (`workflow_dispatch`): it brings the stack up, seeds the pinned ref, asserts `/healthz` reports exactly 20,324 documents, and only then runs the tests.
+`.github/workflows/acceptance.yml` runs that same suite end to end on demand (`workflow_dispatch`): it brings the stack up, seeds the pinned ref, asserts `/healthz` reports exactly 20,635 documents, and only then runs the tests.
 
 ### Build identity
 
@@ -114,8 +115,8 @@ Search responses carry Elasticsearch's `took_ms`, the effective `page_size`, and
   "version": "v1.3.0",
   "commit": "4581829",
   "built": "2026-08-22T19:21:13Z",
-  "docs": 20324,
-  "seed": { "ref": "0af6250a22495e4a3e9f60ff45fc3fedc2e0563d", "seeded_at": "2026-08-22T19:40:00Z" },
+  "docs": 20635,
+  "seed": { "ref": "39a26a144c8b6ef6c2fb17b2c29d0bb7121e3a11", "seeded_at": "2026-08-22T19:40:00Z" },
   "request_id": "3f2a8c1d9e0b4a76"
 }
 ```
@@ -153,7 +154,7 @@ The rest of that design — the branch badges and `GET /api/explain`, highlighti
 pages = ceil(min(total, 9600) / page_size)
 ```
 
-`pages` is therefore deliberately **not** `total / page_size` on large result sets: a browse of all 20,324 cards reports `pages: 400` at the default size, `96` at `page_size=100`, and `9600` at `page_size=1`. Out-of-range values clamp rather than fail — `page_size=500` becomes `100`, `page=999999` becomes the last reachable page.
+`pages` is therefore deliberately **not** `total / page_size` on large result sets: a browse of all 20,635 cards reports `pages: 400` at the default size, `96` at `page_size=100`, and `9600` at `page_size=1`. Out-of-range values clamp rather than fail — `page_size=500` becomes `100`, `page=999999` becomes the last reachable page.
 
 ### Errors
 

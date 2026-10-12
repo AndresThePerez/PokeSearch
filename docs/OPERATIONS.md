@@ -27,7 +27,7 @@ The stack is deployed by pulling the repository onto a host and building there. 
 | `DEPLOY_HOST` | `user@server` | SSH target running Docker |
 | `DEPLOY_DIR` | `/srv/pokesearch` | Checkout location on that host |
 | `APP_PORT` | `8090` | Host port to publish the application on (defaults to `8080`) |
-| `SEED_REF` | `0af6250a…` | `pokemon-tcg-data` commit to index |
+| `SEED_REF` | `39a26a14…` | `pokemon-tcg-data` commit to index |
 
 ```bash
 ssh "$DEPLOY_HOST"
@@ -48,7 +48,7 @@ docker compose -f docker-compose.yml -f docker-compose.server.yml --profile seed
   -es http://es:9200 -ref "$SEED_REF"
 ```
 
-`0af6250a22495e4a3e9f60ff45fc3fedc2e0563d` is the `pokemon-tcg-data` `master` commit as of 2026-07-10 and yields exactly **20,324** documents (`/healthz` → `{"docs":20324,"status":"ok"}`). It is the ref pinned in `docker-compose.yml`. A populated index makes reseeding a no-op unless `-force` is passed.
+`39a26a144c8b6ef6c2fb17b2c29d0bb7121e3a11` is the `pokemon-tcg-data` `master` commit as of 2026-09-16 and yields exactly **20,635** documents (`/healthz` → `{"docs":20635,"status":"ok"}`). It is the ref pinned in `docker-compose.yml`. A populated index makes reseeding a no-op unless `-force` is passed.
 
 ### Backup and restore
 

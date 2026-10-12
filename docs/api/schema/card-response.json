@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GET /api/v1/cards/{id} 200",
+  "description": "One card and the provenance of the index that answered. The body carries no request_id (the X-Request-Id header does), so equal answers carry equal weak ETags. A miss is a 404 and a malformed id a 400, both error.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["data", "seed"],
+  "properties": {
+    "data": { "$ref": "card.json" },
+    "seed": { "$ref": "#/$defs/seed" }
+  },
+  "$defs": {
+    "seed": {
+      "description": "Which pokemon-tcg-data commit the index was seeded from, and when. Both members are always present; both are null for an index seeded before provenance stamping.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "seeded_at"],
+      "properties": {
+        "ref": { "type": ["string", "null"], "minLength": 1 },
+        "seeded_at": { "type": ["string", "null"], "minLength": 1 }
+      }
+    }
+  }
+}

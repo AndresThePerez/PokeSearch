@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Card",
+  "description": "One card exactly as PokéSearch indexes it (Go type tcg.Card). Members tcg.Card marks omitempty are optional: absent means the source card has no value. hp is absent when the card prints none, never 0 for none.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "name", "supertype", "number", "set_id", "set_name", "set_series", "set_total", "release_date", "image_small", "image_large"],
+  "properties": {
+    "id": {
+      "description": "The pokemon-tcg-data card id. Every id the v1 lookup accepts matches this pattern, including ex10-? and ex10-!.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._!?-]{0,127}$"
+    },
+    "name": { "type": "string" },
+    "supertype": { "type": "string" },
+    "subtypes": { "type": "array", "items": { "type": "string" } },
+    "hp": { "type": "integer", "minimum": 0 },
+    "types": { "type": "array", "items": { "type": "string" } },
+    "evolves_from": { "type": "string" },
+    "attacks": { "type": "array", "items": { "$ref": "#/$defs/attack" } },
+    "abilities": { "type": "array", "items": { "$ref": "#/$defs/ability" } },
+    "weaknesses": { "type": "array", "items": { "$ref": "#/$defs/value" } },
+    "resistances": { "type": "array", "items": { "$ref": "#/$defs/value" } },
+    "retreat_cost": { "type": "integer", "minimum": 0 },
+    "rarity": { "type": "string" },
+    "artist": { "type": "string" },
+    "flavor_text": { "type": "string" },
+    "national_pokedex_numbers": { "type": "array", "items": { "type": "integer" } },
+    "number": { "description": "The printed collector number; a string because some are not numeric.", "type": "string" },
+    "set_id": { "type": "string" },
+    "set_name": { "type": "string" },
+    "set_series": { "type": "string" },
+    "set_total": { "description": "The set's printed size.", "type": "integer", "minimum": 0 },
+    "release_date": { "description": "The set's release date, yyyy-MM-dd.", "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "image_small": { "type": "string" },
+    "image_large": { "type": "string" }
+  },
+  "$defs": {
+    "attack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "converted_cost", "damage", "damage_value"],
+      "properties": {
+        "name": { "type": "string" },
+        "cost": { "type": "array", "items": { "type": "string" } },
+        "converted_cost": { "type": "integer", "minimum": 0 },
+        "damage": { "description": "The printed damage string, possibly empty or carrying a modifier (\"30+\").", "type": "string" },
+        "damage_value": { "description": "The leading integer of damage; 0 when there is none.", "type": "integer", "minimum": 0 },
+        "text": { "type": "string" }
+      }
+    },
+    "ability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "text"],
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "text": { "type": "string" }
+      }
+    },
+    "value": {
+      "description": "A weakness or a resistance.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "value"],
+      "properties": {
+        "type": { "type": "string" },
+        "value": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Error envelope (ADR 7)",
+  "description": "The one body every non-2xx JSON answer carries, on /api/v1/ and on the pre-v1 endpoints. request_id equals the X-Request-Id response header.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["error", "request_id"],
+  "properties": {
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "description": "invalid_param (400): a parameter is malformed, field names it. not_found (404): no card has the id. unauthorized (401): an X-Api-Key header names no configured key. es_unavailable (503): Elasticsearch did not answer.",
+          "type": "string",
+          "enum": ["es_unavailable", "invalid_param", "not_found", "unauthorized"]
+        },
+        "field": { "description": "The parameter at fault; absent when no single parameter is.", "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 }
+      }
+    },
+    "request_id": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,64}$" }
+  }
+}

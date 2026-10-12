@@ -56,7 +56,7 @@ Run the checks the CI workflow runs:
 ```bash
 go build ./...
 go vet ./...
-go vet -tags acceptance ./internal/acceptance
+go vet -tags acceptance ./internal/...
 go vet -tags relevance ./internal/relevance
 go test -race ./...
 golangci-lint run
@@ -71,7 +71,7 @@ In full, `.github/workflows/ci.yml` runs three jobs on every pull request and on
 The acceptance suite is build-tagged and runs against a live stack:
 
 ```bash
-POKESEARCH_URL=http://localhost:8080 go test -tags acceptance -count=1 ./internal/acceptance
+POKESEARCH_URL=http://localhost:8080 go test -tags acceptance -count=1 ./internal/acceptance ./internal/apischema
 ```
 
 `.github/workflows/acceptance.yml` runs that same suite end to end on demand (`workflow_dispatch`): it brings the stack up, seeds the pinned ref, asserts `/healthz` reports exactly 20,635 documents, and only then runs the tests.

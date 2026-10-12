@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GET /api/search 200",
+  "description": "One page of search or browse results. A pre-v1 endpoint, described here unchanged. matched and highlights are present for a text query only and are aligned index for index with results; did_you_mean is present only when a text query found nothing and a correction exists. Every facet is always present.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["total", "page", "pages", "page_size", "took_ms", "results", "facets"],
+  "properties": {
+    "total": { "type": "integer", "minimum": 0 },
+    "page": { "type": "integer", "minimum": 1 },
+    "pages": { "type": "integer", "minimum": 0 },
+    "page_size": { "type": "integer", "minimum": 1 },
+    "took_ms": { "type": "integer", "minimum": 0 },
+    "results": { "type": "array", "items": { "$ref": "card.json" } },
+    "matched": {
+      "description": "The relevance branches each hit matched, strongest first; empty for a hit no branch matched.",
+      "type": "array",
+      "items": { "type": "array", "items": { "type": "string" } }
+    },
+    "highlights": {
+      "description": "Per hit, the highlighted fields and their <mark>-tagged fragments; empty for a hit with none.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": { "$ref": "#/$defs/fragments" },
+          "attacks.name": { "$ref": "#/$defs/fragments" },
+          "abilities.name": { "$ref": "#/$defs/fragments" },
+          "attacks.text": { "$ref": "#/$defs/fragments" },
+          "abilities.text": { "$ref": "#/$defs/fragments" },
+          "flavor_text": { "$ref": "#/$defs/fragments" }
+        }
+      }
+    },
+    "did_you_mean": { "type": "string", "minLength": 1 },
+    "facets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["supertype", "types", "rarity", "set_series", "sets"],
+      "properties": {
+        "supertype": { "$ref": "#/$defs/buckets" },
+        "types": { "$ref": "#/$defs/buckets" },
+        "rarity": { "$ref": "#/$defs/buckets" },
+        "set_series": { "$ref": "#/$defs/buckets" },
+        "sets": { "$ref": "#/$defs/buckets" }
+      }
+    },
+    "dsl": {
+      "description": "Present only with debug=1: the Elasticsearch request body that answered. It is Elasticsearch's query language, not part of this contract, and clients must not depend on it."
+    }
+  },
+  "$defs": {
+    "fragments": { "type": "array", "items": { "type": "string" } },
+    "buckets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["value", "count"],
+        "properties": {
+          "value": { "type": "string" },
+          "label": { "description": "sets only: the set name.", "type": "string" },
+          "release_date": { "description": "sets only: yyyy-MM-dd.", "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+          "count": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

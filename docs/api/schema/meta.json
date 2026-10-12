@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GET /api/meta 200",
+  "description": "Build identity and corpus provenance. A pre-v1 endpoint, described here unchanged.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "commit", "built", "docs", "seed", "request_id"],
+  "properties": {
+    "version": { "type": "string" },
+    "commit": { "type": "string" },
+    "built": { "type": "string" },
+    "docs": { "description": "Documents in the index; 0 when it does not exist yet.", "type": "integer", "minimum": 0 },
+    "seed": {
+      "description": "null for an unseeded index or one seeded before provenance stamping.",
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["ref", "seeded_at"],
+      "properties": {
+        "ref": { "type": "string" },
+        "seeded_at": { "type": "string" }
+      }
+    },
+    "request_id": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,64}$" }
+  }
+}

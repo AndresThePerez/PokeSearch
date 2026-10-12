@@ -2,7 +2,10 @@ module github.com/AndresThePerez/pokesearch
 
 go 1.26.6
 
-require github.com/elastic/go-elasticsearch/v8 v8.19.6
+require (
+	github.com/elastic/go-elasticsearch/v8 v8.19.6
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
+)
 
 require (
 	github.com/elastic/elastic-transport-go/v8 v8.9.0 // indirect
@@ -11,4 +14,5 @@ require (
 	go.opentelemetry.io/otel v1.29.0 // indirect
 	go.opentelemetry.io/otel/metric v1.29.0 // indirect
 	go.opentelemetry.io/otel/trace v1.29.0 // indirect
+	golang.org/x/text v0.14.0 // indirect
 )

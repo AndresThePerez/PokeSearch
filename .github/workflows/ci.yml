@@ -22,7 +22,7 @@ jobs:
       - run: go vet ./...
       # The acceptance suite is build-tagged, so vet it explicitly — otherwise
       # it can stop compiling without anything noticing until a manual run.
-      - run: go vet -tags acceptance ./internal/acceptance
+      - run: go vet -tags acceptance ./internal/...
       # The relevance harness is build-tagged too, and the vet is cluster-free,
       # so the same reasoning applies: vet it or it can stop compiling unseen.
       - run: go vet -tags relevance ./internal/relevance

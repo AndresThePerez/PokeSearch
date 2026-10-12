@@ -1,5 +1,5 @@
 # Manual only. This workflow downloads the ~7MB pokemon-tcg-data tarball,
-# seeds a throwaway Elasticsearch, and indexes 20,324 documents — it takes
+# seeds a throwaway Elasticsearch, and indexes 20,635 documents — it takes
 # minutes, not seconds, which is exactly why it is not on push.
 name: acceptance
 
@@ -50,7 +50,7 @@ jobs:
         run: |
           docs="$(curl -sf http://localhost:8080/healthz | python3 -c 'import json,sys; print(json.load(sys.stdin)["docs"])')"
           echo "indexed docs: $docs"
-          [ "$docs" = "20324" ]
+          [ "$docs" = "20635" ]
 
       - name: Acceptance matrix
         run: POKESEARCH_URL=http://localhost:8080 go test -tags acceptance -count=1 -v ./internal/acceptance

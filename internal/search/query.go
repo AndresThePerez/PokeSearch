@@ -220,8 +220,8 @@ type FacetDef struct {
 const SetsFacet = "sets"
 
 // Facets is the registry. Sizes are ceilings, not guesses: each is at or above
-// the live cardinality of the pinned corpus (types 11 of 11, rarity 38 of 100,
-// series 17 of 20, sets 173 of 200), so no terms aggregation ever drops a
+// the live cardinality of the pinned corpus (types 11 of 11, rarity 44 of 100,
+// series 17 of 20, sets 176 of 200), so no terms aggregation ever drops a
 // bucket into sum_other_doc_count. Raising a corpus cardinality past one of
 // these silently truncates a facet — internal/acceptance asserts against it.
 var Facets = []FacetDef{

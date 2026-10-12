@@ -54,9 +54,9 @@ services:
     profiles: ["seed"]
     entrypoint: ["/seed"]
     # Pinned ref: reproducible reseeds by default (README documents the ref's
-    # expected count, 20,324). Override:
+    # expected count, 20,635). Override:
     #   docker compose run seed -es http://es:9200 -ref <other>
-    command: ["-es", "http://es:9200", "-ref", "0af6250a22495e4a3e9f60ff45fc3fedc2e0563d"]
+    command: ["-es", "http://es:9200", "-ref", "39a26a144c8b6ef6c2fb17b2c29d0bb7121e3a11"]
     mem_limit: 512m
     depends_on:
       es:

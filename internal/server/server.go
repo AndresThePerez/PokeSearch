@@ -88,6 +88,7 @@ func New(es *elasticsearch.Client, static fs.FS, logW io.Writer, now func() time
 	s.mux.HandleFunc("GET /api/v1/cards", s.handleV1Cards)
 	s.mux.HandleFunc("GET /api/v1/cards/{id}", s.handleV1Card)
 	s.mux.HandleFunc("GET /api/v1/cards/{$}", s.handleV1Card)
+	s.mux.HandleFunc("GET /api/v1/sets", s.handleV1Sets())
 
 	etags, err := staticETags(static)
 	if err != nil {
@@ -107,7 +108,7 @@ func New(es *elasticsearch.Client, static fs.FS, logW io.Writer, now func() time
 	// Compression sits between them: outside the mux, so it can never see the
 	// 304 withStaticCache returns from inside it, and inside observability, so
 	// the access line's byte count reports what actually went on the wire.
-	s.handler = s.withObservability(s.withGzip(s.withSecurityHeaders(s.mux)))
+	s.handler = s.withObservability(s.withGzip(s.withSecurityHeaders(s.withAPIKey(s.mux))))
 	return s
 }
 
@@ -534,16 +535,17 @@ func (s *Server) withObservability(next http.Handler) http.Handler {
 
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		start := s.now()
-		next.ServeHTTP(rec, r.WithContext(context.WithValue(r.Context(), ctxRequestID{}, id)))
+		ctx, client := withAccessClient(context.WithValue(r.Context(), ctxRequestID{}, id))
+		next.ServeHTTP(rec, r.WithContext(ctx))
 
 		httpStats.Add(routeLabel(r.URL.Path)+"_"+strconv.Itoa(rec.status), 1)
-		s.log.LogAttrs(r.Context(), slog.LevelInfo, "access",
+		s.log.LogAttrs(r.Context(), slog.LevelInfo, "access", append([]slog.Attr{
 			slog.String("method", r.Method),
 			slog.String("path", r.URL.Path),
 			slog.Int("status", rec.status),
 			slog.Int("bytes", rec.bytes),
 			slog.Int64("dur_ms", s.now().Sub(start).Milliseconds()),
-			slog.String("request_id", id))
+			slog.String("request_id", id)}, client.attrs()...)...)
 	})
 }
 
@@ -564,6 +566,8 @@ func routeLabel(path string) string {
 	switch path {
 	case "/api/v1/cards":
 		return "v1_cards"
+	case "/api/v1/sets":
+		return "v1_sets"
 	case "/api/search":
 		return "search"
 	case "/api/suggest":

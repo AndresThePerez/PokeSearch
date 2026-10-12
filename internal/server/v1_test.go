@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -18,6 +19,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/AndresThePerez/pokesearch/internal/search"
 	"github.com/AndresThePerez/pokesearch/internal/tcg"
 )
 
@@ -632,7 +634,8 @@ func counter(key string) int64 {
 // F-P1-R1-01: the ES client writes a document id into the URL path unescaped,
 // so any single-document API (Get, Explain, GetSource, Exists...) loses "?"
 // ids. The v1 code may reach Elasticsearch through _mget only, and no id may
-// be put in a URL path.
+// be put in a URL path. (/api/v1/sets names no card id: its aggregation goes
+// through the package's body-only esQuery, which this scan does not match.)
 func TestV1CodeUsesOnlyMget(t *testing.T) {
 	esAPI := regexp.MustCompile(`\bes\.([A-Za-z]+)`)
 	for _, file := range []string{"v1.go", "../search/v1.go"} {
@@ -657,5 +660,380 @@ func TestV1CodeUsesOnlyMget(t *testing.T) {
 	}
 	if !bytes.Contains(src, []byte("s.es.Mget(")) {
 		t.Error("v1.go does not call s.es.Mget: the guard above would pass vacuously")
+	}
+}
+
+// v1SetBucket is one set as the fake cluster aggregates it.
+type v1SetBucket struct {
+	ID, Name, Series, ReleaseDate string
+	Total, Count                  int
+}
+
+// fakeSets is a fake Elasticsearch that answers the v1 sets aggregation (and
+// the seed mapping). Buckets come back in the order given, which tests set to
+// ES's own doc_count order so the handler has to sort them itself.
+type fakeSets struct {
+	mu       sync.Mutex
+	buckets  []v1SetBucket
+	searches []string
+	fail     bool
+}
+
+func (f *fakeSets) RoundTrip(r *http.Request) (*http.Response, error) {
+	var body []byte
+	if r.Body != nil {
+		var err error
+		if body, err = io.ReadAll(r.Body); err != nil {
+			return nil, err
+		}
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	switch r.URL.Path {
+	case "/cards/_mapping":
+		return esResponse(200, seedMetaBody), nil
+	case "/cards/_search":
+		f.searches = append(f.searches, string(body))
+		if f.fail {
+			return esResponse(500, `{"error":{"type":"search_phase_execution_exception"}}`), nil
+		}
+		parts := make([]string, 0, len(f.buckets))
+		for _, b := range f.buckets {
+			src, _ := json.Marshal(map[string]any{"set_name": b.Name, "set_series": b.Series, "set_total": b.Total, "release_date": b.ReleaseDate})
+			parts = append(parts, fmt.Sprintf(`{"key":%q,"doc_count":%d,"identity":{"hits":{"total":{"value":%d,"relation":"eq"},"hits":[{"_index":"cards","_id":"%s-1","_score":1,"_source":%s}]}}}`,
+				b.ID, b.Count, b.Count, b.ID, src))
+		}
+		return esResponse(200, `{"took":3,"timed_out":false,"hits":{"total":{"value":0,"relation":"gte"},"hits":[]},"aggregations":{"sets":{"doc_count_error_upper_bound":0,"sum_other_doc_count":0,"buckets":[`+strings.Join(parts, ",")+`]}}}`), nil
+	}
+	return nil, errors.New("unexpected ES call: " + r.URL.Path)
+}
+
+func (f *fakeSets) searchCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.searches)
+}
+
+// sampleSets is in ES's doc_count order. ex10 and ex9 share a release date, so
+// the id tie-break is visible (and "ex10" sorts before "ex9" as a string).
+func sampleSets() []v1SetBucket {
+	return []v1SetBucket{
+		{ID: "ex10", Name: "Unseen Forces", Series: "EX", ReleaseDate: "2005-08-22", Total: 115, Count: 145},
+		{ID: "base1", Name: "Base", Series: "Base", ReleaseDate: "1999-01-09", Total: 102, Count: 102},
+		{ID: "ex9", Name: "Emerald", Series: "EX", ReleaseDate: "2005-08-22", Total: 106, Count: 107},
+		{ID: "base2", Name: "Jungle", Series: "Base", ReleaseDate: "1999-06-16", Total: 64, Count: 64},
+	}
+}
+
+const sampleSetsData = `[` +
+	`{"id":"base1","name":"Base","series":"Base","total":102,"release_date":"1999-01-09","card_count":102},` +
+	`{"id":"base2","name":"Jungle","series":"Base","total":64,"release_date":"1999-06-16","card_count":64},` +
+	`{"id":"ex10","name":"Unseen Forces","series":"EX","total":115,"release_date":"2005-08-22","card_count":145},` +
+	`{"id":"ex9","name":"Emerald","series":"EX","total":106,"release_date":"2005-08-22","card_count":107}]`
+
+// GET /api/v1/sets: every set with its card count, ordered by release date and
+// then id, plus the corpus provenance — through the dedicated v1 aggregation.
+func TestV1Sets(t *testing.T) {
+	es := &fakeSets{buckets: sampleSets()}
+	s, _ := newTestServer(t, es)
+
+	rec := get(t, s, "/api/v1/sets")
+	assertV1OK(t, rec)
+	want := `{"data":` + sampleSetsData + `,"seed":` + v1SeedJSON + "}\n"
+	if got := rec.Body.String(); got != want {
+		t.Errorf("body\n got %s\nwant %s", got, want)
+	}
+
+	if len(es.searches) != 1 {
+		t.Fatalf("_search calls = %d, want 1", len(es.searches))
+	}
+	var sent any
+	if err := json.Unmarshal([]byte(es.searches[0]), &sent); err != nil {
+		t.Fatal(err)
+	}
+	gotDSL, _ := json.Marshal(sent)
+	wantDSL, _ := json.Marshal(search.BuildV1SetsQuery())
+	if string(gotDSL) != string(wantDSL) {
+		t.Errorf("ES body\n got %s\nwant %s (search.BuildV1SetsQuery)", gotDSL, wantDSL)
+	}
+}
+
+// The set list is immutable between reseeds, so it is fetched once per
+// process; an empty list (an unseeded index) is served but never cached, so
+// the first request after a seed heals it without a restart.
+func TestV1SetsCache(t *testing.T) {
+	es := &fakeSets{buckets: sampleSets()}
+	s, _ := newTestServer(t, es)
+	first := get(t, s, "/api/v1/sets")
+	second := get(t, s, "/api/v1/sets")
+	assertV1OK(t, second)
+	if !bytes.Equal(first.Body.Bytes(), second.Body.Bytes()) {
+		t.Error("a cached answer differs from the first")
+	}
+	if n := es.searchCount(); n != 1 {
+		t.Errorf("_search calls = %d across two requests, want 1 (process-lifetime cache)", n)
+	}
+
+	empty := &fakeSets{}
+	s, _ = newTestServer(t, empty)
+	rec := get(t, s, "/api/v1/sets")
+	assertV1OK(t, rec)
+	if got, want := rec.Body.String(), `{"data":[],"seed":`+v1SeedJSON+"}\n"; got != want {
+		t.Errorf("unseeded body\n got %s\nwant %s", got, want)
+	}
+	empty.mu.Lock()
+	empty.buckets = sampleSets()
+	empty.mu.Unlock()
+	rec = get(t, s, "/api/v1/sets")
+	assertV1OK(t, rec)
+	if !strings.Contains(rec.Body.String(), `"id":"base1"`) || empty.searchCount() != 2 {
+		t.Errorf("an empty answer was cached: %d searches, body %s", empty.searchCount(), rec.Body.String())
+	}
+}
+
+// T04's ETag rules hold for the sets list: weak validator, 304 on a match in
+// any of its forms, the full body otherwise, one tag for both codings.
+func TestV1SetsConditionalGet(t *testing.T) {
+	buckets := sampleSets()
+	for i := range 12 {
+		buckets = append(buckets, v1SetBucket{ID: fmt.Sprintf("sv%d", i+1), Name: "Scarlet & Violet", Series: "Scarlet & Violet", ReleaseDate: "2023-03-31", Total: 198, Count: 258})
+	}
+	es := &fakeSets{buckets: buckets}
+	s, _ := newTestServer(t, es)
+	first := get(t, s, "/api/v1/sets")
+	assertV1OK(t, first)
+	tag := first.Header().Get("ETag")
+	for _, inm := range []string{tag, strings.TrimPrefix(tag, "W/"), `"other", ` + tag, "*"} {
+		rec := getWith(t, s, "/api/v1/sets", map[string]string{"If-None-Match": inm})
+		if rec.Code != http.StatusNotModified || rec.Body.Len() != 0 || rec.Header().Get("ETag") != tag {
+			t.Errorf("If-None-Match %s: status %d, %d body bytes, ETag %q; want a bare 304 with %q",
+				inm, rec.Code, rec.Body.Len(), rec.Header().Get("ETag"), tag)
+		}
+	}
+	rec := getWith(t, s, "/api/v1/sets", map[string]string{"If-None-Match": `W/"0000000000000000"`})
+	assertV1OK(t, rec)
+
+	if first.Body.Len() <= minGzipBody {
+		t.Fatalf("body is %d bytes; the gzip leg needs more than %d", first.Body.Len(), minGzipBody)
+	}
+	zipped := getWith(t, s, "/api/v1/sets", map[string]string{"Accept-Encoding": "gzip"})
+	if zipped.Header().Get("Content-Encoding") != "gzip" || zipped.Header().Get("ETag") != tag {
+		t.Errorf("gzip: Content-Encoding %q, ETag %q; want gzip and %q", zipped.Header().Get("Content-Encoding"), zipped.Header().Get("ETag"), tag)
+	}
+}
+
+func TestV1SetsESDown(t *testing.T) {
+	es := &fakeSets{buckets: sampleSets(), fail: true}
+	s, logBuf := newTestServer(t, es)
+	assertV1Error(t, get(t, s, "/api/v1/sets"), http.StatusServiceUnavailable, "es_unavailable", "")
+	if !strings.Contains(logBuf.String(), "search_phase_execution_exception") {
+		t.Error("the ES cause must reach the query log")
+	}
+
+	s, _ = newTestServer(t, roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		if strings.HasSuffix(r.URL.Path, "/_mapping") {
+			return nil, errors.New("mapping read failed")
+		}
+		return (&fakeSets{buckets: sampleSets()}).RoundTrip(r)
+	}))
+	assertV1Error(t, get(t, s, "/api/v1/sets"), http.StatusServiceUnavailable, "es_unavailable", "")
+}
+
+func TestV1SetsQueryLog(t *testing.T) {
+	s, logBuf := newTestServer(t, &fakeSets{buckets: sampleSets()})
+	assertV1OK(t, getWith(t, s, "/api/v1/sets", map[string]string{"X-Request-Id": "trace-v1-sets"}))
+	line := oneLine(t, logBuf, false)
+	if line["endpoint"] != "v1_sets" || line["request_id"] != "trace-v1-sets" || line["status"] != float64(200) || line["total"] != float64(4) {
+		t.Errorf("query line = %v", line)
+	}
+	gotDSL, _ := json.Marshal(line["dsl"])
+	wantDSL, _ := json.Marshal(search.BuildV1SetsQuery())
+	if string(gotDSL) != string(wantDSL) {
+		t.Errorf("logged dsl = %s, want %s", gotDSL, wantDSL)
+	}
+}
+
+func TestV1SetsRouteLabel(t *testing.T) {
+	for path, want := range map[string]string{
+		"/api/v1/sets":   "v1_sets",
+		"/api/v1/sets/":  "static",
+		"/api/v1/setsx":  "static",
+		"/api/v1/sets/x": "static",
+	} {
+		if got := routeLabel(path); got != want {
+			t.Errorf("routeLabel(%q) = %q, want %q", path, got, want)
+		}
+	}
+	s, _ := newTestServer(t, &fakeSets{buckets: sampleSets()})
+	before := counter("v1_sets_200")
+	assertV1OK(t, get(t, s, "/api/v1/sets"))
+	if after := counter("v1_sets_200"); after != before+1 {
+		t.Errorf("v1_sets_200 %d -> %d, want +1", before, after)
+	}
+}
+
+// throwawayKey makes a key for one test run. It is random so no key is ever
+// written into the repository, and tests never print it.
+func throwawayKey(t *testing.T) string {
+	t.Helper()
+	return "test-" + rand.Text()
+}
+
+// accessLines returns the access lines in the log sink.
+func accessLines(t *testing.T, buf *bytes.Buffer) []map[string]any {
+	t.Helper()
+	var out []map[string]any
+	for _, m := range logLines(t, buf) {
+		if m["msg"] == "access" {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+func getKeyed(t *testing.T, s *Server, path string, keys ...string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest("GET", path, nil)
+	for _, k := range keys {
+		req.Header.Add("X-Api-Key", k)
+	}
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, req)
+	return rec
+}
+
+// No X-Api-Key header: the public demo is unchanged, keys configured or not,
+// and the access line names no client.
+func TestV1APIKeyAbsentIsAnonymous(t *testing.T) {
+	t.Setenv("POKESEARCH_API_KEYS", throwawayKey(t))
+	s, logBuf := newTestServer(t, &fakeSets{buckets: sampleSets()})
+	assertV1OK(t, get(t, s, "/api/v1/sets"))
+	line := accessLine(t, logBuf)
+	if _, ok := line["client"]; ok {
+		t.Errorf("anonymous access line carries client = %v", line["client"])
+	}
+}
+
+// A configured key (the env is a comma list; whitespace around a member is
+// not part of it) is served and marked keyed in the access line. The key
+// itself appears in no log line.
+func TestV1APIKeyMatching(t *testing.T) {
+	k1, k2 := throwawayKey(t), throwawayKey(t)
+	t.Setenv("POKESEARCH_API_KEYS", " "+k1+" , "+k2+",")
+	es := &fakeSets{buckets: sampleSets()}
+	s, logBuf := newTestServer(t, es)
+
+	for _, k := range []string{k1, k2} {
+		logBuf.Reset()
+		rec := getKeyed(t, s, "/api/v1/sets", k)
+		assertV1OK(t, rec)
+		lines := accessLines(t, logBuf)
+		if len(lines) != 1 || lines[0]["client"] != "keyed" || lines[0]["status"] != float64(200) {
+			t.Errorf("access lines = %d, client = %v; want one line with client \"keyed\"", len(lines), lines)
+		}
+		if strings.Contains(logBuf.String(), k) || strings.Contains(rec.Body.String(), k) {
+			t.Error("the API key appears in the log or the response")
+		}
+	}
+	// Keyed requests reach every v1 route.
+	cards := newFakeCards(t, v1Card("base1-4", "Charizard"))
+	s, logBuf = newTestServer(t, cards)
+	assertV1OK(t, getKeyed(t, s, "/api/v1/cards/base1-4", k2))
+	assertV1OK(t, getKeyed(t, s, "/api/v1/cards?ids=base1-4", k1))
+	for _, line := range accessLines(t, logBuf) {
+		if line["client"] != "keyed" {
+			t.Errorf("access line client = %v, want keyed", line["client"])
+		}
+	}
+	if strings.Contains(logBuf.String(), k1) || strings.Contains(logBuf.String(), k2) {
+		t.Error("an API key appears in the log")
+	}
+}
+
+// A key that is present but not configured is a 401 envelope with code
+// unauthorized, before any ES call, and neither the presented key nor a
+// configured one appears in the response or the log.
+func TestV1APIKeyWrong(t *testing.T) {
+	good, wrong := throwawayKey(t), throwawayKey(t)
+	t.Setenv("POKESEARCH_API_KEYS", good)
+	es := &fakeSets{buckets: sampleSets()}
+	s, logBuf := newTestServer(t, es)
+
+	for _, presented := range [][]string{
+		{wrong},
+		{""},
+		{good + "x"},
+		{good[:len(good)-1]},
+		{" " + good},
+		{strings.ToUpper(good)},
+		{good, wrong}, // an ambiguous request is not a keyed one
+		{wrong, good},
+	} {
+		for _, path := range []string{"/api/v1/sets", "/api/v1/cards/base1-4", "/api/v1/cards?ids=base1-4", "/api/v1/nope"} {
+			rec := getKeyed(t, s, path, presented...)
+			body := assertV1Error(t, rec, http.StatusUnauthorized, "unauthorized", "")
+			for _, k := range append(slices.Clone(presented), good) {
+				if k != "" && strings.Contains(body.Error.Message, k) {
+					t.Errorf("%s: the 401 message echoes a key", path)
+				}
+			}
+		}
+	}
+	if n := es.searchCount(); n != 0 {
+		t.Errorf("ES searches = %d, want 0: a rejected key must not reach the cluster", n)
+	}
+	for _, line := range accessLines(t, logBuf) {
+		if line["status"] != float64(http.StatusUnauthorized) {
+			t.Errorf("access line status = %v, want 401", line["status"])
+		}
+		if _, ok := line["client"]; ok {
+			t.Errorf("a rejected request is logged with client = %v", line["client"])
+		}
+	}
+	for _, k := range []string{good, wrong, strings.ToUpper(good)} {
+		if strings.Contains(logBuf.String(), k) {
+			t.Error("an API key appears in the log")
+		}
+	}
+}
+
+// With no keys configured every presented key is wrong: keyed access exists
+// only when the operator has issued keys.
+func TestV1APIKeyNoneConfigured(t *testing.T) {
+	t.Setenv("POKESEARCH_API_KEYS", " , ")
+	s, _ := newTestServer(t, &fakeSets{buckets: sampleSets()})
+	assertV1Error(t, getKeyed(t, s, "/api/v1/sets", throwawayKey(t)), http.StatusUnauthorized, "unauthorized", "")
+	assertV1Error(t, getKeyed(t, s, "/api/v1/sets", ""), http.StatusUnauthorized, "unauthorized", "")
+	assertV1OK(t, get(t, s, "/api/v1/sets"))
+}
+
+// The key applies to /api/v1/* only: the unversioned API, the probes and the
+// static UI ignore the header entirely, right or wrong.
+func TestV1APIKeyOnlyV1(t *testing.T) {
+	good := throwawayKey(t)
+	t.Setenv("POKESEARCH_API_KEYS", good)
+	s, logBuf := newTestServer(t, roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		if strings.HasSuffix(r.URL.Path, "/_mapping") {
+			return esResponse(200, seedMetaBody), nil
+		}
+		return esResponse(200, `{"count":3}`), nil
+	}))
+	for _, path := range []string{"/livez", "/healthz", "/api/meta", "/", "/styles.css", "/api/v1", "/api/v1x/sets"} {
+		for _, k := range []string{throwawayKey(t), good} {
+			rec := getKeyed(t, s, path, k)
+			if rec.Code == http.StatusUnauthorized {
+				t.Errorf("GET %s with a key = 401; the key applies to /api/v1/* only", path)
+			}
+		}
+	}
+	for _, line := range accessLines(t, logBuf) {
+		if _, ok := line["client"]; ok {
+			t.Errorf("%v: a non-v1 request is logged with client = %v", line["path"], line["client"])
+		}
+	}
+	// The control: the same server does check the key under /api/v1/.
+	assertV1Error(t, getKeyed(t, s, "/api/v1/sets", throwawayKey(t)), http.StatusUnauthorized, "unauthorized", "")
+	if strings.Contains(logBuf.String(), good) {
+		t.Error("an API key appears in the log")
 	}
 }

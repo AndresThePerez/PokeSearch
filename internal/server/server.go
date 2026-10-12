@@ -85,6 +85,9 @@ func New(es *elasticsearch.Client, static fs.FS, logW io.Writer, now func() time
 	s.mux.HandleFunc("GET /api/compare", s.handleCompare)
 	s.mux.HandleFunc("GET /api/stats", s.handleStats)
 	s.mux.HandleFunc("GET /api/meta", s.handleMeta)
+	s.mux.HandleFunc("GET /api/v1/cards", s.handleV1Cards)
+	s.mux.HandleFunc("GET /api/v1/cards/{id}", s.handleV1Card)
+	s.mux.HandleFunc("GET /api/v1/cards/{$}", s.handleV1Card)
 
 	etags, err := staticETags(static)
 	if err != nil {
@@ -555,7 +558,12 @@ var httpStats = expvar.NewMap("pokesearch_http")
 // Unknown paths collapse to "static" on purpose: an arbitrary URL must never
 // become an arbitrary expvar key, or a crawler turns the map into a slow leak.
 func routeLabel(path string) string {
+	if strings.HasPrefix(path, "/api/v1/cards/") {
+		return "v1_card"
+	}
 	switch path {
+	case "/api/v1/cards":
+		return "v1_cards"
 	case "/api/search":
 		return "search"
 	case "/api/suggest":

@@ -1,0 +1,90 @@
+{
+  "index": "cards",
+  "docs": 20324,
+  "queries": 50,
+  "k": 10,
+  "build": {
+    "version": "dev",
+    "commit": "none",
+    "built": "unknown"
+  },
+  "seed": null,
+  "metrics": {
+    "mrr@10": 0.6033333333333334,
+    "ndcg@10": 0.6453593542932949,
+    "precision@10": 0.662,
+    "unrated@10": 0
+  },
+  "strata": [
+    {
+      "name": "exact name",
+      "queries": 7,
+      "metrics": {
+        "mrr@10": 1,
+        "ndcg@10": 0.9716539632705544,
+        "precision@10": 0.8857142857142858,
+        "unrated@10": 0
+      }
+    },
+    {
+      "name": "prefix",
+      "queries": 7,
+      "metrics": {
+        "mrr@10": 0.511904761904762,
+        "ndcg@10": 0.5697172985669722,
+        "precision@10": 0.6142857142857142,
+        "unrated@10": 0
+      }
+    },
+    {
+      "name": "typo",
+      "queries": 7,
+      "metrics": {
+        "mrr@10": 0.875,
+        "ndcg@10": 0.8763761661050864,
+        "precision@10": 0.9857142857142858,
+        "unrated@10": 0
+      }
+    },
+    {
+      "name": "attack text",
+      "queries": 7,
+      "metrics": {
+        "mrr@10": 0.75,
+        "ndcg@10": 0.8454568154681195,
+        "precision@10": 0.7857142857142857,
+        "unrated@10": 0
+      }
+    },
+    {
+      "name": "artist",
+      "queries": 7,
+      "metrics": {
+        "mrr@10": 0.6904761904761905,
+        "ndcg@10": 0.7956608929675065,
+        "precision@10": 0.8142857142857143,
+        "unrated@10": 0
+      }
+    },
+    {
+      "name": "set name",
+      "queries": 7,
+      "metrics": {
+        "mrr@10": 0.3392857142857143,
+        "ndcg@10": 0.3273147361019829,
+        "precision@10": 0.31428571428571433,
+        "unrated@10": 0
+      }
+    },
+    {
+      "name": "natural-language intent",
+      "queries": 8,
+      "metrics": {
+        "mrr@10": 0.125,
+        "ndcg@10": 0.19558857591289996,
+        "precision@10": 0.2875,
+        "unrated@10": 0
+      }
+    }
+  ]
+}

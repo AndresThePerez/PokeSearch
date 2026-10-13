@@ -109,6 +109,11 @@
           "id": "base4-87",
           "grade": 3,
           "reason": "Named exactly Pikachu; the Base Set 2 print is the card the query names."
+        },
+        {
+          "id": "me55-34",
+          "grade": 3,
+          "reason": "Named exactly Pikachu; the 30th Celebration print is the card the query names."
         }
       ]
     },
@@ -696,6 +701,26 @@
           "id": "ex9-60",
           "grade": 3,
           "reason": "Pikachu is what the prefix pika completes to; Emerald print."
+        },
+        {
+          "id": "me55-149",
+          "grade": 3,
+          "reason": "Pikachu ex is what the prefix pika completes to; 30th Celebration print."
+        },
+        {
+          "id": "me55-53",
+          "grade": 3,
+          "reason": "Pikachu ex is what the prefix pika completes to; 30th Celebration print."
+        },
+        {
+          "id": "me55-28",
+          "grade": 3,
+          "reason": "Pikachu is what the prefix pika completes to; 30th Celebration print."
+        },
+        {
+          "id": "me55-34",
+          "grade": 3,
+          "reason": "Pikachu is what the prefix pika completes to; 30th Celebration print."
         }
       ]
     },
@@ -1132,6 +1157,11 @@
           "id": "ecard1-39",
           "grade": 3,
           "reason": "Named exactly Charizard, the correct spelling behind the typo; Expedition Base Set print."
+        },
+        {
+          "id": "me55c-4",
+          "grade": 3,
+          "reason": "Named exactly Charizard, the correct spelling behind the typo; 30th Celebration: Classic Collection print."
         }
       ]
     },
@@ -2054,6 +2084,11 @@
           "id": "swsh8-236",
           "grade": 0,
           "reason": "Power Tablet has no attack, ability or text matching poison powder."
+        },
+        {
+          "id": "me55-8",
+          "grade": 3,
+          "reason": "Vivillon (30th Celebration) has the attack Poison Powder by that exact name."
         }
       ]
     },
@@ -2165,6 +2200,11 @@
           "id": "sm11-255",
           "grade": 0,
           "reason": "U-Turn Board has no attack, ability or text matching energy burn."
+        },
+        {
+          "id": "me55c-4",
+          "grade": 3,
+          "reason": "Charizard (30th Celebration: Classic Collection) has the ability Energy Burn by that exact name."
         }
       ]
     },
@@ -2733,6 +2773,11 @@
           "id": "sm8-187",
           "grade": 0,
           "reason": "Net Ball is printed in Lost Thunder, not in Base."
+        },
+        {
+          "id": "me55c-43",
+          "grade": 0,
+          "reason": "Uxie is printed in 30th Celebration: Classic Collection, not in Base."
         }
       ]
     },
@@ -2955,6 +3000,11 @@
           "id": "swsh12-95",
           "grade": 0,
           "reason": "Anorith is printed in Silver Tempest, not in Fossil."
+        },
+        {
+          "id": "me5-17",
+          "grade": 0,
+          "reason": "Relicanth is printed in Pitch Black, not in Fossil."
         }
       ]
     },
@@ -3294,6 +3344,11 @@
           "id": "sm115-48",
           "grade": 3,
           "reason": "Eevee is printed in Hidden Fates, the set Hidden Fates names."
+        },
+        {
+          "id": "me55-33",
+          "grade": 0,
+          "reason": "Pikachu is printed in 30th Celebration, not in Hidden Fates."
         }
       ]
     },

@@ -1,18 +1,21 @@
 {
   "index": "cards",
-  "docs": 20324,
+  "docs": 20635,
   "queries": 50,
   "k": 10,
   "build": {
-    "version": "dev",
-    "commit": "none",
-    "built": "unknown"
+    "version": "f3eca56",
+    "commit": "f3eca56",
+    "built": "2026-10-13T01:35:10Z"
   },
-  "seed": null,
+  "seed": {
+    "ref": "39a26a144c8b6ef6c2fb17b2c29d0bb7121e3a11",
+    "seeded_at": "2026-10-13T01:32:54Z"
+  },
   "metrics": {
     "mrr@10": 0.6033333333333334,
-    "ndcg@10": 0.6453593542932949,
-    "precision@10": 0.662,
+    "ndcg@10": 0.6466844387623829,
+    "precision@10": 0.6659999999999999,
     "unrated@10": 0
   },
   "strata": [
@@ -51,8 +54,8 @@
       "queries": 7,
       "metrics": {
         "mrr@10": 0.75,
-        "ndcg@10": 0.8454568154681195,
-        "precision@10": 0.7857142857142857,
+        "ndcg@10": 0.8549217045330322,
+        "precision@10": 0.8142857142857143,
         "unrated@10": 0
       }
     },

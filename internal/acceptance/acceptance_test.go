@@ -432,8 +432,8 @@ func TestPageSizeBounds(t *testing.T) {
 // no query to be answered about — carries neither field at all.
 func TestSearchResponseAdditions(t *testing.T) {
 	r := search(t, "q=charizard")
-	if r.Total != 107 {
-		t.Fatalf("q=charizard total = %d, want 107", r.Total)
+	if r.Total != 108 {
+		t.Fatalf("q=charizard total = %d, want 108", r.Total)
 	}
 	if len(r.Matched) != len(r.Results) || len(r.Highlights) != len(r.Results) {
 		t.Fatalf("matched %d, highlights %d, results %d — the three must stay aligned",

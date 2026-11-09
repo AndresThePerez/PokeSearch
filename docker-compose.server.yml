@@ -8,11 +8,15 @@
 services:
   es:
     restart: unless-stopped
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
     # 2g, four times the 512m JVM heap: the difference is page cache for the
     # Lucene files. At 1g the cache sat at the cap and tail latency spiked.
     mem_limit: 2g
   app:
     restart: unless-stopped
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
     mem_limit: 256m
     networks:
       internal: {}

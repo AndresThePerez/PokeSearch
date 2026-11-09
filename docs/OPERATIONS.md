@@ -12,7 +12,7 @@ Go server ── embedded HTML/CSS/JS
      │
      │ Compose-internal HTTP :9200
      ▼
-Elasticsearch 8.15 ── es-data volume
+Elasticsearch 8.19 ── es-data volume
      ▲
      │ one-shot /seed profile
 pokemon-tcg-data tarball (streamed from GitHub)

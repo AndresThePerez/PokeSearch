@@ -200,7 +200,7 @@ flowchart TD
     B["Browser<br/>vanilla ES modules, zero innerHTML"]
     S["Go server — cmd/server<br/>API + embedded frontend"]
     Q["internal/search<br/>pure DSL builders, golden-tested"]
-    E["Elasticsearch 8.15<br/>single node, one shard"]
+    E["Elasticsearch 8.19<br/>single node, one shard"]
     V[("es-data volume")]
     D["cmd/seed<br/>one-shot, --profile seed"]
     G["pokemon-tcg-data tarball<br/>streamed from GitHub"]
@@ -216,7 +216,7 @@ flowchart TD
 
 The production Compose topology publishes only the Go application. `docker-compose.dev.yml` is deliberately opt-in so a plain `docker compose up` never exposes Elasticsearch on the host. A plain-text rendering of the same topology is in [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
-Elasticsearch runs `docker.elastic.co/elasticsearch/elasticsearch:8.15.0` as a single node with a 512m JVM heap. The runtime image is `gcr.io/distroless/static-debian12:nonroot` — no shell, no package manager, running as uid 65532, with both build and runtime base images pinned by digest. Because there is no shell, the server binary is its own healthcheck client (`/server -ping`).
+Elasticsearch runs `docker.elastic.co/elasticsearch/elasticsearch:8.19.24` as a single node with a 512m JVM heap. The runtime image is `gcr.io/distroless/static-debian12:nonroot` — no shell, no package manager, running as uid 65532, with both build and runtime base images pinned by digest. Because there is no shell, the server binary is its own healthcheck client (`/server -ping`).
 
 **Why any of this is the way it is:** [docs/DECISIONS.md](docs/DECISIONS.md).
 

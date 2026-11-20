@@ -6,7 +6,7 @@
 // injected by main.js through setFilterChangeHandler.
 
 import { $, element } from "./util.js";
-import { state, queryText, effectiveSort, effectiveOrder } from "./state.js";
+import { state, queryText, effectiveSort, effectiveOrder, acceptedFilters, rewriteFilterAddress } from "./state.js";
 import { renderStats, noteArchiveSets, BRANCHES, isCount } from "./telemetry.js";
 
 // The rendered cards, keyed by id, so the modal and the #card= deep link can
@@ -71,6 +71,17 @@ function renderDidYouMean(view) {
 
 export function renderResults(data, { append = false, roundTripMs = 0 } = {}) {
   state.page = data.page;
+  // The filters the address asked for are not always the ones the search
+  // used: the server drops an unknown type and maps another spelling of a
+  // rarity onto the stored one. A first page brings the state, and with it the
+  // chips, the controls and the address, in line with what was used.
+  if (!append) {
+    const { types, rarity, set, series, changed } = acceptedFilters({ state, total: data.total, facets: data.facets });
+    if (changed) {
+      Object.assign(state, { types, rarity, set, series });
+      rewriteFilterAddress();
+    }
+  }
   renderGrid(data.results, { append, page: data.page, matched: data.matched, highlights: data.highlights });
   renderFacets(data.facets);
   $("total-count").textContent = countLineText({ phase: "done", total: data.total });
@@ -435,7 +446,8 @@ function bucketMap(buckets = []) {
 
 // Facet counts are disjunctive (scoped by the query plus every other active
 // filter), so renderers only paint what the API returned — they never mutate
-// state. Only explicit user actions may change a filter.
+// state. Only explicit user actions may change a filter; the one exception is
+// renderResults bringing the filters in line with what a search used.
 function renderFacets(facets = {}) {
   const supertypeCounts = bucketMap(facets.supertype);
   const supertypeAll = (facets.supertype ?? []).reduce((sum, bucket) => sum + bucket.count, 0);

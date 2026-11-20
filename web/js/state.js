@@ -240,3 +240,96 @@ export function historyStep({ trigger, memo, address, wanted }) {
       return { action: "replace", memo: { ...memo } };
   }
 }
+
+// The eleven energy types the server filters on. It takes a types member that
+// matches one of these in any letter case, takes Steel and Normal (the names
+// the page shows) for Metal and Colorless, and drops every other member.
+export const ENERGY_TYPES = Object.freeze([
+  "Colorless", "Darkness", "Dragon", "Fairy", "Fighting",
+  "Fire", "Grass", "Lightning", "Metal", "Psychic", "Water",
+]);
+
+const TYPE_ALIASES = Object.freeze({ steel: "Metal", normal: "Colorless" });
+
+function acceptedType(member) {
+  const lower = member.trim().toLowerCase();
+  const name = Object.hasOwn(TYPE_ALIASES, lower) ? TYPE_ALIASES[lower] : lower;
+  return ENERGY_TYPES.find((type) => type.toLowerCase() === name.toLowerCase()) ?? null;
+}
+
+// foldRarity is the server's comparison of rarity spellings: letter case and
+// runs of spaces do not count, nor do spaces at either end.
+function foldRarity(value) {
+  return value.trim().split(/\s+/u).join(" ").toLowerCase();
+}
+
+function rarityValues(facets) {
+  const buckets = facets && typeof facets === "object" && Array.isArray(facets.rarity) ? facets.rarity : [];
+  return buckets
+    .filter((bucket) => bucket && typeof bucket === "object" && typeof bucket.value === "string" && bucket.count > 0)
+    .map((bucket) => bucket.value);
+}
+
+// The rarity a search used. The answer names the stored values with cards
+// under the search's other filters (the rarity facet). A value given exactly
+// as one of them is kept. Another spelling is read as the one listed value it
+// folds to, but only when the search found cards: the server maps a spelling
+// onto a value only when exactly one of all 44 folds the same, and a mapped
+// rarity with cards listed would have found them. A spelling that folds to no
+// listed value, or to two, or one on a search that found nothing, is left as
+// given: it is still what the search asked for.
+function acceptedRarity(given, { total, facets }) {
+  if (!given.trim()) return "";
+  const values = rarityValues(facets);
+  const trimmed = given.trim();
+  if (values.includes(trimmed)) return trimmed;
+  if (!(total > 0)) return given;
+  const folded = foldRarity(given);
+  const matches = values.filter((value) => foldRarity(value) === folded);
+  return matches.length === 1 ? matches[0] : given;
+}
+
+// acceptedFilters reads the filters a search actually used off its answer, for
+// the chips, the filter controls and the address. types loses the members the
+// server dropped and takes each kept one's own spelling, once. rarity becomes
+// the stored value the server mapped another spelling onto (acceptedRarity).
+// set and series are matched exactly by the server, so they stay as given,
+// trimmed as the server trims them: one that matches nothing found nothing,
+// and its chip stays so it can be removed. A value that is only spaces was no
+// filter at all. changed says whether any of the four differs from the state
+// given, which is left as it was.
+export function acceptedFilters({ state: from, total, facets }) {
+  const types = [];
+  for (const member of from.types) {
+    const type = acceptedType(String(member));
+    if (type && !types.includes(type)) types.push(type);
+  }
+  const rarity = acceptedRarity(String(from.rarity ?? ""), { total, facets });
+  const set = String(from.set ?? "").trim();
+  const series = String(from.series ?? "").trim();
+  const changed = types.join(",") !== from.types.join(",")
+    || rarity !== from.rarity || set !== from.set || series !== from.series;
+  return { types, rarity, set, series, changed };
+}
+
+// addressWithFilters is the querystring of an address with the four filter
+// fields rewritten and everything else (the query among it) as it was.
+export function addressWithFilters(search, { types, rarity, set, series }) {
+  const sp = new URLSearchParams(search);
+  for (const [field, value] of [["types", types.join(",")], ["set", set], ["rarity", rarity], ["series", series]]) {
+    if (value) sp.set(field, value);
+    else sp.delete(field);
+  }
+  return sp.toString();
+}
+
+// rewriteFilterAddress writes the state's filters into the address the
+// visitor is on. It replaces the entry and keeps its history.state, so it
+// adds no step to Back and leaves the card dialog's marker in place. Only the
+// filter fields change: the query the address holds stays, even when the box
+// already holds more, so the typing history still sees its own entry.
+export function rewriteFilterAddress() {
+  const qs = addressWithFilters(location.search, state);
+  if (qs === new URLSearchParams(location.search).toString()) return;
+  history.replaceState(entryStateFor({ push: false, current: history.state }), "", `${location.pathname}${qs ? `?${qs}` : ""}${location.hash}`);
+}

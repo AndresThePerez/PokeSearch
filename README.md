@@ -269,7 +269,7 @@ Elasticsearch runs `docker.elastic.co/elasticsearch/elasticsearch:8.19.24` as a 
 
 ## Deployment
 
-`docker-compose.yml` is the whole stack; layering `docker-compose.server.yml` on top of it adds `restart: unless-stopped` and per-service memory caps for a host that runs other tenants, and gives the app `GOMEMLIMIT=180MiB` under its `256m` cap. With the cap on requests in flight (`MAX_IN_FLIGHT`), that ties the app's memory mostly to the requests it works on rather than to how many arrive (a refused one costs its connection only until the `503` is sent); telling clients apart and rate-limiting them is left to the proxy in front.
+`docker-compose.yml` is the whole stack; layering `docker-compose.server.yml` on top of it adds `restart: unless-stopped` and per-service memory caps for a host that runs other tenants, and gives the app `GOMEMLIMIT=180MiB` under its `256m` cap. The cap on requests in flight (`MAX_IN_FLIGHT`) bounds the requests the app works on at once, not the connections it holds: a connection costs memory before its request is refused. Bounding connections, telling clients apart and rate-limiting them are left to the proxy or edge in front.
 
 Deploy on any Docker host behind a TLS-terminating reverse proxy; the public instance at <https://pokesearch.andrestheperez.com> sits behind one. Elasticsearch stays on the Compose-internal network with no host port in any topology, so only the Go application is ever reachable.
 

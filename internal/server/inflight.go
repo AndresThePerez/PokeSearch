@@ -10,18 +10,24 @@ import (
 // next one is answered 503 at once. MAX_IN_FLIGHT overrides it.
 //
 // Sized for the 256 MB container, from a build held to that limit with no
-// swap and an upstream that answered after 200 ms, so requests overlapped:
+// swap, an upstream that answered after 200 ms with a real-sized search
+// answer (121 KB, 100 cards) so that requests overlapped, and clients that
+// asked for gzip. The costliest accepted request is a search with debug=1,
+// page_size=100, both lists at their 1,024-character totals, a 256-character
+// q of '<' and a 20,480-byte head. With far more of them arriving at once
+// than the cap admits, the process peaked at:
 //
-//   - The costliest accepted request (a search with debug=1, both lists at
-//     their 1,024-character totals, a 256-character q of '<' and a
-//     20,480-byte head) holds about 0.4 MiB while in flight: 800 of them at
-//     once peaked at 66, 91 and 142 MiB under caps of 64, 128 and 256, and
-//     at 30 MiB under a cap of 1, which is the process plus the refused
-//     connections. 128 admitted is 128 × 0.4 ≈ 51 MiB.
-//   - A refused request costs its connection's buffers only until the 503 has
-//     gone out and the connection is closed: 2,000 of the costliest at once
-//     peaked at 89 MiB, 10,000 small searches at once at 116 MiB and 4,000
-//     kept-alive connections at 84 MiB, all under half the limit.
+//   - 37 MiB under a cap of 1: the process and the refused requests;
+//   - 87 MiB under a cap of 64;
+//   - 144 MiB under a cap of 128 (148 MiB with GOMEMLIMIT=180MiB).
+//
+// So one admitted costliest request holds about 0.9 MiB, and 128 of them
+// about 128 × 0.9 ≈ 115 MiB over that base of 37 MiB: about 152 MiB, which
+// is what was measured, and leaves about 100 MiB of the limit to spare.
+//
+// The cap bounds requests being worked on, not connections: a connection
+// costs memory until its request has been refused and the connection closed,
+// so how many connections arrive at once is for the proxy in front to bound.
 //
 // Honest traffic is far below it: the page makes a handful of requests per
 // search, a Courier load run uses at most 50 workers and runs one at a time,
@@ -57,9 +63,10 @@ func (s *Server) SetMaxInFlight(n int) error {
 // exemptFromCap names the health probes. They are never refused: the
 // container healthcheck (the binary's -ping asks /livez) and an uptime monitor
 // must keep seeing the process as up while it sheds load, or a burst would be
-// reported as an outage and could get a healthy container restarted. /livez
-// writes a constant and /healthz makes one _count call, so neither is what
-// fills memory. /debug/vars is not a probe and is capped like everything else.
+// reported as an outage and could get a healthy container restarted. The cost
+// is that probe requests are not bounded by the cap: every /healthz makes its
+// own _count call upstream, and a flood of probes is for the edge in front to
+// bound. /debug/vars is not a probe and is capped like everything else.
 func exemptFromCap(path string) bool {
 	return path == "/livez" || path == "/healthz"
 }

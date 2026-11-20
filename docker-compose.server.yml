@@ -20,7 +20,7 @@ services:
     # 256m is the hard limit: past it the kernel kills the process. GOMEMLIMIT
     # is the Go runtime's soft target below it, about 70%, so the collector
     # works harder before memory nears the kill and the rest is left for what
-    # the runtime does not count (thread stacks, socket buffers). It is a
+    # the runtime does not manage, such as socket buffers. It is a
     # second belt behind the cap on requests in flight, not a guarantee.
     mem_limit: 256m
     environment:

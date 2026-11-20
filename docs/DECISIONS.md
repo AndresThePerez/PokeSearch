@@ -393,7 +393,9 @@ the note above.
   not for a client's quota. Telling clients apart stays the job of an edge rule
   in front, as the entry above says. Courier's load runs, at most 50 workers at
   a time, stay below the default, so the tool built to exercise the API is not
-  refused in ordinary use.
+  refused in ordinary use. It bounds the requests being worked on, not
+  simultaneous connections: a connection costs memory before its request is
+  refused, and bounding connections is left to the proxy or edge in front.
 - *The API key.* [ADR 12](#adr-12--a-versioned-api-for-outside-clients) says
   the key exists so that a future limiter could exempt keyed clients. The cap
   exempts no one; the key still only labels a client.

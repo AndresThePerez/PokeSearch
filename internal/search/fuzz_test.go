@@ -12,8 +12,10 @@ import (
 // strictFields are the only parameters allowed to produce a FieldError. If a
 // lenient one ever starts rejecting, /api/search begins returning 400s to
 // requests the contract promises to accept — Courier's curated collections
-// assert on exactly this split.
-var strictFields = []string{"q", "sort", "order", "supertype", "hp_min", "hp_max", "page", "page_size"}
+// assert on exactly this split. rarity, series, set and id are strict only
+// about their size (MaxListMembers, MaxValueRunes).
+var strictFields = []string{"q", "sort", "order", "supertype", "hp_min", "hp_max", "page", "page_size",
+	"rarity", "series", "set", "id"}
 
 // FuzzParseParams asserts the invariants every downstream consumer relies on:
 // BuildQuery reads Page/PageSize straight into from/size (an out-of-range pair
@@ -37,6 +39,8 @@ func FuzzParseParams(f *testing.F) {
 		"q=" + strings.Repeat("a+", MaxQueryTerms+1),
 		"rarity=rare+holo,Rare+Holo", "rarity=rare+holo+ex,Rare+Holo+EX,Rare+Holo+ex",
 		"rarity=%20RARE%09HOLO%20,Bogus,bogus", "rarity=mega_attack_rare",
+		"rarity=" + strings.Repeat("a,", MaxListMembers+1), "series=" + strings.Repeat(",x", MaxListMembers+1),
+		"set=" + strings.Repeat("s", MaxValueRunes+1), "rarity=Common," + strings.Repeat("%C3%A9", MaxValueRunes+1),
 	} {
 		f.Add(seed)
 	}
@@ -83,7 +87,14 @@ func FuzzParseParams(f *testing.F) {
 		// Rarity members are listed once, and each is either a stored value or
 		// a trimmed member of the input that names no single stored value; a
 		// member that does name one is never left behind in another spelling.
+		// A list over a size limit is refused and carried no further.
 		in := splitList(v.Get("rarity"))
+		if slices.ContainsFunc(ferrs, func(fe FieldError) bool { return fe.Field == "rarity" }) {
+			if len(p.Rarity) != 0 {
+				t.Fatalf("%q: refused rarity list still carries %d members", raw, len(p.Rarity))
+			}
+			in = nil
+		}
 		for i, r := range p.Rarity {
 			if slices.Index(p.Rarity, r) != i {
 				t.Fatalf("%q: Rarity = %q repeats %q", raw, p.Rarity, r)

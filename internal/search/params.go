@@ -37,6 +37,17 @@ func MaxPageFor(pageSize int) int {
 // longer query is a client error rather than an expensive request.
 const MaxQueryRunes, MaxQueryTerms = 256, 32
 
+// MaxListMembers bounds the rarity and series lists, and MaxValueRunes each of
+// their members, set and the search id, in characters as for q. A list is
+// copied into the post_filter and into every facet's scope, so its size is
+// multiplied many times over by the query and the query log; these limits
+// keep that work small and fixed, whatever the request's length. Members are counted after
+// trimming and dropping empty ones, but before mapping or dropping repeats,
+// so the count bounds what is done with the list. The corpus has 44 rarities
+// and 17 series, and a card id is at most 128 characters (CardIDPattern), so
+// every real filter is well inside both.
+const MaxListMembers, MaxValueRunes = 64, 128
+
 // CheckQueryLength reports a field error on q when the trimmed query is over
 // either limit, and nil when it is within both.
 func CheckQueryLength(q string) *FieldError {
@@ -157,7 +168,8 @@ type FieldError struct {
 // fields — sort, order, supertype, and the numerics hp_min/hp_max/page/
 // page_size — report a FieldError when supplied non-empty and invalid, and the
 // caller turns that into a 400. q is strict only about its length (see
-// CheckQueryLength). Everything else stays lenient: unknown query
+// CheckQueryLength), and rarity, series, set and id only about their size
+// (MaxListMembers, MaxValueRunes). Everything else stays lenient: unknown query
 // keys are ignored, unknown members of the types list are dropped, and rarity
 // members are mapped onto a stored spelling where exactly one exists and kept
 // as given otherwise. Out-of-range integers are clamped rather than rejected — a
@@ -165,13 +177,19 @@ type FieldError struct {
 func ParseParams(v url.Values) (Params, []FieldError) {
 	var errs []FieldError
 	p := Params{
-		Q:      strings.TrimSpace(v.Get("q")),
-		ID:     strings.TrimSpace(v.Get("id")),
-		Rarity: parseRarity(v.Get("rarity")),
-		Series: splitList(v.Get("series")),
-		SetID:  strings.TrimSpace(v.Get("set")),
-		Page:   1,
-		Debug:  v.Get("debug") == "1" || v.Get("debug") == "true",
+		Q:     strings.TrimSpace(v.Get("q")),
+		ID:    strings.TrimSpace(v.Get("id")),
+		SetID: strings.TrimSpace(v.Get("set")),
+		Page:  1,
+		Debug: v.Get("debug") == "1" || v.Get("debug") == "true",
+	}
+	rarityErr := checkList("rarity", v.Get("rarity"))
+	if rarityErr == nil {
+		p.Rarity = parseRarity(v.Get("rarity"))
+	}
+	seriesErr := checkList("series", v.Get("series"))
+	if seriesErr == nil {
+		p.Series = splitList(v.Get("series"))
 	}
 
 	if raw := strings.TrimSpace(v.Get("sort")); raw != "" {
@@ -259,8 +277,44 @@ func ParseParams(v url.Values) (Params, []FieldError) {
 	if fe := CheckQueryLength(p.Q); fe != nil {
 		errs = append(errs, *fe)
 	}
+	// The size limits come after every older check, so a request refused for
+	// another reason still names the same field first.
+	for _, fe := range []*FieldError{rarityErr, seriesErr, checkValue("set", p.SetID), checkValue("id", p.ID)} {
+		if fe != nil {
+			errs = append(errs, *fe)
+		}
+	}
 
 	return p, errs
+}
+
+// checkList reports a field error when the comma list s has more than
+// MaxListMembers non-empty members or a member longer than MaxValueRunes. It
+// walks the list without splitting it into a slice and stops at the first
+// member over a limit, so refusing a long list costs no copy of it.
+func checkList(field, s string) *FieldError {
+	n := 0
+	for item := range strings.SplitSeq(s, ",") {
+		if item = strings.TrimSpace(item); item == "" {
+			continue
+		}
+		if n++; n > MaxListMembers {
+			return &FieldError{field, field + " takes at most " + strconv.Itoa(MaxListMembers) + " values"}
+		}
+		if utf8.RuneCountInString(item) > MaxValueRunes {
+			return &FieldError{field, "each " + field + " value must be at most " + strconv.Itoa(MaxValueRunes) + " characters"}
+		}
+	}
+	return nil
+}
+
+// checkValue reports a field error when the trimmed value s is longer than
+// MaxValueRunes.
+func checkValue(field, s string) *FieldError {
+	if utf8.RuneCountInString(s) > MaxValueRunes {
+		return &FieldError{field, field + " must be at most " + strconv.Itoa(MaxValueRunes) + " characters"}
+	}
+	return nil
 }
 
 func splitList(s string) []string {

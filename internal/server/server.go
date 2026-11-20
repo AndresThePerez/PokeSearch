@@ -748,6 +748,66 @@ func (s *Server) writeES503(w http.ResponseWriter, r *http.Request, entry QueryL
 	s.writeError(w, r, http.StatusServiceUnavailable, codeESUnavailable, "", "elasticsearch unavailable")
 }
 
+// A refused request's query-log line repeats at most maxLoggedValueRunes
+// characters of each parameter value and maxLoggedListMembers members of each
+// list. The line is written for every refusal, so it has to stay small however
+// long the request was: these bounds keep it under 2 KB even when every
+// character must be escaped. An accepted request's line is never cut.
+const maxLoggedValueRunes, maxLoggedListMembers = 32, 2
+
+// cutLogMarker ends a value the query log shortened.
+const cutLogMarker = "…[cut]"
+
+// writeRefused answers a request whose parameters were refused before any
+// query was built: one query-log line with its status and message, no DSL and
+// its parameter values cut, then the 400 envelope naming the field.
+func (s *Server) writeRefused(w http.ResponseWriter, r *http.Request, entry QueryLog, field, message string) {
+	entry.Params = cutLogParams(entry.Params)
+	entry.DSL = nil
+	entry.Status = http.StatusBadRequest
+	entry.Error = message
+	s.writeLog(entry)
+	s.writeError(w, r, http.StatusBadRequest, codeInvalidParam, field, message)
+}
+
+// cutLogParams is params with each string cut by cutLogValue and each list
+// cut to its first maxLoggedListMembers members, a last member saying how
+// many more were left out. Other values are kept as they are.
+func cutLogParams(params map[string]any) map[string]any {
+	out := make(map[string]any, len(params))
+	for k, v := range params {
+		switch v := v.(type) {
+		case string:
+			out[k] = cutLogValue(v)
+		case []string:
+			kept := make([]string, 0, maxLoggedListMembers+1)
+			for _, m := range v[:min(len(v), maxLoggedListMembers)] {
+				kept = append(kept, cutLogValue(m))
+			}
+			if len(v) > maxLoggedListMembers {
+				kept = append(kept, fmt.Sprintf("[%d more]", len(v)-maxLoggedListMembers))
+			}
+			out[k] = kept
+		default:
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// cutLogValue keeps the first maxLoggedValueRunes characters of s and marks
+// the cut, or returns s unchanged when it is no longer than that.
+func cutLogValue(s string) string {
+	n := 0
+	for i := range s {
+		if n == maxLoggedValueRunes {
+			return s[:i] + cutLogMarker
+		}
+		n++
+	}
+	return s
+}
+
 // esRejectedMessage is what a client is told when Elasticsearch refuses the
 // query its request produced. It is fixed text on purpose: the cluster's own
 // reason names fields, analyzers and internals, and goes to the log only.
@@ -1062,20 +1122,18 @@ type esSearchResponse struct {
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	p, ferrs := search.ParseParams(r.URL.Query())
-	dsl := search.BuildQuery(p)
 	entry := s.queryLog(r, "search")
 	entry.Params = logParams(p)
-	entry.DSL = dsl
 
-	// Strict params are rejected before ES is touched: a typo must not cost a
-	// cluster round trip, and it must not return a plausible-looking answer.
+	// Strict params are rejected before the query is built and before ES is
+	// touched: a typo must not cost a cluster round trip, and it must not
+	// return a plausible-looking answer.
 	if len(ferrs) > 0 {
-		entry.Status = http.StatusBadRequest
-		entry.Error = ferrs[0].Message
-		s.writeLog(entry)
-		s.writeError(w, r, http.StatusBadRequest, codeInvalidParam, ferrs[0].Field, ferrs[0].Message)
+		s.writeRefused(w, r, entry, ferrs[0].Field, ferrs[0].Message)
 		return
 	}
+	dsl := search.BuildQuery(p)
+	entry.DSL = dsl
 
 	esr, err := s.searchES(r, dsl)
 	if err != nil {
@@ -1567,10 +1625,7 @@ func (s *Server) handleExplain(w http.ResponseWriter, r *http.Request) {
 	entry.Params = map[string]any{"id": id, "q": q}
 
 	if bad, field, message := explainParamError(id, q); bad {
-		entry.Status = http.StatusBadRequest
-		entry.Error = message
-		s.writeLog(entry)
-		s.writeError(w, r, http.StatusBadRequest, codeInvalidParam, field, message)
+		s.writeRefused(w, r, entry, field, message)
 		return
 	}
 
@@ -1971,10 +2026,7 @@ func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request) {
 	entry.Params = map[string]any{"q": q, "a": aName, "b": bName}
 
 	if bad, field, message := compareParamError(q, aName, bName); bad {
-		entry.Status = http.StatusBadRequest
-		entry.Error = message
-		s.writeLog(entry)
-		s.writeError(w, r, http.StatusBadRequest, codeInvalidParam, field, message)
+		s.writeRefused(w, r, entry, field, message)
 		return
 	}
 	// Both names are known by the time the profiles are looked up, so the
@@ -2326,10 +2378,7 @@ func (s *Server) handleSuggest(w http.ResponseWriter, r *http.Request) {
 	// q is the one parameter read here, so its length cap is the one field
 	// error this endpoint reports, before any ES round trip.
 	if fe := search.CheckQueryLength(p.Q); fe != nil {
-		entry.Status = http.StatusBadRequest
-		entry.Error = fe.Message
-		s.writeLog(entry)
-		s.writeError(w, r, http.StatusBadRequest, codeInvalidParam, fe.Field, fe.Message)
+		s.writeRefused(w, r, entry, fe.Field, fe.Message)
 		return
 	}
 

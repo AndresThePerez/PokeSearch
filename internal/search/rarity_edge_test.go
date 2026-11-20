@@ -35,9 +35,9 @@ func titleCase(s string) string {
 }
 
 // A request can carry about a megabyte of query string, and the rarity list
-// is split on every comma of it. Dropping repeats must stay linear in the
-// list: a long run of distinct members costs milliseconds, not seconds of a
-// core per request.
+// is split on every comma of it. A list past MaxListMembers is refused, and
+// refusing it must stay linear in the list: a long run of distinct members
+// costs milliseconds, not seconds of a core per request.
 func TestRarityListStaysLinearInItsLength(t *testing.T) {
 	const members = 100000 // about 590 KB of query string, under the 1 MB header limit
 	var b strings.Builder
@@ -51,11 +51,11 @@ func TestRarityListStaysLinearInItsLength(t *testing.T) {
 	start := time.Now()
 	p, errs := ParseParams(url.Values{"rarity": {raw}})
 	elapsed := time.Since(start)
-	if len(errs) != 0 {
-		t.Fatalf("unexpected field errors %v", errs)
+	if len(errs) != 1 || errs[0].Field != "rarity" {
+		t.Fatalf("field errors %v, want one on rarity (the list is over MaxListMembers)", errs)
 	}
-	if len(p.Rarity) != members {
-		t.Fatalf("Rarity has %d members, want %d (unknown members are kept)", len(p.Rarity), members)
+	if len(p.Rarity) != 0 {
+		t.Fatalf("Rarity has %d members, want none from a refused list", len(p.Rarity))
 	}
 	// The bound is generous on purpose: the linear code needs well under a
 	// fifth of a second even with the race detector, while a quadratic dedupe
@@ -173,21 +173,21 @@ func TestRarityOrderAndRepeats(t *testing.T) {
 	}
 }
 
-// Members that are empty, only whitespace, or huge: nothing is invented, and a
-// long member is kept whole.
+// Members that are empty, only whitespace, or long: nothing is invented, and a
+// member up to MaxValueRunes is kept whole.
 func TestRarityDegenerateMembers(t *testing.T) {
-	long := strings.Repeat("rare holo ", 100000) // 1 MB, folds to a value plus a lot of text
+	long := strings.Repeat("rare holo ", 11) + "rare holo" // 119 characters, folds to a value plus more text
 	for name, tc := range map[string]struct {
 		in   string
 		want []string
 	}{
-		"empty":                          {"", nil},
-		"one comma":                      {",", nil},
-		"only spaces":                    {"   ", nil},
-		"only unicode spaces":            {"\u00a0\u2003\n\t", nil},
-		"only commas and space":          {" , \t,\u00a0,", nil},
-		"1 MB of repeats stays verbatim": {long, []string{strings.TrimSpace(long)}},
-		"1 MB member beside a real one":  {"common," + long, []string{"Common", strings.TrimSpace(long)}},
+		"empty":                           {"", nil},
+		"one comma":                       {",", nil},
+		"only spaces":                     {"   ", nil},
+		"only unicode spaces":             {"\u00a0\u2003\n\t", nil},
+		"only commas and space":           {" , \t,\u00a0,", nil},
+		"a long member stays verbatim":    {long, []string{strings.TrimSpace(long)}},
+		"a long member beside a real one": {"common," + long, []string{"Common", strings.TrimSpace(long)}},
 	} {
 		got := rarityOf(t, tc.in)
 		if len(got) == 0 && len(tc.want) == 0 {

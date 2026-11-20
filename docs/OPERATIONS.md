@@ -50,6 +50,16 @@ docker compose -f docker-compose.yml -f docker-compose.server.yml --profile seed
 
 `39a26a144c8b6ef6c2fb17b2c29d0bb7121e3a11` is the `pokemon-tcg-data` `master` commit as of 2026-09-16 and yields exactly **20,635** documents (`/healthz` → `{"docs":20635,"status":"ok"}`). It is the ref pinned in `docker-compose.yml`. A populated index makes reseeding a no-op unless `-force` is passed.
 
+### After a reseed
+
+Restart `app` after any reseed of an index that already holds cards. Four things are cached for the life of the process: the set catalog behind the `sets` facet of `/api/search`, the `/api/stats` payload, the seed provenance (`seed.ref` and `seed.seeded_at`) that `/api/meta` and the `/api/v1/` answers report, and the `/api/v1/sets` list. A reseed changes none of them in a running app, so until it restarts they describe the old corpus. Searches and card lookups are not cached and show the new index at once.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.server.yml restart app
+```
+
+The first seed into an empty index needs no restart, because an empty answer, or a missing seed stamp, is never cached.
+
 ### Backup and restore
 
 The index is write-once: one verified backup after seeding is sufficient (no cron). All commands run on the deployment host in `$DEPLOY_DIR`.
@@ -76,6 +86,22 @@ docker compose -f docker-compose.yml -f docker-compose.server.yml start es app
 Recovery ladder, cheapest first:
 
 1. **Container restart** — the `es-data` volume persists the index.
-2. **Reseed** with the pinned ref (see Seeding above) — deterministic, takes seconds.
+2. **Reseed** with the pinned ref (see Seeding above) — deterministic, takes seconds. Restart `app` afterwards (see After a reseed above).
 3. **Restore** the backup tarball into `pokesearch_es-data` (commands above).
 4. **Full rebuild** — re-clone, `up -d --build`, reseed.
+
+## Alerting
+
+A query Elasticsearch rejects is a client `400`, not a `503`, so it does not show in 5xx monitoring. Each such request writes its query line to the application log with `"status":400` and an `error` that begins with `elasticsearch: request rejected`, followed by the cluster's own reason:
+
+```text
+{"time":"…","request_id":"…","endpoint":"search", … ,"status":400,"error":"elasticsearch: request rejected: es 400 Bad Request: {…}"}
+```
+
+This applies to search, suggest, explain and compare. Alert on that prefix if a class of valid queries starts being rejected:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.server.yml logs app | grep 'elasticsearch: request rejected'
+```
+
+Every other Elasticsearch failure is still a `503` with code `es_unavailable`, and the `/api/v1/` routes answer all of them that way.

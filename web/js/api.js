@@ -33,6 +33,18 @@ let stepBackTo = null;
 // The query counts as finished after this long with no keystroke.
 const IDLE_COMMIT_MS = 1000;
 
+// The number of cards a search asks for. It is the server's own default, sent
+// anyway so that the request and the loading skeleton read one number.
+export const SEARCH_PAGE_SIZE = 24;
+
+// searchRequestParams is the querystring of a search request: the state, the
+// page it is on, the page size and, when the inspector wants it, debug.
+export function searchRequestParams({ debug = false } = {}) {
+  const sp = buildParams({ page: true, debug });
+  sp.set("page_size", String(SEARCH_PAGE_SIZE));
+  return sp;
+}
+
 function addressQuery() {
   return new URLSearchParams(location.search).toString();
 }
@@ -53,6 +65,25 @@ function writeHistory(trigger) {
     stepBackTo = buildParams().toString();
     history.back();
   }
+}
+
+// stepBackHolds says whether the step back under way already lands on the
+// query the page wants. Until its popstate arrives the address still shows
+// the draft, and a commit then (focus leaving the box right after Enter)
+// would take the query for a new one and push it on top of the draft.
+export function stepBackHolds({ stepBackTo: heading, wanted }) {
+  return heading !== null && heading === wanted;
+}
+
+// searchBoxStatus is what Enter needs to know about the typed query: whether
+// a keystroke search is waiting on the debounce, and whether the query
+// differs from the one the address holds, which is the one the grid shows.
+export function searchBoxStatus() {
+  const wanted = buildParams().toString();
+  return {
+    pending: debounceTimer !== null,
+    changed: wanted !== addressQuery() && !stepBackHolds({ stepBackTo, wanted }),
+  };
 }
 
 // isOwnStepBack tells the popstate listener that this popstate is the step
@@ -131,9 +162,9 @@ export async function runSearch({ append = false, push = false, fromHistory = fa
   const controller = new AbortController();
   const startedAt = performance.now();
   searchController = controller;
-  setLoading(true, { append });
+  setLoading(true, { append, pageSize: SEARCH_PAGE_SIZE });
   try {
-    const res = await fetch(`/api/search?${buildParams({ page: true, debug: debugEnabled() })}`, { signal: controller.signal });
+    const res = await fetch(`/api/search?${searchRequestParams({ debug: debugEnabled() })}`, { signal: controller.signal });
     if (!res.ok) {
       const body = await readErrorBody(res);
       if (controller.signal.aborted) return;
@@ -201,6 +232,7 @@ export function scheduleSearch() {
 // now instead; a query the address already holds writes nothing.
 export function commitQuery(trigger) {
   clearTimeout(idleTimer);
+  if (stepBackHolds({ stepBackTo, wanted: buildParams().toString() })) return;
   const { action, memo } = planHistory(trigger);
   if (action === "none") {
     historyMemo = memo;

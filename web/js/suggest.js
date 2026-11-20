@@ -4,7 +4,7 @@
 
 import { $ } from "./util.js";
 import { state, queryText } from "./state.js";
-import { fetchSuggestions, runSearch, cancelScheduledSearch, commitQuery } from "./api.js";
+import { fetchSuggestions, runSearch, cancelScheduledSearch, commitQuery, searchBoxStatus } from "./api.js";
 
 let suggestController = null;
 let suggestTimer = null;
@@ -91,6 +91,31 @@ export function closeSuggestions() {
   $("search-input").removeAttribute("aria-activedescendant");
 }
 
+// enterEffects decides what Enter in the search box does, as the list of
+// steps to take in order. A highlighted option is picked, which is a search
+// of its own. Otherwise the list closes and the typed query is committed:
+// that runs the keystroke search still waiting on the debounce, once, when
+// the query differs from the one the address (and so the grid) holds, and
+// writes no history and searches nothing when it does not. In that second
+// case a keystroke search still waiting would only repeat the results on
+// screen, so it is dropped. Either way focus moves to the results, which is
+// where Enter was asking to go.
+export function enterEffects({ highlighted, pending, changed }) {
+  if (highlighted) return ["pick"];
+  if (!changed && pending) return ["close", "drop", "commit", "focus"];
+  return ["close", "commit", "focus"];
+}
+
+const ENTER_STEPS = {
+  pick: () => pickSuggestion(activeSuggestion),
+  close: closeSuggestions,
+  drop: cancelScheduledSearch,
+  commit: () => commitQuery("enter"),
+  // The grid is focusable (tabindex="-1"), and scroll-padding-top keeps it
+  // clear of the sticky header when focus scrolls it into view.
+  focus: () => $("results-grid").focus(),
+};
+
 export function handleSuggestKeydown(event) {
   if (event.key === "ArrowDown" && suggestions.length) {
     event.preventDefault();
@@ -98,13 +123,10 @@ export function handleSuggestKeydown(event) {
   } else if (event.key === "ArrowUp" && suggestions.length) {
     event.preventDefault();
     setActiveSuggestion(activeSuggestion - 1);
-  } else if (event.key === "Enter" && activeSuggestion >= 0) {
-    event.preventDefault();
-    pickSuggestion(activeSuggestion);
   } else if (event.key === "Enter") {
-    // Enter on the typed text finishes the query, which earns it a history
-    // entry of its own.
-    commitQuery("enter");
+    const highlighted = activeSuggestion >= 0;
+    if (highlighted) event.preventDefault();
+    for (const step of enterEffects({ highlighted, ...searchBoxStatus() })) ENTER_STEPS[step]();
   } else if (event.key === "Escape") {
     // Only swallow Escape when the list is open, so it still closes the modal.
     if (!$("suggest-list").hidden) event.preventDefault();

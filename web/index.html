@@ -20,7 +20,7 @@
 <body>
   <a class="skip-link" href="#results-grid">Skip to results</a>
   <header class="site-header">
-    <a class="brand" href="/" aria-label="PokéSearch home">
+    <a class="brand" href="/" aria-label="PokéSearch TCG archive, home">
       <span class="brand-mark" aria-hidden="true"><span></span></span>
       <span>
         <strong>PokéSearch</strong>
@@ -96,7 +96,7 @@
           </label>
         </div>
 
-        <div id="active-filters" aria-label="Active filters"></div>
+        <div id="active-filters" role="group" aria-label="Active filters"></div>
         <button id="clear-filters" type="button" hidden>Clear all filters</button>
         <button id="filter-done" type="button">Close filters</button>
       </div>
@@ -152,6 +152,7 @@
         <button id="empty-browse" type="button" hidden>Browse the archive</button>
       </div>
       <button id="load-more" type="button" hidden>Load more cards</button>
+      <p id="results-end" aria-live="polite"></p>
 
     </main>
 

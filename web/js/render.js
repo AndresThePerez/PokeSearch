@@ -48,15 +48,51 @@ function renderDidYouMean(suggestion) {
 
 export function renderResults(data, { append = false, roundTripMs = 0 } = {}) {
   state.page = data.page;
-  renderGrid(data.results, { append, matched: data.matched, highlights: data.highlights });
+  renderGrid(data.results, { append, page: data.page, matched: data.matched, highlights: data.highlights });
   renderFacets(data.facets);
   $("total-count").textContent = `${Number(data.total).toLocaleString()} ${data.total === 1 ? "card" : "cards"}`;
   $("load-more").hidden = data.pages === 0 || data.page >= data.pages;
+  $("results-end").textContent = endOfResultsLine({
+    shown: (data.page - 1) * data.page_size + data.results.length,
+    total: data.total,
+    window: data.pages * data.page_size,
+  });
   $("empty-state").hidden = data.total !== 0;
+  if (data.total === 0) $("empty-message").textContent = emptyStateMessage(state);
   renderDidYouMean(data.did_you_mean);
   $("results-grid").hidden = data.total === 0;
   renderStats(data, roundTripMs);
   syncControls();
+}
+
+// endOfResultsLine is the line under the last page the archive will serve
+// when the result runs past it. window is how many cards the pages reach
+// (pages times page size), so a result that fits ends with no line at all.
+export function endOfResultsLine({ shown, total, window }) {
+  if (!(window > 0) || shown < window || total <= shown) return "";
+  return `Showing the first ${Number(shown).toLocaleString()} of ${Number(total).toLocaleString()} cards. Narrow the search or add filters to see the rest.`;
+}
+
+// A query quoted back in the empty state is cut short: the box takes up to
+// 256 characters, and the sentence has to stay one.
+const EMPTY_QUERY_LIMIT = 40;
+
+function hasFilters(from) {
+  return Boolean(from.supertype || from.types?.length || from.set || from.rarity || from.series);
+}
+
+// emptyStateMessage is the sentence a search that found nothing shows, built
+// from what the search asked for: the query it names, the filters that may be
+// excluding results, or, for a browse with neither, a plain line.
+export function emptyStateMessage(from) {
+  const chars = Array.from(String(from.q ?? "").trim());
+  const q = chars.length > EMPTY_QUERY_LIMIT ? `${chars.slice(0, EMPTY_QUERY_LIMIT).join("")}…` : chars.join("");
+  if (hasFilters(from)) {
+    return q
+      ? `No cards match "${q}" with these filters, which may be excluding results.`
+      : "No cards match these filters, which may be excluding results.";
+  }
+  return q ? `No cards match "${q}".` : "No cards to show.";
 }
 
 // The four relevance branches, in the order the server reports them, mapped to
@@ -201,7 +237,26 @@ function cardSnippet(highlight) {
 
 // matched and highlights are aligned index-for-index with the results and only
 // present for a text query, so browse renders no strips and no snippets.
-function renderGrid(cards, { append = false, matched, highlights } = {}) {
+// The first row of a wide grid: its art loads first, the rest as it scrolls in.
+const EAGER_IMAGES = 6;
+
+// imageIsEager says whether the card art at index of a page loads eagerly.
+// Only the first page's first row does: a page that "Load more" appends lands
+// below the fold.
+export function imageIsEager(index, page) {
+  return page === 1 && index < EAGER_IMAGES;
+}
+
+// cardButtonLabel is a card button's accessible name. It starts with the
+// card's name, the text the button shows when the art is missing, followed by
+// the matched branches in the order their badges show them, so the visible
+// text is always a run of words inside the name.
+export function cardButtonLabel(card, branches = []) {
+  const matched = branches.length ? ` ${branches.map(branchLabel).join(" ")} match` : "";
+  return `${card.name}${matched}, from ${card.set_name}`;
+}
+
+function renderGrid(cards, { append = false, page = 1, matched, highlights } = {}) {
   const grid = $("results-grid");
   const items = cards.map((card, index) => {
     const highlight = highlights?.[index] ?? null;
@@ -216,15 +271,18 @@ function renderGrid(cards, { append = false, matched, highlights } = {}) {
     button.type = "button";
     button.className = "card-open";
     button.dataset.id = card.id;
-    const label = `Open ${card.name} from ${card.set_name}`;
-    button.setAttribute("aria-label", branches.length
-      ? `${label}. Matched ${branches.map(branchLabel).join(", ")}`
-      : label);
+    button.setAttribute("aria-label", cardButtonLabel(card, branches));
 
     const image = document.createElement("img");
+    // Set before src, so the browser reads the priority before it fetches.
+    if (!append && imageIsEager(index, page)) {
+      image.loading = "eager";
+      image.setAttribute("fetchpriority", "high");
+    } else {
+      image.loading = "lazy";
+    }
     image.src = imageURL(card, "small");
     image.alt = card.name;
-    image.loading = "lazy";
     image.decoding = "async";
     image.addEventListener("load", () => button.classList.add("is-loaded"), { once: true });
     // Card art is third-party and occasionally missing. Without this the cell
@@ -424,7 +482,13 @@ export function setStale(isStale) {
   grid.setAttribute("aria-busy", String(isStale || grid.classList.contains("is-loading")));
 }
 
-export function setLoading(loading, { append = false } = {}) {
+// skeletonCount is how many placeholder cards a loading first page draws: one
+// per card the request asks for, so the grid keeps its height when they land.
+export function skeletonCount(pageSize) {
+  return Number.isInteger(pageSize) && pageSize > 0 ? pageSize : 0;
+}
+
+export function setLoading(loading, { append = false, pageSize = 0 } = {}) {
   const grid = $("results-grid");
   // Clearing the loading flag must not clear staleness with it: the request
   // that finished is the one that failed, and the cards under it are still the
@@ -434,7 +498,7 @@ export function setLoading(loading, { append = false } = {}) {
     $("load-more").disabled = true;
     if (!append && !grid.querySelector(".card-open")) {
       grid.hidden = false;
-      grid.replaceChildren(...Array.from({ length: 10 }, makeSkeleton));
+      grid.replaceChildren(...Array.from({ length: skeletonCount(pageSize) }, makeSkeleton));
     }
     grid.classList.add("is-loading");
     return;

@@ -253,7 +253,7 @@ func TestFrontendJobFailsWhenNoTestFileMatches(t *testing.T) {
 	if glob < 0 || check < 0 {
 		t.Fatal("frontend job has no step that checks web/js/*.test.mjs matches a file")
 	}
-	if !(glob < check && check < run) {
+	if glob >= check || check >= run {
 		t.Errorf("the no-test-files check (lines %d, %d) must come before the test step (line %d)", glob, check, run)
 	}
 	// The check's own body must exit non-zero, and must not use nullglob,

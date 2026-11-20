@@ -93,6 +93,47 @@ func TestEmbeddedMarkupHasRequiredElements(t *testing.T) {
 	}
 }
 
+// Link unfurlers run no script, so the social card has to be spelled out in the
+// markup itself: the same image for Open Graph and Twitter, and the large-image
+// card type so it is shown at full width.
+func TestEmbeddedHeadDeclaresTheSocialCard(t *testing.T) {
+	html, err := Files.ReadFile("index.html")
+	if err != nil {
+		t.Fatalf("read index.html: %v", err)
+	}
+	page := string(html)
+
+	meta := func(attr, name string) string {
+		re := regexp.MustCompile(`<meta\s+` + attr + `="` + regexp.QuoteMeta(name) + `"\s+content="([^"]*)"`)
+		m := re.FindStringSubmatch(page)
+		if m == nil {
+			t.Errorf("index.html has no <meta %s=%q>", attr, name)
+			return ""
+		}
+		return m[1]
+	}
+
+	for _, tag := range []struct{ attr, name string }{
+		{"property", "og:image"},
+		{"name", "twitter:image"},
+	} {
+		got := meta(tag.attr, tag.name)
+		if got != "" && !strings.HasSuffix(got, "/docs/media/social.png") {
+			t.Errorf("%s = %q, want an address ending in /docs/media/social.png", tag.name, got)
+		}
+	}
+	if got := meta("name", "twitter:card"); got != "" && got != "summary_large_image" {
+		t.Errorf("twitter:card = %q, want summary_large_image", got)
+	}
+	if got := meta("property", "og:image:width"); got != "" && got != "1200" {
+		t.Errorf("og:image:width = %q, want 1200", got)
+	}
+	if got := meta("property", "og:image:height"); got != "" && got != "630" {
+		t.Errorf("og:image:height = %q, want 630", got)
+	}
+	meta("property", "og:image:alt")
+}
+
 // The old single-file bundle must be gone, or the split is only half done and
 // two copies of every handler ship in the binary.
 func TestLegacyBundleIsNotEmbedded(t *testing.T) {

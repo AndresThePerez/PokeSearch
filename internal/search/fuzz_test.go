@@ -35,6 +35,8 @@ func FuzzParseParams(f *testing.F) {
 		"debug=true", "page_size=7&page=1372",
 		"q=" + strings.Repeat("a", MaxQueryRunes+1), "q=" + strings.Repeat("%C3%A9", MaxQueryRunes),
 		"q=" + strings.Repeat("a+", MaxQueryTerms+1),
+		"rarity=rare+holo,Rare+Holo", "rarity=rare+holo+ex,Rare+Holo+EX,Rare+Holo+ex",
+		"rarity=%20RARE%09HOLO%20,Bogus,bogus", "rarity=mega_attack_rare",
 	} {
 		f.Add(seed)
 	}
@@ -78,6 +80,29 @@ func FuzzParseParams(f *testing.F) {
 				t.Fatalf("%q: Types = %v repeats %q", raw, p.Types, ty)
 			}
 		}
+		// Rarity members are listed once, and each is either a stored value or
+		// a trimmed member of the input that names no single stored value; a
+		// member that does name one is never left behind in another spelling.
+		in := splitList(v.Get("rarity"))
+		for i, r := range p.Rarity {
+			if slices.Index(p.Rarity, r) != i {
+				t.Fatalf("%q: Rarity = %q repeats %q", raw, p.Rarity, r)
+			}
+			if !slices.Contains(CanonicalRarities, r) {
+				if !slices.Contains(in, r) {
+					t.Fatalf("%q: Rarity[%d] = %q is neither stored nor given", raw, i, r)
+				}
+				if len(raritiesByFold[foldRarity(r)]) == 1 {
+					t.Fatalf("%q: Rarity[%d] = %q was left unmapped", raw, i, r)
+				}
+			}
+		}
+		for _, item := range in {
+			if vals := raritiesByFold[foldRarity(item)]; len(vals) == 1 && !slices.Contains(p.Rarity, vals[0]) {
+				t.Fatalf("%q: member %q names %q, missing from Rarity = %q", raw, item, vals[0], p.Rarity)
+			}
+		}
+
 		// A q that survives parsing is within both limits; one over either limit
 		// is always reported on q.
 		qErr := slices.ContainsFunc(ferrs, func(fe FieldError) bool { return fe.Field == "q" })

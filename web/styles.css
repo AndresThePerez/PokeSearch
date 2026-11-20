@@ -666,8 +666,11 @@ main { min-width: 0; }
   border-radius: clamp(8px, 1vw, 13px);
 }
 
+/* Focus scrolling stops a card at the header's bottom plus this margin, so
+   its focus ring (3px wide, 3px out) is not drawn under the sticky header. */
 .card-open {
   position: relative;
+  scroll-margin-top: 8px;
   padding: 0;
   border: 1px solid var(--line-soft);
   background: var(--surface-raised);
@@ -1768,6 +1771,7 @@ body.route-stats .app-layout { grid-template-columns: minmax(0, 1fr) minmax(340p
 @media (max-width: 768px) {
   /* The header scrolls away at this width, so there is nothing to clear. */
   html { scroll-padding-top: 0; }
+  .card-open { scroll-margin-top: 0; }
   .site-header {
     position: relative;
     grid-template-columns: 1fr;

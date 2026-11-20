@@ -918,7 +918,7 @@ func TestErrorCodeEnumIsTheServersCodes(t *testing.T) {
 	errProps, _ := errObj["properties"].(map[string]any)
 	code, _ := errProps["code"].(map[string]any)
 	enum := stringSet(code["enum"])
-	for _, want := range []string{"not_found", "unauthorized", "invalid_param"} {
+	for _, want := range []string{"not_found", "unauthorized", "invalid_param", "method_not_allowed"} {
 		if !slices.Contains(enum, want) {
 			t.Errorf("error.json code enum %v lacks %q", enum, want)
 		}

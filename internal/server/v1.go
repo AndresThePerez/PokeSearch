@@ -212,9 +212,9 @@ func (s *Server) writeV1(w http.ResponseWriter, r *http.Request, v any) int {
 	h := w.Header()
 	h.Set("ETag", "W/"+opaque)
 	h.Set("Cache-Control", "no-cache")
-	// etagMatches already drops a W/ prefix from each candidate, so comparing
-	// against the opaque part is the weak comparison If-None-Match requires.
-	if etagMatches(r.Header.Get("If-None-Match"), opaque) {
+	// etagMatches drops a W/ prefix on both sides, which is the weak
+	// comparison If-None-Match requires.
+	if etagMatches(r.Header.Get("If-None-Match"), "W/"+opaque) {
 		w.WriteHeader(http.StatusNotModified)
 		return http.StatusNotModified
 	}
@@ -352,6 +352,10 @@ const (
 	apiKeyHeader = "X-Api-Key"
 	v1Prefix     = "/api/v1/"
 	clientKeyed  = "keyed"
+	// apiKeyChallenge is the WWW-Authenticate a 401 carries. HTTP has no
+	// registered scheme for a key sent in a header of its own, so it names
+	// the conventional ApiKey scheme and the one header the key travels in.
+	apiKeyChallenge = `ApiKey realm="pokesearch", header="X-Api-Key"`
 )
 
 // apiKeys holds the SHA-256 of each configured key. Comparing digests keeps
@@ -400,6 +404,7 @@ func (s *Server) withAPIKey(next http.Handler) http.Handler {
 		}
 		// Two key headers are ambiguous, so they are not a keyed request.
 		if len(presented) != 1 || !keys.match(presented[0]) {
+			w.Header().Set("WWW-Authenticate", apiKeyChallenge)
 			s.writeError(w, r, http.StatusUnauthorized, codeUnauthorized, "", "invalid API key")
 			return
 		}

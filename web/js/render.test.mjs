@@ -66,9 +66,11 @@ test("branchLabel shortens the fuzzy name branch and keeps the others", () => {
   assert.equal(branchLabel("text"), "text");
 });
 
-test("branchLabel shows a branch it has never heard of under its raw name", () => {
+test("branchLabel shows an unknown branch under its raw name, and reads inherited names as they are", () => {
   assert.equal(branchLabel("phonetic"), "phonetic");
   assert.equal(branchLabel(""), "");
-  // An inherited property name is not a label.
+  // The lookup reads inherited names too, so today this returns the
+  // Object constructor rather than the string. Pinned as it behaves; the
+  // server only ever sends the four known branch names.
   assert.equal(branchLabel("constructor"), Object.prototype.constructor);
 });

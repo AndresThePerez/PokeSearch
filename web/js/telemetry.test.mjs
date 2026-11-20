@@ -35,7 +35,7 @@ test("quantile uses the nearest rank", () => {
   assert.equal(quantile(sorted, 0.76), 40);
 });
 
-test("quantile p95 of twenty samples is the highest", () => {
+test("quantile p95 of twenty samples is the 19th, and p96 the 20th", () => {
   const sorted = Array.from({ length: 20 }, (_, i) => i + 1);
   assert.equal(quantile(sorted, 0.95), 19);
   assert.equal(quantile(sorted, 0.96), 20);

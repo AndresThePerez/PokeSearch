@@ -193,3 +193,119 @@ func TestCIRunsTheFrontendTests(t *testing.T) {
 		}
 	}
 }
+
+// frontendJob returns the lines of the frontend job in ci.yml.
+func frontendJob(t *testing.T) []string {
+	t.Helper()
+	raw, err := os.ReadFile("../.github/workflows/ci.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	in := false
+	for _, l := range strings.Split(string(raw), "\n") {
+		trim := strings.TrimSpace(l)
+		if indent := len(l) - len(strings.TrimLeft(l, " ")); indent == 2 && strings.HasSuffix(trim, ":") && !strings.HasPrefix(trim, "#") {
+			in = trim == "frontend:"
+			continue
+		}
+		if in {
+			out = append(out, l)
+		}
+	}
+	if len(out) == 0 {
+		t.Fatal("ci.yml has no frontend job")
+	}
+	return out
+}
+
+func lineIndex(lines []string, want string) int {
+	for i, l := range lines {
+		if strings.TrimSpace(l) == want {
+			return i
+		}
+	}
+	return -1
+}
+
+// The suites have to exist on disk: with none, the CI step would run zero
+// tests and pass, and go test would not notice either.
+func TestFrontendTestFilesExist(t *testing.T) {
+	files, err := filepath.Glob("js/*.test.mjs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) == 0 {
+		t.Fatal("no web/js/*.test.mjs file exists; the frontend tests would run zero cases and pass")
+	}
+}
+
+// Node expands the pattern itself and, when nothing matches, runs no test and
+// exits 0. A step of its own, before the test step, has to fail in that case.
+func TestFrontendJobFailsWhenNoTestFileMatches(t *testing.T) {
+	lines := frontendJob(t)
+	run := lineIndex(lines, "run: node --test web/js/*.test.mjs")
+	if run < 0 {
+		t.Fatal("frontend job does not run the frontend tests")
+	}
+	glob := lineIndex(lines, "files=(web/js/*.test.mjs)")
+	check := lineIndex(lines, `if [ ! -e "${files[0]}" ]; then`)
+	if glob < 0 || check < 0 {
+		t.Fatal("frontend job has no step that checks web/js/*.test.mjs matches a file")
+	}
+	if !(glob < check && check < run) {
+		t.Errorf("the no-test-files check (lines %d, %d) must come before the test step (line %d)", glob, check, run)
+	}
+	// The check's own body must exit non-zero, and must not use nullglob,
+	// which would hide the unmatched pattern it relies on.
+	exit := -1
+	for i := check; i < run; i++ {
+		if strings.TrimSpace(lines[i]) == "exit 1" {
+			exit = i
+			break
+		}
+	}
+	if exit < 0 {
+		t.Error("the no-test-files check never runs exit 1 before the test step")
+	}
+	for i := glob; i < run; i++ {
+		trim := strings.TrimSpace(lines[i])
+		if !strings.HasPrefix(trim, "#") && strings.Contains(trim, "nullglob") {
+			t.Errorf("the no-test-files check uses nullglob: %s", trim)
+		}
+	}
+}
+
+// The scripts are ES modules with no package.json, which needs Node 20.19 or
+// 22.7 and later. The job pins the major the suites were verified on instead
+// of taking whatever the runner ships.
+func TestFrontendJobPinsNode(t *testing.T) {
+	lines := frontendJob(t)
+	setup := lineIndex(lines, "- uses: actions/setup-node@v4")
+	if setup < 0 {
+		t.Fatal("frontend job has no actions/setup-node@v4 step")
+	}
+	checkout := lineIndex(lines, "- uses: actions/checkout@v4")
+	if checkout < 0 || checkout > setup {
+		t.Error("setup-node must come after the checkout")
+	}
+	version := -1
+	for i := setup + 1; i < len(lines); i++ {
+		trim := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(trim, "- ") {
+			break
+		}
+		if trim == "node-version: 24" {
+			version = i
+		}
+	}
+	if version < 0 {
+		t.Error("the setup-node step does not set node-version: 24")
+	}
+	// Setup has to come before the first step that runs node.
+	for i, l := range lines {
+		if strings.Contains(l, "node ") && !strings.HasPrefix(strings.TrimSpace(l), "#") && i < setup {
+			t.Errorf("line %q runs node before setup-node", strings.TrimSpace(l))
+		}
+	}
+}

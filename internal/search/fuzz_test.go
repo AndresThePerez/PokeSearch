@@ -4,14 +4,16 @@ import (
 	"encoding/json"
 	"net/url"
 	"slices"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // strictFields are the only parameters allowed to produce a FieldError. If a
 // lenient one ever starts rejecting, /api/search begins returning 400s to
 // requests the contract promises to accept — Courier's curated collections
 // assert on exactly this split.
-var strictFields = []string{"sort", "order", "supertype", "hp_min", "hp_max", "page", "page_size"}
+var strictFields = []string{"q", "sort", "order", "supertype", "hp_min", "hp_max", "page", "page_size"}
 
 // FuzzParseParams asserts the invariants every downstream consumer relies on:
 // BuildQuery reads Page/PageSize straight into from/size (an out-of-range pair
@@ -29,6 +31,10 @@ func FuzzParseParams(f *testing.F) {
 		"types=fire,FIRE,Fire", "rarity=Rare,,Common", "series= Base ",
 		"id=base1-1", "debug=1", "q=%C3%B4&sort=name&order=asc",
 		"page=9223372036854775808", "hp_min=-9223372036854775809",
+		"supertype=Pok%C3%A9mon", "sort=%20hp%20&order=%20asc%20", "types=Steel,Normal,metal",
+		"debug=true", "page_size=7&page=1372",
+		"q=" + strings.Repeat("a", MaxQueryRunes+1), "q=" + strings.Repeat("%C3%A9", MaxQueryRunes),
+		"q=" + strings.Repeat("a+", MaxQueryTerms+1),
 	} {
 		f.Add(seed)
 	}
@@ -71,6 +77,14 @@ func FuzzParseParams(f *testing.F) {
 			if slices.Index(p.Types, ty) != i {
 				t.Fatalf("%q: Types = %v repeats %q", raw, p.Types, ty)
 			}
+		}
+		// A q that survives parsing is within both limits; one over either limit
+		// is always reported on q.
+		qErr := slices.ContainsFunc(ferrs, func(fe FieldError) bool { return fe.Field == "q" })
+		over := utf8.RuneCountInString(p.Q) > MaxQueryRunes || len(strings.Fields(p.Q)) > MaxQueryTerms
+		if over != qErr {
+			t.Fatalf("%q: q of %d runes and %d terms, q field error: %v",
+				raw, utf8.RuneCountInString(p.Q), len(strings.Fields(p.Q)), qErr)
 		}
 		for _, fe := range ferrs {
 			if !slices.Contains(strictFields, fe.Field) {

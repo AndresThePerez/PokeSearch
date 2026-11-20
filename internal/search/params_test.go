@@ -3,6 +3,7 @@ package search
 import (
 	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -37,7 +38,31 @@ func TestParseParams(t *testing.T) {
 		{"page floor 1", "page=0", Params{Sort: "newest", Page: 1, PageSize: 24}},
 		{"page cap 400", "page=999", Params{Sort: "newest", Page: 400, PageSize: 24}},
 		{"debug", "debug=1", Params{Sort: "newest", Page: 1, PageSize: 24, Debug: true}},
-		{"debug wrong value", "debug=true", Params{Sort: "newest", Page: 1, PageSize: 24}},
+		{"debug true", "debug=true", Params{Sort: "newest", Page: 1, PageSize: 24, Debug: true}},
+		{"debug wrong value", "debug=yes", Params{Sort: "newest", Page: 1, PageSize: 24}},
+		{"debug zero", "debug=0", Params{Sort: "newest", Page: 1, PageSize: 24}},
+		{"debug false", "debug=false", Params{Sort: "newest", Page: 1, PageSize: 24}},
+		{"debug upper-case true", "debug=TRUE", Params{Sort: "newest", Page: 1, PageSize: 24}},
+		{"supertype in the facet's own spelling", "supertype=Pok%C3%A9mon", Params{Supertype: "Pokémon", Sort: "newest", Page: 1, PageSize: 24}},
+		{"supertype accented, upper case", "supertype=POK%C3%89MON", Params{Supertype: "Pokémon", Sort: "newest", Page: 1, PageSize: 24}},
+		{"supertype accented, lower case, padded", "supertype=+pok%C3%A9mon+", Params{Supertype: "Pokémon", Sort: "newest", Page: 1, PageSize: 24}},
+		{"sort trimmed", "sort=%20hp%20", Params{Sort: "hp", Order: "desc", Page: 1, PageSize: 24}},
+		{"order trimmed", "sort=hp&order=%20asc%20", Params{Sort: "hp", Order: "asc", Page: 1, PageSize: 24}},
+		{"blank sort is absent", "q=x&sort=+++", Params{Q: "x", Sort: "relevance", Page: 1, PageSize: 24}},
+		{"types Steel is Metal", "types=Steel", Params{Types: []string{"Metal"}, Sort: "newest", Page: 1, PageSize: 24}},
+		{"types Normal is Colorless", "types=normal", Params{Types: []string{"Colorless"}, Sort: "newest", Page: 1, PageSize: 24}},
+		{"types alias and canonical collapse", "types=STEEL,Metal,Fire,colorless,Normal",
+			Params{Types: []string{"Metal", "Fire", "Colorless"}, Sort: "newest", Page: 1, PageSize: 24}},
+		{"types alias among unknown members", "types=ghost,steel,wizard", Params{Types: []string{"Metal"}, Sort: "newest", Page: 1, PageSize: 24}},
+		{"repeated q takes the first", "q=alakazam&q=pikachu", Params{Q: "alakazam", Sort: "relevance", Page: 1, PageSize: 24}},
+		{"repeated sort takes the first", "sort=hp&sort=bogus", Params{Sort: "hp", Order: "desc", Page: 1, PageSize: 24}},
+		{"repeated supertype takes the first", "supertype=trainer&supertype=wizard", Params{Supertype: "Trainer", Sort: "newest", Page: 1, PageSize: 24}},
+		{"repeated types takes the first", "types=Fire&types=Water", Params{Types: []string{"Fire"}, Sort: "newest", Page: 1, PageSize: 24}},
+		{"repeated page takes the first", "page=2&page=two", Params{Sort: "newest", Page: 2, PageSize: 24}},
+		{"repeated debug takes the first", "debug=0&debug=1", Params{Sort: "newest", Page: 1, PageSize: 24}},
+		// The last page the response advertises (ceil of 9,600 / size) must be
+		// requestable: 9600/7 = 1371.4, so 1372 pages.
+		{"page cap is the advertised last page", "page_size=7&page=999999", Params{Sort: "newest", Page: 1372, PageSize: 7}},
 		{"page_size parsed", "page_size=10", Params{Sort: "newest", Page: 1, PageSize: 10}},
 		{"page_size clamped to max", "page_size=500", Params{Sort: "newest", Page: 1, PageSize: 100}},
 		{"page_size clamped to min", "page_size=0", Params{Sort: "newest", Page: 1, PageSize: 1}},
@@ -73,6 +98,11 @@ func TestParseParamsFieldErrors(t *testing.T) {
 		{"bad hp_max", "hp_max=1e3", "hp_max"},
 		{"bad page", "page=two", "page"},
 		{"bad page_size", "page_size=lots", "page_size"},
+		{"padded bad sort", "sort=+bogus+", "sort"},
+		{"padded bad order", "sort=hp&order=+sideways+", "order"},
+		{"q over the character limit", "q=" + strings.Repeat("a", MaxQueryRunes+1), "q"},
+		{"q over the term limit", "q=" + strings.TrimSuffix(strings.Repeat("a+", MaxQueryTerms+1), "+"), "q"},
+		{"repeated sort, bad first", "sort=bogus&sort=hp", "sort"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -93,6 +123,9 @@ func TestParseParamsFieldErrors(t *testing.T) {
 	for _, ok := range []string{
 		"", "q=pikachu&types=Wizard,Fire", "page=999999", "utm_source=x",
 		"sort=hp&order=desc", "supertype=POKEMON", "hp_min=10&hp_max=99999",
+		"supertype=Pok%C3%A9mon", "sort=%20hp%20&order=%20desc%20", "types=Steel,Normal",
+		"debug=true", "q=" + strings.Repeat("a", MaxQueryRunes),
+		"q=" + strings.TrimSuffix(strings.Repeat("a+", MaxQueryTerms), "+"),
 	} {
 		v, err := url.ParseQuery(ok)
 		if err != nil {

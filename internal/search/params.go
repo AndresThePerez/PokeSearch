@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // PageSize is the default page size; MinPageSize/MaxPageSize bound what a
@@ -19,12 +20,33 @@ const MinPageSize, MaxPageSize = 1, 100
 // preserves the browse contract of exactly 400 pages at the default size.
 const MaxDocsWindow = 9600
 
-// MaxPageFor is the highest requestable page at a given page size.
+// MaxPageFor is the highest requestable page at a given page size. It is the
+// ceiling of MaxDocsWindow/pageSize, the same count the search response
+// advertises as pages, so the last advertised page is always reachable; the
+// last page then ends at most pageSize-1 documents past the window, 9,699 at
+// worst, still inside ES's 10,000.
 func MaxPageFor(pageSize int) int {
 	if pageSize < MinPageSize {
 		pageSize = MinPageSize
 	}
-	return MaxDocsWindow / pageSize
+	return (MaxDocsWindow + pageSize - 1) / pageSize
+}
+
+// MaxQueryRunes and MaxQueryTerms bound the free-text q: characters (runes,
+// not bytes) and whitespace-separated terms, both counted after trimming. A
+// longer query is a client error rather than an expensive request.
+const MaxQueryRunes, MaxQueryTerms = 256, 32
+
+// CheckQueryLength reports a field error on q when the trimmed query is over
+// either limit, and nil when it is within both.
+func CheckQueryLength(q string) *FieldError {
+	if utf8.RuneCountInString(q) > MaxQueryRunes {
+		return &FieldError{"q", "q must be at most " + strconv.Itoa(MaxQueryRunes) + " characters"}
+	}
+	if len(strings.Fields(q)) > MaxQueryTerms {
+		return &FieldError{"q", "q must be at most " + strconv.Itoa(MaxQueryTerms) + " terms"}
+	}
+	return nil
 }
 
 // CanonicalTypes are the exactly-11 TCG energy types present in the corpus.
@@ -33,8 +55,12 @@ var CanonicalTypes = []string{
 	"Fire", "Grass", "Lightning", "Metal", "Psychic", "Water",
 }
 
+// typeAliases maps the labels the page shows for two energy types to the
+// corpus's canonical names.
+var typeAliases = map[string]string{"steel": "Metal", "normal": "Colorless"}
+
 var canonicalSupertypes = map[string]string{
-	"pokemon": "Pokémon", "trainer": "Trainer", "energy": "Energy",
+	"pokemon": "Pokémon", "pokémon": "Pokémon", "trainer": "Trainer", "energy": "Energy",
 }
 
 // Params is the validated, canonicalized form of an /api/search request.
@@ -69,7 +95,8 @@ type FieldError struct {
 // rejected" rule (see Design Spec Milestone 3 §A2, decision D1), the strict
 // fields — sort, order, supertype, and the numerics hp_min/hp_max/page/
 // page_size — report a FieldError when supplied non-empty and invalid, and the
-// caller turns that into a 400. Everything else stays lenient: unknown query
+// caller turns that into a 400. q is strict only about its length (see
+// CheckQueryLength). Everything else stays lenient: unknown query
 // keys are ignored, and unknown members of the types/rarity/series comma-lists
 // are dropped. Out-of-range integers are clamped rather than rejected — a
 // clamp is a contract, an alphabetic page is a typo.
@@ -82,10 +109,10 @@ func ParseParams(v url.Values) (Params, []FieldError) {
 		Series: splitList(v.Get("series")),
 		SetID:  strings.TrimSpace(v.Get("set")),
 		Page:   1,
-		Debug:  v.Get("debug") == "1",
+		Debug:  v.Get("debug") == "1" || v.Get("debug") == "true",
 	}
 
-	if raw := v.Get("sort"); raw != "" {
+	if raw := strings.TrimSpace(v.Get("sort")); raw != "" {
 		switch raw {
 		case "relevance", "newest", "oldest", "hp", "name":
 			p.Sort = raw
@@ -111,7 +138,7 @@ func ParseParams(v url.Values) (Params, []FieldError) {
 	}
 	// order is validated always but applied only to hp/name sorts, so
 	// order=asc alongside sort=newest stays valid-and-ignored.
-	if raw := v.Get("order"); raw != "" {
+	if raw := strings.TrimSpace(v.Get("order")); raw != "" {
 		switch {
 		case raw != "asc" && raw != "desc":
 			errs = append(errs, FieldError{"order", "order must be one of asc|desc"})
@@ -130,6 +157,9 @@ func ParseParams(v url.Values) (Params, []FieldError) {
 
 	seen := map[string]bool{}
 	for _, item := range splitList(v.Get("types")) {
+		if alias, ok := typeAliases[strings.ToLower(item)]; ok {
+			item = alias
+		}
 		for _, canon := range CanonicalTypes {
 			if strings.EqualFold(item, canon) && !seen[canon] {
 				p.Types = append(p.Types, canon)
@@ -160,6 +190,12 @@ func ParseParams(v url.Values) (Params, []FieldError) {
 		errs = append(errs, FieldError{"page", "page must be an integer"})
 	} else if n != nil {
 		p.Page = min(max(*n, 1), MaxPageFor(p.PageSize))
+	}
+
+	// Checked last, so a request that is invalid for another reason reports
+	// that field first.
+	if fe := CheckQueryLength(p.Q); fe != nil {
+		errs = append(errs, *fe)
 	}
 
 	return p, errs

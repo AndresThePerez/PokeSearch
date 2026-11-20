@@ -388,6 +388,35 @@ export function deepLinkFailure({ id, status = 0, found = false, networkError = 
   return null;
 }
 
+// linkFailureStep decides what a card link that opened nothing does to the
+// address, given deepLinkFailure's verdict, the card the dialog shows (null
+// when it is closed), whether the current entry carries the page's marker and
+// the hash the dialog returns to. With a dialog open, the address goes back
+// to the card on screen and the entry keeps its marker: the visitor keeps the
+// card they had, and the address never names a card that is not the one
+// shown. With no dialog, a hash that will never open is cleared, and one that
+// could not load is kept for a reload. The dialog is never closed for it.
+export function linkFailureStep({ failure, openCardID: shown, marked, before }) {
+  if (shown !== null && shown !== undefined) {
+    return { closeDialog: false, write: "replace", hash: `#card=${encodeURIComponent(shown)}`, marked: marked === true };
+  }
+  if (failure?.clearHash) return { closeDialog: false, write: "replace", hash: before, marked: false };
+  return { closeDialog: false, write: "none", hash: null, marked: false };
+}
+
+// cardOpenStep decides how opening a card from the grid writes history, given
+// the current hash, the card's own hash, whether the current entry carries
+// the page's marker and the hash the dialog returns to. From an ordinary
+// address it pushes a marked entry and remembers that address. Over a card
+// address — a link kept because it could not load — it replaces that entry,
+// keeping its marker and the address it returns to, so no card address is
+// left beneath the new one for the close to step back onto.
+export function cardOpenStep({ hash, target, marked, before }) {
+  if (hash === target) return { write: "none", marked: marked === true, before };
+  if (cardHashID(hash) === null) return { write: "push", marked: true, before: hash };
+  return { write: "replace", marked: marked === true, before };
+}
+
 function addressWithout(hash) {
   return `${location.pathname}${location.search}${hash}`;
 }
@@ -397,11 +426,15 @@ export function openModal(card, { updateHash = true, opener = null, highlight = 
   openCardID = card.id;
   renderModal(card, highlight);
   if (updateHash) {
-    if (cardHashID(location.hash) === null) hashBeforeModal = location.hash;
-    const hash = `#card=${encodeURIComponent(card.id)}`;
-    // pushState rather than location.hash: a fragment navigation would fire
-    // popstate and hashchange for a change the page made itself.
-    if (location.hash !== hash) history.pushState(CARD_ENTRY_STATE, "", addressWithout(hash));
+    const target = `#card=${encodeURIComponent(card.id)}`;
+    const step = cardOpenStep({ hash: location.hash, target, marked: entryMarked(), before: hashBeforeModal });
+    hashBeforeModal = step.before;
+    // pushState and replaceState rather than location.hash: a fragment
+    // navigation would fire popstate and hashchange for a change the page
+    // made itself.
+    const entryState = step.marked ? CARD_ENTRY_STATE : null;
+    if (step.write === "push") history.pushState(entryState, "", addressWithout(target));
+    else if (step.write === "replace") history.replaceState(entryState, "", addressWithout(target));
     addressHash = location.hash;
   }
   if (!$("card-modal").open) {
@@ -419,11 +452,17 @@ export function closeModal() {
   if ($("card-modal").open) $("card-modal").close();
 }
 
+// entryMarked says whether the current history entry is a card entry this
+// page pushed.
+function entryMarked() {
+  return history.state?.cardOverlay === true;
+}
+
 // leaveCardAddress carries out cardExitStep when the dialog closes.
 function leaveCardAddress() {
   const step = cardExitStep({
     addressIsCard: cardHashID(location.hash) !== null,
-    pushedByPage: history.state?.cardOverlay === true,
+    pushedByPage: entryMarked(),
   });
   if (step === "back") {
     // The popstate this causes finds the dialog already closed, so it opens
@@ -469,8 +508,10 @@ async function openLinkedCard(id) {
     if (cardHashID(location.hash) !== id) return;
     if (failure) {
       showNotice(failure.message);
-      if (failure.clearHash) {
-        history.replaceState(null, "", addressWithout(hashBeforeModal));
+      const step = linkFailureStep({ failure, openCardID, marked: entryMarked(), before: hashBeforeModal });
+      if (step.closeDialog) closeModal();
+      if (step.write === "replace") {
+        history.replaceState(step.marked ? CARD_ENTRY_STATE : null, "", addressWithout(step.hash));
         addressHash = location.hash;
       }
       return;
@@ -546,3 +587,4 @@ export function bindModalEvents() {
     opener?.focus();
   });
 }
+

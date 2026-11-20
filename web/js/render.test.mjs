@@ -66,7 +66,7 @@ test("branchLabel shortens the fuzzy name branch and keeps the others", () => {
   assert.equal(branchLabel("text"), "text");
 });
 
-test("branchLabel shows an unknown branch under its raw name, and reads inherited names as they are", () => {
+test("branchLabel shows a name the page does not know as it is, including names an object would inherit", () => {
   assert.equal(branchLabel("phonetic"), "phonetic");
   assert.equal(branchLabel(""), "");
   // A branch named like an object key is still a name the page does not

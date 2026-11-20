@@ -50,7 +50,7 @@ export function renderResults(data, { append = false, roundTripMs = 0 } = {}) {
   state.page = data.page;
   renderGrid(data.results, { append, page: data.page, matched: data.matched, highlights: data.highlights });
   renderFacets(data.facets);
-  $("total-count").textContent = `${Number(data.total).toLocaleString()} ${data.total === 1 ? "card" : "cards"}`;
+  $("total-count").textContent = countLineText({ phase: "done", total: data.total });
   noteArchiveSets(data.facets?.sets?.length);
   $("load-more").hidden = data.pages === 0 || data.page >= data.pages;
   $("results-end").textContent = endOfResultsLine({
@@ -571,10 +571,29 @@ function makeSkeleton() {
 export function setStale(isStale) {
   const grid = $("results-grid");
   grid.classList.toggle("is-stale", isStale);
+  if (isStale) {
+    $("total-count").textContent = countLineText({
+      phase: "ended",
+      cardsShown: grid.querySelectorAll(".card-open").length,
+      current: $("total-count").textContent,
+    });
+  }
   if (legendHiddenWhenStale({ stale: isStale, badgedCards: grid.querySelectorAll(".match-badges").length })) {
     $("badge-legend").hidden = true;
   }
   grid.setAttribute("aria-busy", String(isStale || grid.classList.contains("is-loading")));
+}
+
+// countLineText decides what the count line above the grid says. While a
+// search is on its way it keeps what it says (the markup's "Loading cards…"
+// before the first answer, the last count after that). A search that answered
+// writes its total. One that failed or was refused leaves the count of the
+// cards still on screen, or a dash when there are none, so the line never
+// goes on saying it is loading once nothing is.
+export function countLineText({ phase, total, cardsShown = 0, current = "" }) {
+  if (phase === "done") return `${Number(total).toLocaleString()} ${total === 1 ? "card" : "cards"}`;
+  if (phase === "ended" && !(cardsShown > 0)) return "—";
+  return current;
 }
 
 // legendHiddenWhenStale decides whether the badge legend goes after a search

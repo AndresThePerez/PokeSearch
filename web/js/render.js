@@ -460,7 +460,7 @@ function renderFacets(facets = {}) {
   });
 
   populateSetSelect(facets.sets, state.set);
-  populateFacetSelect($("rarity-select"), "All rarities", facets.rarity, state.rarity);
+  populateFacetSelect($("rarity-select"), "All rarities", facets.rarity, state.rarity, rarityLabel);
   populateFacetSelect($("series-select"), "All series", facets.set_series, state.series);
   syncFilterControls();
 }
@@ -483,15 +483,24 @@ function populateSetSelect(buckets = [], selected) {
   $("set-select").value = selected;
 }
 
-function populateFacetSelect(select, emptyLabel, buckets = [], selected) {
+// facetOption is one option of a filter select: it reads the value's label
+// and its count, and its value is the bucket's own, so the filter always
+// sends what the index stores whatever the option says.
+export function facetOption(bucket, label = (value) => value) {
+  return { text: `${label(bucket.value)} (${Number(bucket.count).toLocaleString()})`, value: bucket.value };
+}
+
+function populateFacetSelect(select, emptyLabel, buckets = [], selected, label) {
   const options = [new Option(emptyLabel, "")];
   for (const bucket of buckets) {
-    options.push(new Option(`${bucket.value} (${Number(bucket.count).toLocaleString()})`, bucket.value));
+    const { text, value } = facetOption(bucket, label);
+    options.push(new Option(text, value));
   }
   // A selected value can drop to zero matches under the current query and
   // other filters; keep it selectable at (0) instead of silently clearing it.
   if (selected && !buckets.some((bucket) => bucket.value === selected)) {
-    options.push(new Option(`${selected} (0)`, selected));
+    const { text, value } = facetOption({ value: selected, count: 0 }, label);
+    options.push(new Option(text, value));
   }
   select.replaceChildren(...options);
   select.value = selected;
@@ -510,14 +519,27 @@ export function syncFilterControls() {
   renderActiveFilters();
 }
 
+// activeFilters lists the chips a state shows, in the rail's order: each
+// one's field, the value it removes and the name it shows. setLabel names a
+// set id; a set it cannot name is shown by its id.
+export function activeFilters(from, setLabel = (id) => id) {
+  const chips = [];
+  if (from.supertype) chips.push({ field: "supertype", value: from.supertype, label: from.supertype === "pokemon" ? "Pokémon" : titleCase(from.supertype) });
+  for (const type of from.types) chips.push({ field: "types", value: type, label: displayType(type) });
+  if (from.set) chips.push({ field: "set", value: from.set, label: setLabel(from.set) ?? from.set });
+  if (from.rarity) chips.push({ field: "rarity", value: from.rarity, label: rarityLabel(from.rarity) });
+  if (from.series) chips.push({ field: "series", value: from.series, label: from.series });
+  return chips;
+}
+
+function removeFilter({ field, value }) {
+  if (field === "types") state.types = state.types.filter((item) => item !== value);
+  else state[field] = "";
+}
+
 function renderActiveFilters() {
   const container = $("active-filters");
-  const active = [];
-  if (state.supertype) active.push({ label: state.supertype === "pokemon" ? "Pokémon" : titleCase(state.supertype), remove: () => { state.supertype = ""; } });
-  for (const type of state.types) active.push({ label: displayType(type), remove: () => { state.types = state.types.filter((item) => item !== type); } });
-  if (state.set) active.push({ label: setLabels.get(state.set) ?? state.set, remove: () => { state.set = ""; } });
-  if (state.rarity) active.push({ label: state.rarity, remove: () => { state.rarity = ""; } });
-  if (state.series) active.push({ label: state.series, remove: () => { state.series = ""; } });
+  const active = activeFilters(state, (id) => setLabels.get(id)).map((chip) => ({ label: chip.label, remove: () => removeFilter(chip) }));
 
   const chips = active.map(({ label, remove }) => {
     const button = document.createElement("button");
@@ -565,6 +587,25 @@ export function displayType(value) {
   if (value === "Metal") return "Steel";
   if (value === "Colorless") return "Normal";
   return value;
+}
+
+// The rarity values that read badly as the index stores them. Everything else
+// already reads as players write it (ACE SPEC, BREAK and LV.X are how the
+// cards print those names) and is shown as it is. A label is only ever shown:
+// the filter, the address and the request carry the stored value.
+export const RARITY_LABELS = Object.freeze({
+  // An identifier, underscores and all, among names written in words.
+  MEGA_ATTACK_RARE: "Mega Attack Rare",
+  // The only rarity that is one word in capitals, which reads as shouting in
+  // a list of names in title case.
+  LEGEND: "Legend",
+});
+
+// rarityLabel is how the page shows a rarity value: its label, or the value
+// itself. The lookup goes through Object.hasOwn, so a rarity named like an
+// object key ("constructor") is shown as it is.
+export function rarityLabel(value) {
+  return Object.hasOwn(RARITY_LABELS, value) ? RARITY_LABELS[value] : value;
 }
 
 export function syncControls() {

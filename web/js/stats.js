@@ -15,7 +15,7 @@
 // value.
 
 import { $, element } from "./util.js";
-import { displayType } from "./render.js";
+import { displayType, rarityLabel } from "./render.js";
 import { fetchStats, fetchTopCard } from "./api.js";
 import { renderInspector, debugEnabled } from "./telemetry.js";
 
@@ -189,7 +189,7 @@ function classAndRarityChart(supertype, rarity) {
   body.append(barRows(supertype));
   const head = rarity.slice(0, RARITY_ROWS);
   body.append(element("p", "chart-subtitle", `Top ${head.length} rarities`));
-  body.append(barRows(head));
+  body.append(barRows(head, (bucket) => rarityLabel(bucket.value)));
   const rest = rarity.length - head.length;
   if (rest > 0) {
     body.append(element("p", "chart-note",

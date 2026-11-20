@@ -2,7 +2,7 @@
 // link and its history entry, and focus restoration on close.
 
 import { $, element } from "./util.js";
-import { cardsByID, displayType, imageURL, branchLabel, markWithin } from "./render.js";
+import { cardsByID, displayType, rarityLabel, imageURL, branchLabel, markWithin } from "./render.js";
 import { fetchExplain, fetchLinkedCard, showNotice } from "./api.js";
 import { queryText } from "./state.js";
 import { holoTier, attachHolo, setHoloTier, setHoloArtLoaded } from "./holo.js";
@@ -220,7 +220,7 @@ function renderModal(card, highlight) {
   $("modal-card-name").textContent = card.name;
   $("modal-set-line").textContent = `${card.set_name} · ${card.number}/${card.set_total} · ${card.release_date}`;
 
-  const meta = [card.rarity, card.hp ? `${card.hp} HP` : "", ...(card.types ?? []).map(displayType), card.artist ? `Art by ${card.artist}` : ""].filter(Boolean);
+  const meta = [rarityLabel(card.rarity), card.hp ? `${card.hp} HP` : "", ...(card.types ?? []).map(displayType), card.artist ? `Art by ${card.artist}` : ""].filter(Boolean);
   $("modal-meta-line").textContent = meta.join(" · ");
   $("modal-meta-line").hidden = meta.length === 0;
 

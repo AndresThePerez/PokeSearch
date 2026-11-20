@@ -994,7 +994,8 @@ type searchResponse struct {
 	// as ES produced them. Also text-query only.
 	Highlights []map[string][]string `json:"highlights,omitempty"`
 	// DidYouMean is a corrected spelling of q, present only when the search
-	// found nothing and the suggester had something to offer (D8).
+	// found nothing, the suggester had something to offer (D8), and the
+	// correction finds at least one card under the request's filters.
 	DidYouMean string                   `json:"did_you_mean,omitempty"`
 	Facets     map[string][]facetBucket `json:"facets"`
 	DSL        map[string]any           `json:"dsl,omitempty"`
@@ -1138,7 +1139,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	// cheapest response shape there is, and it is the one moment a correction
 	// cannot compete with the autocomplete the user was already offered.
 	if resp.Total == 0 && p.Q != "" {
-		resp.DidYouMean = s.didYouMean(r, p.Q)
+		resp.DidYouMean = s.didYouMean(r, p)
 	}
 	if p.Debug {
 		resp.DSL = dsl
@@ -2214,11 +2215,50 @@ type esTermSuggestResponse struct {
 	} `json:"suggest"`
 }
 
-// didYouMean returns a corrected spelling of q, or "" when there is nothing to
-// offer. It is best effort in the strict sense: a suggester failure is logged
-// and then dropped, because the search itself succeeded and turning a valid
-// empty result into a 503 over a spelling hint would be a bad trade.
-func (s *Server) didYouMean(r *http.Request, q string) string {
+// didYouMean returns a corrected spelling of the search's q, or "" when there
+// is nothing worth offering. It is best effort in the strict sense: a failure
+// is logged and then dropped, because the search itself succeeded and turning
+// a valid empty result into a 503 over a spelling hint would be a bad trade.
+//
+// A correction is only worth offering if taking it finds something. The
+// suggester knows nothing about the request's filters, so when there are any
+// the corrected search is run once more as a hit check: the same parameters
+// through the same builder, q replaced, no document fetched, and the total
+// counted no further than one. Without filters the check is skipped: the
+// suggester only proposes a term the card names already hold, which the
+// corrected query's name branch matches.
+func (s *Server) didYouMean(r *http.Request, p search.Params) string {
+	candidate := s.suggestCorrection(r, p.Q)
+	if candidate == "" {
+		return ""
+	}
+	corrected := p
+	corrected.Q = candidate
+	built := search.BuildQuery(corrected)
+	filter, filtered := built["post_filter"]
+	if !filtered {
+		return candidate
+	}
+	esr, err := s.searchES(r, map[string]any{
+		"size":             0,
+		"track_total_hits": 1,
+		"query":            built["query"],
+		"post_filter":      filter,
+	})
+	if err != nil {
+		s.log.Warn("did-you-mean hit check failed",
+			"request_id", requestID(r), "q", p.Q, "candidate", candidate, "err", err.Error())
+		return ""
+	}
+	if esr.Hits.Total.Value == 0 {
+		return ""
+	}
+	return candidate
+}
+
+// suggestCorrection asks the term suggester for a corrected spelling of q, or
+// "" when it has none or fails.
+func (s *Server) suggestCorrection(r *http.Request, q string) string {
 	esr, err := esQuery[esTermSuggestResponse](s, r, search.BuildDidYouMean(q))
 	if err != nil {
 		s.log.Warn("did-you-mean suggester failed",

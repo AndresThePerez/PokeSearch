@@ -78,14 +78,7 @@ func run(ctx context.Context, cfg config) error {
 		s.EnableMetrics()
 		slog.Info("expvar metrics enabled", "path", "/debug/vars")
 	}
-	srv := &http.Server{
-		Addr:              ":" + cfg.port,
-		Handler:           s,
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       120 * time.Second,
-	}
+	srv := newHTTPServer(":"+cfg.port, s)
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()
@@ -98,6 +91,34 @@ func run(ctx context.Context, cfg config) error {
 		shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return srv.Shutdown(shutCtx)
+	}
+}
+
+// maxRequestHeaderBytes caps the request line and headers of one request.
+// Go's default is 1 MB, which lets one connection make the process hold
+// hundreds of times more than any real request is: a list parameter is
+// copied several times while the query is built and again into the query
+// log, so a long URL costs a multiple of its size in memory. 16 KiB leaves
+// room for the longest request the page makes, a 256-character query with
+// every byte percent-encoded (about 2.3 KB), a lookup of 100 ids of the
+// pattern's full 128 characters (about 13 KB) and the few KB of headers a
+// CDN and a browser add. Go reads up to 4096 bytes beyond this value, so a
+// request head of up to 20,480 bytes, blank line included, is served; a
+// larger one is answered 431 by net/http itself, before any handler runs.
+// A lookup whose ids contain "?" and are sent percent-encoded can pass that.
+const maxRequestHeaderBytes = 16 << 10
+
+// newHTTPServer is the server run() serves with: the four timeouts that bound
+// a slow client and the request head limit above.
+func newHTTPServer(addr string, h http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           h,
+		MaxHeaderBytes:    maxRequestHeaderBytes,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 }
 

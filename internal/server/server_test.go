@@ -885,10 +885,12 @@ func TestSearchESErrorBodyLogged(t *testing.T) {
 	})
 	s, logBuf := newTestServer(t, rt)
 	rec := get(t, s, "/api/search?q=x")
-	if rec.Code != 503 {
-		t.Fatalf("status %d, want 503", rec.Code)
+	// ES rejecting the query is the client's request that could not run: a
+	// 400 rather than an outage, with the same generic body rule.
+	if rec.Code != 400 {
+		t.Fatalf("status %d, want 400", rec.Code)
 	}
-	if body := decodeError(t, rec); body.Error.Code != "es_unavailable" ||
+	if body := decodeError(t, rec); body.Error.Code != "invalid_param" ||
 		strings.Contains(body.Error.Message, "mapping") {
 		t.Errorf("client body must stay generic, got %+v", body.Error)
 	}
@@ -1258,9 +1260,11 @@ func TestStaticCacheValidators(t *testing.T) {
 	if got := first.Header().Get("Cache-Control"); got != staticCacheControl {
 		t.Errorf("Cache-Control = %q, want %q", got, staticCacheControl)
 	}
+	// Weak: the same tag covers the identity and the gzip answer, which are
+	// different bytes.
 	etag := first.Header().Get("ETag")
-	if !strings.HasPrefix(etag, `"`) || !strings.HasSuffix(etag, `"`) || len(etag) != etagHexLen+2 {
-		t.Fatalf("ETag = %q, want a quoted %d-character hash", etag, etagHexLen)
+	if !strings.HasPrefix(etag, `W/"`) || !strings.HasSuffix(etag, `"`) || len(etag) != etagHexLen+4 {
+		t.Fatalf("ETag = %q, want a weak quoted %d-character hash", etag, etagHexLen)
 	}
 	if second := get(t, s, "/styles.css").Header().Get("ETag"); second != etag {
 		t.Errorf("ETag changed between requests: %q then %q", etag, second)
@@ -1758,8 +1762,8 @@ func TestSecurityCSPNamesOnlyOwnedOrigins(t *testing.T) {
 	}
 }
 
-// Every response carries X-Request-Id. An inbound id is honoured — X-Request-Id
-// first, then Cloudflare's Cf-Ray — so one trace spans edge, app log and
+// Every response carries X-Request-Id. An inbound id is honoured — Cloudflare's
+// Cf-Ray first, then X-Request-Id — so one trace spans edge, app log and
 // client. An implausible id is replaced rather than repaired: it would
 // otherwise be echoed into a response header and into every log line.
 func TestRequestIDHeader(t *testing.T) {
@@ -1771,8 +1775,8 @@ func TestRequestIDHeader(t *testing.T) {
 		{name: "generated"},
 		{name: "echoes X-Request-Id", headers: map[string]string{"X-Request-Id": "abc123"}, want: "abc123"},
 		{name: "falls back to Cf-Ray", headers: map[string]string{"Cf-Ray": "8f0a1b2c3d4e5f60-FRA"}, want: "8f0a1b2c3d4e5f60-FRA"},
-		{name: "prefers X-Request-Id over Cf-Ray",
-			headers: map[string]string{"X-Request-Id": "abc123", "Cf-Ray": "8f0a-FRA"}, want: "abc123"},
+		{name: "prefers Cf-Ray over X-Request-Id",
+			headers: map[string]string{"X-Request-Id": "abc123", "Cf-Ray": "8f0a-FRA"}, want: "8f0a-FRA"},
 		{name: "rejects a hostile id", headers: map[string]string{"X-Request-Id": "id with spaces"}},
 		{name: "rejects an oversized id", headers: map[string]string{"X-Request-Id": strings.Repeat("a", 65)}},
 	} {

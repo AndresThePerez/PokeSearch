@@ -101,18 +101,37 @@ func run(ctx context.Context, cfg config) error {
 	}
 }
 
+// esMaxRetries and esRetryBackoff bound what one failing Elasticsearch call
+// can cost: a single retry after a short pause. A dead or refusing cluster
+// then fails a request in a fraction of a second instead of several, and a
+// struggling one is not handed a multiple of its load.
+const (
+	esMaxRetries   = 1
+	esRetryBackoff = 100 * time.Millisecond
+)
+
 // newESConfig is the explicit client configuration: retries and backoff are
 // stated rather than inherited, and the transport's idle-connection pool is
 // widened because Go's default of 2 idle conns per host thrashes connections
 // under ~50 concurrent searches (Courier perf mode) and distorts every
 // latency number the observability rail reports.
+//
+// 503 is deliberately not retried: it is Elasticsearch saying it is
+// overloaded or not ready, and an immediate second request only adds to
+// that. RetryOnStatus must stay non-empty, since the client substitutes its
+// own defaults (503 among them) for an empty list.
 func newESConfig(esURL string) elasticsearch.Config {
 	return elasticsearch.Config{
 		Addresses:     []string{esURL},
-		MaxRetries:    3,
-		RetryOnStatus: []int{502, 503, 504},
+		MaxRetries:    esMaxRetries,
+		RetryOnStatus: []int{http.StatusBadGateway, http.StatusGatewayTimeout},
+		// The client also waits after its final attempt, so only the pauses
+		// before a real retry are non-zero.
 		RetryBackoff: func(attempt int) time.Duration {
-			return time.Duration(attempt*attempt) * 100 * time.Millisecond
+			if attempt > esMaxRetries {
+				return 0
+			}
+			return esRetryBackoff
 		},
 		Transport: &http.Transport{MaxIdleConns: 100, MaxIdleConnsPerHost: 100},
 	}

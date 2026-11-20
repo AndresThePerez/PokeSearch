@@ -44,6 +44,8 @@ func TestEmbeddedMarkupHasRequiredElements(t *testing.T) {
 		"stats-charts", "latency-waterfall", "waterfall-es", "waterfall-rest",
 		"wf-es-ms", "wf-rest-ms", "latency-spark", "spark-percentiles",
 		"spark-p50", "spark-p95", "request-id-line", "stat-request-id",
+		"archive-cards", "archive-sets", "landing", "landing-examples",
+		"empty-guide", "empty-examples", "badge-legend",
 	}
 	for _, id := range ids {
 		if !strings.Contains(page, `id="`+id+`"`) {

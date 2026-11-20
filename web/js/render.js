@@ -7,7 +7,7 @@
 
 import { $, element } from "./util.js";
 import { state, queryText, effectiveSort, effectiveOrder } from "./state.js";
-import { renderStats } from "./telemetry.js";
+import { renderStats, noteArchiveSets, BRANCHES } from "./telemetry.js";
 
 // The rendered cards, keyed by id, so the modal and the #card= deep link can
 // open one without a second request.
@@ -51,6 +51,7 @@ export function renderResults(data, { append = false, roundTripMs = 0 } = {}) {
   renderGrid(data.results, { append, page: data.page, matched: data.matched, highlights: data.highlights });
   renderFacets(data.facets);
   $("total-count").textContent = `${Number(data.total).toLocaleString()} ${data.total === 1 ? "card" : "cards"}`;
+  noteArchiveSets(data.facets?.sets?.length);
   $("load-more").hidden = data.pages === 0 || data.page >= data.pages;
   $("results-end").textContent = endOfResultsLine({
     shown: (data.page - 1) * data.page_size + data.results.length,
@@ -61,6 +62,7 @@ export function renderResults(data, { append = false, roundTripMs = 0 } = {}) {
   if (data.total === 0) $("empty-message").textContent = emptyStateMessage(state);
   renderDidYouMean(data.did_you_mean);
   $("results-grid").hidden = data.total === 0;
+  renderGuide({ total: data.total, matched: data.matched });
   renderStats(data, roundTripMs);
   syncControls();
 }
@@ -95,31 +97,113 @@ export function emptyStateMessage(from) {
   return q ? `No cards match "${q}".` : "No cards to show.";
 }
 
-// The four relevance branches, in the order the server reports them, mapped to
-// what fits on a badge. Keys are search.Branches' names — they arrive from the
-// API, so a new branch shows up under its raw name rather than vanishing.
-const BRANCH_LABELS = {
-  exact: "exact",
-  prefix: "prefix",
-  "fuzzy-name": "fuzzy",
-  text: "text",
-};
+// The word each branch's badge shows, read off BRANCHES.
+const BRANCH_LABELS = Object.fromEntries(Object.entries(BRANCHES).map(([name, { label }]) => [name, label]));
 
+// branchLabel is the word a branch's badge shows, or, for a branch the server
+// added after this page was written, its raw name, so it shows up rather than
+// vanishing.
 export function branchLabel(name) {
   return BRANCH_LABELS[name] ?? name;
+}
+
+function branchMeaning(name) {
+  return Object.hasOwn(BRANCHES, name) ? BRANCHES[name].meaning : `the ${name} part of the search`;
+}
+
+// badgeTitle is a badge's tooltip and accessible name: its word and what it
+// means, in the words the legend uses.
+export function badgeTitle(name) {
+  return `${branchLabel(name)}: ${branchMeaning(name)}`;
+}
+
+// badgeLegend is the legend for a page of results, given each card's matched
+// branches. Results with no badge get none. Otherwise it names every branch
+// the page knows, in badge order, whether or not this page shows it, so the
+// line reads the same on every search; a branch the page has no words for is
+// added after them, in the order it first appears.
+export function badgeLegend(matched) {
+  const seen = (matched ?? []).flat();
+  if (seen.length === 0) return [];
+  const names = [...Object.keys(BRANCHES)];
+  for (const name of seen) if (!names.includes(name)) names.push(name);
+  return names.map((name) => ({ name, label: branchLabel(name), meaning: branchMeaning(name) }));
 }
 
 // badgeStrip renders which relevance clauses ES says matched this card. It is
 // aria-hidden because the same information goes into the button's accessible
 // name as a sentence — four loose words read out per card is not an
-// improvement over one.
+// improvement over one. Each badge still carries its meaning as a tooltip.
 function badgeStrip(names) {
   const strip = element("span", "match-badges");
   strip.setAttribute("aria-hidden", "true");
   for (const name of names) {
-    strip.append(element("i", `match-badge match-${name}`, branchLabel(name)));
+    const badge = element("i", `match-badge match-${name}`, branchLabel(name));
+    badge.title = badgeTitle(name);
+    badge.setAttribute("role", "img");
+    badge.setAttribute("aria-label", badgeTitle(name));
+    strip.append(badge);
   }
   return strip;
+}
+
+// The searches the landing offers, and the empty state after a search that
+// found nothing: one per part of the ranking, each with what it shows.
+export const EXAMPLE_QUERIES = Object.freeze([
+  Object.freeze({ q: "charizard", shows: "exact name" }),
+  Object.freeze({ q: "pika", shows: "start of a name" }),
+  Object.freeze({ q: "pikuchu", shows: "a typo" }),
+  Object.freeze({ q: "flip a coin", shows: "card text" }),
+  Object.freeze({ q: "Mitsuhiro Arita", shows: "artist" }),
+]);
+
+// examplePlacement decides where the example searches go: under the intro on
+// a page with no query and no filters (from the first paint, before its
+// results land), under the message of a search that found nothing, and
+// nowhere on a page whose search has, or is waiting on, results.
+export function examplePlacement({ state: from, total }) {
+  if (total === 0) return "empty";
+  if (!String(from.q ?? "").trim() && !hasFilters(from)) return "landing";
+  return "none";
+}
+
+function exampleButton({ q, shows }) {
+  const button = element("button", "example-query");
+  button.type = "button";
+  button.dataset.q = q;
+  button.append(element("span", "example-q", q), document.createTextNode(" "), element("span", "example-shows", shows));
+  return button;
+}
+
+// renderExamples fills both places the examples can appear, once, at start.
+export function renderExamples() {
+  for (const group of [$("landing-examples"), $("empty-examples")]) {
+    group.replaceChildren(...EXAMPLE_QUERIES.map(exampleButton));
+  }
+}
+
+function renderBadgeLegend(entries) {
+  const legend = $("badge-legend");
+  legend.hidden = entries.length === 0;
+  const list = element("ul");
+  for (const { name, label, meaning } of entries) {
+    const item = element("li");
+    item.append(element("i", `match-badge match-${name}`, label), document.createTextNode(` ${meaning}`));
+    list.append(item);
+  }
+  legend.replaceChildren(element("span", "badge-legend-title", "Matched:"), list);
+}
+
+// renderGuide shows or hides what explains the page around the grid: the
+// intro, the examples and the badge legend. total is undefined while the
+// first search is on its way; a page with a query then keeps the legend's
+// line, so the grid does not move down when the badges land.
+export function renderGuide({ total, matched } = {}) {
+  const placement = examplePlacement({ state, total });
+  $("landing").hidden = placement !== "landing";
+  $("empty-guide").hidden = placement !== "empty";
+  const pending = total === undefined && queryText() ? [Object.keys(BRANCHES)] : [];
+  renderBadgeLegend(badgeLegend(total === undefined ? pending : total > 0 ? matched : []));
 }
 
 // markNodes is the ONLY place a <mark> marker is ever interpreted, and it does

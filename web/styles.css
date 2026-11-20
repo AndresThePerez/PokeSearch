@@ -288,6 +288,7 @@ a:focus-visible {
 }
 
 .archive-note span { color: #9297a3; font-weight: 500; }
+.archive-note b { font-weight: inherit; }
 
 .app-layout {
   display: grid;
@@ -530,13 +531,100 @@ main { min-width: 0; }
 
 .eyebrow { margin: 0 0 .4rem; color: var(--accent-strong); }
 
+/* One line, whatever it says: loading, a count, or a dash after a failure.
+   A line that wrapped while loading and not after moved the grid under it. */
 #total-count {
   margin: 0;
   font-family: Georgia, "Times New Roman", serif;
   font-size: clamp(1.7rem, 3vw, 2.55rem);
   line-height: 1;
   letter-spacing: -.03em;
+  white-space: nowrap;
 }
+
+/* The landing: what the page is, five searches to start from, and where the
+   ranking is written up. The empty state offers the same searches. */
+.landing {
+  margin: 0 0 1.75rem;
+  padding: 1.25rem 1.35rem;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.landing-intro {
+  max-width: 62ch;
+  margin: 0 0 1rem;
+  color: var(--ink);
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
+.examples-heading {
+  margin: 0 0 .55rem;
+  color: var(--muted);
+  font-size: .8rem;
+}
+
+#empty-guide { margin-top: 1.75rem; }
+#empty-guide .example-queries { justify-content: center; }
+
+.example-queries {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+}
+
+.example-query {
+  display: inline-flex;
+  align-items: baseline;
+  gap: .45rem;
+  min-height: 40px;
+  padding: .45rem .85rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  background: var(--surface-raised);
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.example-query:hover { border-color: var(--accent-strong); background: var(--accent-soft); }
+.example-q { font-weight: 600; }
+.example-shows { color: var(--muted); font-size: .78rem; }
+
+.guide-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem 1.25rem;
+  margin: 1rem 0 0;
+  font-size: .85rem;
+}
+
+#empty-guide .guide-links { justify-content: center; }
+
+.guide-links a,
+.site-footer a { color: var(--accent-strong); }
+
+/* What each match badge means, on one line above the grid of a text search.
+   The badges are drawn as the cards draw them. */
+.badge-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .35rem .6rem;
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: .72rem;
+}
+
+.badge-legend ul {
+  display: contents;
+  list-style: none;
+}
+
+.badge-legend li { display: inline-flex; align-items: center; gap: .3rem; }
+.badge-legend-title { color: var(--ink); font-weight: 600; }
 
 .sort-controls { display: flex; align-items: end; gap: .5rem; }
 .sort-controls label { color: var(--muted); font-size: .68rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
@@ -791,7 +879,10 @@ mark {
   pointer-events: none;
 }
 
+/* A badge on a card takes the pointer back from its strip, so its tooltip
+   shows; the click still lands on the card button it sits inside. */
 .match-badge {
+  pointer-events: auto;
   padding: 1px 3px;
   border: 1px solid currentColor;
   border-radius: 4px;
@@ -980,7 +1071,8 @@ mark {
   white-space: nowrap;
 }
 
-/* The three weights the profile carries, in the order ADR 10 reports them. */
+/* The three weights the profile carries, in the order ADR 10 reports them,
+   each named by the badge word of the branch it boosts. */
 .lab-col-weights {
   margin: .12rem 0 .5rem;
   color: var(--muted);
@@ -998,7 +1090,7 @@ mark {
 
 .lab-row {
   display: grid;
-  grid-template-columns: 1.05rem minmax(0, 1fr) auto;
+  grid-template-columns: 1.05rem minmax(0, 1fr) auto auto;
   align-items: baseline;
   gap: .3rem;
   font-size: .72rem;
@@ -1013,6 +1105,14 @@ mark {
 .lab-name {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The set code and number, so two cards with one name can be told apart. */
+.lab-code {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
   white-space: nowrap;
 }
 
@@ -1407,6 +1507,8 @@ body.route-stats #results-end,
 body.route-stats #empty-state,
 body.route-stats #degraded-banner,
 body.route-stats #search-notice,
+body.route-stats #landing,
+body.route-stats #badge-legend,
 body.route-stats #filter-rail { display: none; }
 
 /* Two columns instead of three: the charts take the filter rail's space, and
@@ -1742,6 +1844,18 @@ body.route-stats .app-layout { grid-template-columns: minmax(0, 1fr) minmax(340p
 .sla-block li:last-child { border-bottom: 0; }
 .sla-block strong { color: var(--accent-strong); }
 .sla-block small { grid-column: 1 / -1; color: var(--muted); font-size: .62rem; }
+
+.site-footer {
+  width: min(1760px, 100%);
+  margin: 0 auto;
+  padding: 1.5rem clamp(1rem, 3.5vw, 4.5rem) 2.5rem;
+  border-top: 1px solid var(--line-soft);
+  color: var(--muted);
+  font-size: .75rem;
+  line-height: 1.6;
+}
+
+.site-footer p { max-width: 90ch; margin: 0 0 .4rem; }
 
 @media (max-width: 1399px) {
   .app-layout {

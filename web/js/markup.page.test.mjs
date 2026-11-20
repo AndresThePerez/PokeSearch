@@ -56,3 +56,69 @@ test("where the header scrolls away, a focused card gets no extra margin either"
     .flatMap((body) => [...body.matchAll(/scroll-margin-top:\s*([^;]+)/g)].map((m) => m[1].trim()));
   assert.deepStrictEqual(margins, ["0"]);
 });
+
+const body = page.slice(page.indexOf("</head>"));
+
+function tagsWithID(id) {
+  return [...page.matchAll(new RegExp(`<[a-z0-9]+\\b[^>]*\\bid="${id}"[^>]*>`, "g"))].map((match) => match[0]);
+}
+
+test("the page body carries no hard-coded card or set count, and no availability figure", () => {
+  assert.doesNotMatch(body, /20,635|176 sets/);
+  assert.doesNotMatch(page, /99\.9/);
+  assert.doesNotMatch(body, /monthly target/);
+});
+
+test("the elements the counts, the landing and the legend are painted into exist once each", () => {
+  for (const id of ["archive-cards", "archive-sets", "landing", "landing-examples", "empty-examples", "badge-legend"]) {
+    assert.equal(tagsWithID(id).length, 1, id);
+  }
+});
+
+test("the landing sits above the grid, and the empty state's examples come after its message", () => {
+  assert.ok(page.indexOf('id="landing"') < page.indexOf('id="results-grid"'));
+  assert.ok(page.indexOf('id="badge-legend"') < page.indexOf('id="results-grid"'));
+  const empty = page.slice(page.indexOf('id="empty-state"'), page.indexOf('id="load-more"'));
+  assert.ok(empty.indexOf('id="empty-message"') !== -1 && empty.indexOf('id="empty-message"') < empty.indexOf('id="empty-examples"'));
+});
+
+test("the landing and the legend are hidden on the stats route, as the grid is", () => {
+  for (const selector of ["body.route-stats #landing", "body.route-stats #badge-legend"]) {
+    assert.ok(declarationsFor(selector).some((rule) => /display:\s*none/.test(rule)), selector);
+  }
+});
+
+test("the explanation and source links open in a new tab, say so, and pass nothing to the page they open", () => {
+  const links = [...body.matchAll(/<a\b[^>]*>[\s\S]*?<\/a>/g)].map((match) => match[0]);
+  const relevance = links.filter((a) => a.includes('href="https://github.com/AndresThePerez/pokesearch/blob/master/docs/RELEVANCE.md"'));
+  const source = links.filter((a) => a.includes('href="https://github.com/AndresThePerez/pokesearch"'));
+  assert.ok(relevance.length >= 2, "near the intro and in the empty state");
+  assert.ok(source.length >= 1);
+  for (const a of [...relevance, ...source]) {
+    assert.match(a, /target="_blank"/, a);
+    assert.match(a, /rel="noopener noreferrer"/, a);
+    assert.match(a, /<span class="sr-only">\s*\(opens in a new tab\)<\/span>/, a);
+  }
+  const empty = page.slice(page.indexOf('id="empty-state"'), page.indexOf('id="load-more"'));
+  assert.match(empty, /docs\/RELEVANCE\.md/);
+});
+
+test("the page ends with a footer that says it is an unofficial fan project and whose marks these are", () => {
+  const footer = body.match(/<footer\b[^>]*>([\s\S]*?)<\/footer>/);
+  assert.ok(footer, "no footer");
+  const text = footer[1].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  assert.match(text, /unofficial fan project/);
+  for (const owner of ["Nintendo", "The Pokémon Company", "Game Freak", "Creatures"]) assert.match(text, new RegExp(owner), owner);
+  assert.match(text, /not affiliated with or endorsed by/);
+  assert.match(text, /trademarks/);
+  assert.match(text, /pokemon-tcg-data/);
+  assert.doesNotMatch(text, /licen[cs]e/i, "the README states no licence for the data");
+  assert.ok(body.indexOf("<footer") > body.indexOf("</main>"));
+});
+
+test("the count line starts short, so the grid under it does not move when the count arrives", () => {
+  const tag = page.match(/<p id="total-count"[^>]*>([^<]*)<\/p>/);
+  assert.ok(tag, "no count line");
+  assert.ok(tag[1].length <= 16, tag[1]);
+  assert.ok(declarationsFor("#total-count", mediaBlocks().topLevel).some((rule) => /white-space:\s*nowrap/.test(rule)), "it never wraps to a second line");
+});

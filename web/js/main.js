@@ -7,6 +7,8 @@ import {
   syncControls,
   syncFilterControls,
   setFilterChangeHandler,
+  renderExamples,
+  renderGuide,
 } from "./render.js";
 import {
   runSearch,
@@ -18,9 +20,17 @@ import {
   noteHistoryNavigation,
   popstateRunsSearch,
 } from "./api.js";
-import { scheduleSuggest, closeSuggestions, handleSuggestKeydown, noteSearchBoxInput, blurCloses } from "./suggest.js";
+import {
+  scheduleSuggest,
+  closeSuggestions,
+  handleSuggestKeydown,
+  noteSearchBoxInput,
+  blurCloses,
+  enterFocusTarget,
+  shownOutcome,
+} from "./suggest.js";
 import { bindModalEvents, openDeepLink, syncDialogToAddress } from "./modal.js";
-import { lastResponseHadDSL, refreshRankingLab } from "./telemetry.js";
+import { lastResponseHadDSL, refreshRankingLab, loadArchiveCounts } from "./telemetry.js";
 import { showStats } from "./stats.js";
 
 // The app has two views and one hash router. #stats is a route; #card= is not
@@ -100,11 +110,12 @@ function releasePageScroll() {
 // drawer and the toggle that owns it live there, and they have to stay
 // reachable. The skip link is its own entry because it is a direct child of
 // body rather than part of any of the three regions, so nothing else can take
-// it out of the tab order — and it jumps to a grid the sheet covers. Between
-// them these four are every focusable thing outside the rail: the dialog is
-// the only other child of body, and it is inert to the page in the other
+// it out of the tab order — and it jumps to a grid the sheet covers; the
+// footer is the other direct child of body with a link in it. Between them
+// these five are every focusable thing outside the rail: the dialog is the
+// only other child of body, and it is inert to the page in the other
 // direction, by showModal.
-const BEHIND_DRAWER = [".skip-link", ".site-header", "main", ".observability-rail"];
+const BEHIND_DRAWER = [".skip-link", ".site-header", "main", ".observability-rail", ".site-footer"];
 
 // Covering the page is not the same as taking it out of the tab order, so Tab
 // past the close button used to land on the search box behind the sheet, with
@@ -131,6 +142,43 @@ function closeFilterDrawer() {
 
 function filterDrawerOpen() {
   return $("filter-toggle").getAttribute("aria-expanded") === "true";
+}
+
+// The example searches, on the landing and in the empty state. Pressing one is
+// the same as typing it and pressing Enter: the box holds it, the search is
+// committed (one history entry, or none when the address already holds it),
+// and focus then moves to what it found, as after Enter. The button pressed
+// usually disappears with the state it sat in, which leaves focus on the
+// body; focus the visitor has moved elsewhere by then is left alone.
+let examplePresses = 0;
+
+async function runExample(button) {
+  const press = ++examplePresses;
+  closeSuggestions();
+  state.q = button.dataset.q;
+  state.sort = "";
+  state.order = "";
+  syncControls();
+  const search = commitQuery("enter");
+  const outcome = search
+    ? await search
+    : shownOutcome({ gridHidden: $("results-grid").hidden, emptyHidden: $("empty-state").hidden });
+  const active = document.activeElement;
+  const target = enterFocusTarget({
+    outcome,
+    inBox: active === button || active === document.body || active === null,
+    superseded: press !== examplePresses,
+  });
+  if (target) document.getElementById(target).focus();
+}
+
+function bindExampleEvents() {
+  for (const group of [$("landing-examples"), $("empty-examples")]) {
+    group.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-q]");
+      if (button) runExample(button);
+    });
+  }
 }
 
 function bindCoreEvents() {
@@ -374,8 +422,12 @@ function init() {
   setFilterChangeHandler(() => runSearch({ push: true }));
   syncControls();
   syncFilterControls();
+  renderExamples();
+  renderGuide();
+  loadArchiveCounts();
   bindCoreEvents();
   bindFilterEvents();
+  bindExampleEvents();
   bindModalEvents();
   renderRoute({ load: false });
   refreshHealth();

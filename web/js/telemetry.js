@@ -1,6 +1,7 @@
 // The observability rail: the stats grid, the SLA readouts, the service-status
 // pill, the two inspector panes that show the generated DSL and the raw
-// response, and the Ranking lab below them. Imports util and state — state
+// response, and the Ranking lab below them; also the archive's counts in the
+// header, read from the server. Imports util and state — state
 // imports nothing app-level, so the graph stays acyclic.
 
 import { $, element } from "./util.js";
@@ -55,6 +56,75 @@ export function renderInspector(dsl, response) {
 
 // The placeholder the markup ships with: a readout with nothing to say.
 const BLANK = "—";
+
+// The four relevance branches, in the order the server reports them: the word
+// a card's badge shows for each, and what that badge means. Keys are
+// search.Branches' names, and each meaning completes "Matched:", the
+// legend's heading. The card badges, their legend and the Ranking lab's
+// weights all read this one table; it lives here rather than in render.js
+// because render.js imports this module and not the other way round.
+export const BRANCHES = Object.freeze({
+  exact: Object.freeze({ label: "exact", meaning: "whole name" }),
+  prefix: Object.freeze({ label: "prefix", meaning: "start of a name" }),
+  "fuzzy-name": Object.freeze({ label: "fuzzy", meaning: "name with a typo" }),
+  text: Object.freeze({ label: "text", meaning: "card text, set or artist" }),
+});
+
+// isCount accepts what a server count can honestly be: a whole number, zero
+// or more. Anything else is shown as no number at all.
+function isCount(value) {
+  return Number.isInteger(value) && value >= 0;
+}
+
+function plural(count, one, many) {
+  return `${count.toLocaleString()} ${count === 1 ? one : many}`;
+}
+
+// archiveCountLine is what the header and the search box say about the
+// archive's size: the card count from /api/meta and the set count from the
+// search response's facets. Until a count arrives, or when its request
+// failed, its part of the line simply leaves the number out.
+export function archiveCountLine({ cards, sets } = {}) {
+  return {
+    cards: isCount(cards) ? plural(cards, "English card", "English cards") : "English cards",
+    sets: isCount(sets) ? `${plural(sets, "set", "sets")} · 1999—today` : "1999—today",
+    placeholder: isCount(cards) ? `Search ${plural(cards, "card", "cards")}…` : "Search cards…",
+  };
+}
+
+// What the archive has reported so far: undefined until it answers, null
+// when the request failed.
+const archiveCounts = { cards: undefined, sets: undefined };
+
+function paintArchiveCounts() {
+  const line = archiveCountLine(archiveCounts);
+  $("archive-cards").textContent = line.cards;
+  $("archive-sets").textContent = line.sets;
+  $("search-input").placeholder = line.placeholder;
+}
+
+// noteArchiveSets takes the set count from a search response. The facet lists
+// every set in the catalog, with a zero count for those the search excludes,
+// so its length is the same whatever was searched.
+export function noteArchiveSets(sets) {
+  if (!isCount(sets) || sets === archiveCounts.sets) return;
+  archiveCounts.sets = sets;
+  paintArchiveCounts();
+}
+
+// loadArchiveCounts asks the server how many cards it holds, once, at start.
+export async function loadArchiveCounts() {
+  paintArchiveCounts();
+  try {
+    const res = await fetch("/api/meta");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    archiveCounts.cards = isCount(data?.docs) ? data.docs : null;
+  } catch {
+    archiveCounts.cards = null;
+  }
+  paintArchiveCounts();
+}
 
 export function setDegraded(isDegraded) {
   $("degraded-banner").hidden = !isDegraded;
@@ -286,19 +356,39 @@ function formatRho(rho) {
   return typeof rho === "number" ? rho.toFixed(2) : BLANK;
 }
 
+// setCodeAndNumber reads a card id as its set code and its number in that
+// set. Ids are "<set>-<number>", and set codes can hold a dash of their own,
+// so the split is on the last one; an id with no dash is all set code.
+export function setCodeAndNumber(id) {
+  const value = typeof id === "string" ? id : "";
+  const at = value.lastIndexOf("-");
+  if (at === -1) return { set: value, number: "" };
+  return { set: value.slice(0, at), number: value.slice(at + 1) };
+}
+
+// labWeights labels each weight a profile carries with the badge word of the
+// branch it boosts, so "8" reads as "exact ×8".
+export function labWeights(boosts) {
+  return LAB_WEIGHTED_BRANCHES.map((name) => {
+    const value = boosts?.[name];
+    return `${BRANCHES[name].label} ${value === undefined || value === null ? BLANK : `×${value}`}`;
+  });
+}
+
 function labColumn(side, deltas) {
   const column = element("div", "lab-col");
-  column.append(
-    element("p", "lab-col-name", side.profile),
-    element("p", "lab-col-weights", LAB_WEIGHTED_BRANCHES.map((name) => side.boosts?.[name] ?? BLANK).join(" / ")),
-  );
+  const weights = element("p", "lab-col-weights", labWeights(side.boosts).join(" · "));
+  weights.title = "How much each kind of name match weighs; a text match counts ×1";
+  column.append(element("p", "lab-col-name", side.profile), weights);
   const list = element("ul", "lab-list");
   for (const row of side.results ?? []) {
     const item = element("li", "lab-row");
     item.title = `${row.id} · score ${row.score}`;
+    const { set, number } = setCodeAndNumber(row.id);
     item.append(
       element("span", "lab-rank", String(row.rank)),
       element("span", "lab-name", row.name || row.id),
+      element("span", "lab-code", number ? `${set} #${number}` : set),
       labDelta(deltas.get(row.id)),
     );
     list.append(item);

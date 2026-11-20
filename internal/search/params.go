@@ -48,6 +48,14 @@ const MaxQueryRunes, MaxQueryTerms = 256, 32
 // every real filter is well inside both.
 const MaxListMembers, MaxValueRunes = 64, 128
 
+// MaxListRunes bounds the members of one rarity or series list together, in
+// characters after trimming, counted before repeats are dropped. With the two
+// limits above alone a list could still be 64 members of 128 characters,
+// copied into the query several times over; this keeps the whole list close
+// to what a real filter needs. All 44 rarities together are 546 characters
+// and all 17 series 142, so a filter naming every value fits twice over.
+const MaxListRunes = 1024
+
 // CheckQueryLength reports a field error on q when the trimmed query is over
 // either limit, and nil when it is within both.
 func CheckQueryLength(q string) *FieldError {
@@ -169,7 +177,7 @@ type FieldError struct {
 // page_size — report a FieldError when supplied non-empty and invalid, and the
 // caller turns that into a 400. q is strict only about its length (see
 // CheckQueryLength), and rarity, series, set and id only about their size
-// (MaxListMembers, MaxValueRunes). Everything else stays lenient: unknown query
+// (MaxListMembers, MaxValueRunes, MaxListRunes). Everything else stays lenient: unknown query
 // keys are ignored, unknown members of the types list are dropped, and rarity
 // members are mapped onto a stored spelling where exactly one exists and kept
 // as given otherwise. Out-of-range integers are clamped rather than rejected — a
@@ -289,11 +297,12 @@ func ParseParams(v url.Values) (Params, []FieldError) {
 }
 
 // checkList reports a field error when the comma list s has more than
-// MaxListMembers non-empty members or a member longer than MaxValueRunes. It
-// walks the list without splitting it into a slice and stops at the first
-// member over a limit, so refusing a long list costs no copy of it.
+// MaxListMembers non-empty members, a member longer than MaxValueRunes, or
+// members longer than MaxListRunes together. It walks the list without
+// splitting it into a slice and stops at the first member over a limit, so
+// refusing a long list costs no copy of it.
 func checkList(field, s string) *FieldError {
-	n := 0
+	n, total := 0, 0
 	for item := range strings.SplitSeq(s, ",") {
 		if item = strings.TrimSpace(item); item == "" {
 			continue
@@ -301,8 +310,12 @@ func checkList(field, s string) *FieldError {
 		if n++; n > MaxListMembers {
 			return &FieldError{field, field + " takes at most " + strconv.Itoa(MaxListMembers) + " values"}
 		}
-		if utf8.RuneCountInString(item) > MaxValueRunes {
+		runes := utf8.RuneCountInString(item)
+		if runes > MaxValueRunes {
 			return &FieldError{field, "each " + field + " value must be at most " + strconv.Itoa(MaxValueRunes) + " characters"}
+		}
+		if total += runes; total > MaxListRunes {
+			return &FieldError{field, field + " values may total at most " + strconv.Itoa(MaxListRunes) + " characters"}
 		}
 	}
 	return nil

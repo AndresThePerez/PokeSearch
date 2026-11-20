@@ -179,3 +179,46 @@ func TestHugeListIsRefusedCheaply(t *testing.T) {
 		}
 	}
 }
+
+// The members of a rarity or series list together are at most
+// MaxListRunes characters after trimming, counted before repeats are
+// dropped, so a list of many long members is refused even under the member
+// and per-value limits.
+func TestListTotalLengthLimit(t *testing.T) {
+	member := func(unit string) func(int) string {
+		return func(int) string { return strings.Repeat(unit, MaxValueRunes) }
+	}
+	for _, field := range []string{"rarity", "series"} {
+		for _, tc := range []struct {
+			name    string
+			raw     string
+			refused bool
+		}{
+			{"1,024 characters in 8 members", members(8, member("a")), false},
+			{"1,025 characters in 9 members", members(8, member("a")) + ",b", true},
+			{"1,024 two-byte characters", members(8, member("é")), false},
+			{"1,025 two-byte characters", members(8, member("é")) + ",é", true},
+			{"1,024 characters padded with whitespace and blanks", " , " + strings.Join(strings.Split(members(8, member("<")), ","), " ,\t, ") + " ,", false},
+			{"9 repeats of one 128-character member", members(9, member("a")), true},
+			{"64 members of 16 characters", members(MaxListMembers, func(i int) string { return fmt.Sprintf("%016d", i) }), false},
+			{"64 members of 17 characters", members(MaxListMembers, func(i int) string { return fmt.Sprintf("%017d", i) }), true},
+		} {
+			t.Run(field+"/"+tc.name, func(t *testing.T) {
+				p, errs := ParseParams(url.Values{field: {tc.raw}})
+				if !tc.refused {
+					if len(errs) != 0 {
+						t.Fatalf("unexpected field errors %+v", errs)
+					}
+					return
+				}
+				want := field + " values may total at most 1024 characters"
+				if len(errs) != 1 || errs[0].Field != field || errs[0].Message != want {
+					t.Fatalf("errs = %+v, want exactly {%s %q}", errs, field, want)
+				}
+				if len(p.Rarity) != 0 || len(p.Series) != 0 {
+					t.Errorf("a refused list must not be carried on")
+				}
+			})
+		}
+	}
+}

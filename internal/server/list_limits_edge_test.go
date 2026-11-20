@@ -64,8 +64,8 @@ func distinctList(fill string, runes, n int) string {
 // and the line stays small however large the request was.
 func TestRefusedRequestsAreNotBuiltAndLogSmall(t *testing.T) {
 	long := func(n int) string { return strings.Repeat("<", n) }
-	acceptedLists := "&rarity=" + url.QueryEscape(distinctList("<", search.MaxValueRunes, search.MaxListMembers)) +
-		"&series=" + url.QueryEscape(distinctList("\x01", search.MaxValueRunes, search.MaxListMembers))
+	acceptedLists := "&rarity=" + url.QueryEscape(distinctList("<", search.MaxValueRunes, search.MaxListRunes/search.MaxValueRunes)) +
+		"&series=" + url.QueryEscape(distinctList("\x01", search.MaxValueRunes, search.MaxListRunes/search.MaxValueRunes))
 	for _, tc := range []struct {
 		name, path, field, message string
 	}{
@@ -141,8 +141,9 @@ func TestAcceptedRequestAtTheLimitsIsLoggedInFull(t *testing.T) {
 	})
 	s, logBuf := newTestServer(t, rt)
 	member := strings.Repeat("r", search.MaxValueRunes)
-	rec := get(t, s, "/api/search?q=pikachu&rarity="+repeatList(member, search.MaxListMembers)+
-		"&series="+repeatList(member, search.MaxListMembers)+"&set="+member)
+	members := search.MaxListRunes / search.MaxValueRunes
+	rec := get(t, s, "/api/search?q=pikachu&rarity="+repeatList(member, members)+
+		"&series="+repeatList(member, members)+"&set="+member)
 	if rec.Code != 200 || calls != 1 {
 		t.Fatalf("status %d after %d searches, want 200 after 1: %.300s", rec.Code, calls, rec.Body.String())
 	}
@@ -156,5 +157,39 @@ func TestAcceptedRequestAtTheLimitsIsLoggedInFull(t *testing.T) {
 	}
 	if p["set"] != member {
 		t.Errorf("logged set = %v, want it in full", p["set"])
+	}
+}
+
+// A refused /api/v1/cards lookup logs its ids cut like any refused request,
+// so its line stays small however long the list was; the lookup is never
+// made.
+func TestRefusedV1CardsLogsIDsCut(t *testing.T) {
+	for name, ids := range map[string]string{
+		"20 KB malformed id": strings.Repeat("<", 20000),
+		"101 distinct ids":   distinctList("x", 64, 101),
+		"bad id at the end":  distinctList("x", 64, 100) + ",/",
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, logBuf := newTestServer(t, neverCalled(t))
+			rec := get(t, s, "/api/v1/cards?ids="+url.QueryEscape(ids))
+			if rec.Code != 400 {
+				t.Fatalf("status %d, want 400: %.300s", rec.Code, rec.Body.String())
+			}
+			if body := decodeError(t, rec); body.Error.Code != "invalid_param" || body.Error.Field != "ids" {
+				t.Errorf("400 body = %+v, want invalid_param on ids", body.Error)
+			}
+			if line := rawQueryLine(t, logBuf); len(line) > maxRefusedLogLine {
+				t.Errorf("query-log line is %d bytes for %d bytes of ids, want at most %d", len(line), len(ids), maxRefusedLogLine)
+			}
+			lg := queryLine(t, logBuf)
+			p, _ := lg["params"].(map[string]any)
+			if got, _ := p["ids"].(string); !strings.HasSuffix(got, cutLogMarker) ||
+				!strings.HasPrefix(ids, strings.TrimSuffix(got, cutLogMarker)) {
+				t.Errorf("logged ids = %.100q, want a prefix of the value with the cut marker", got)
+			}
+			if lg["status"] != float64(400) || lg["dsl"] != nil {
+				t.Errorf("line status %v dsl %v", lg["status"], lg["dsl"] != nil)
+			}
+		})
 	}
 }

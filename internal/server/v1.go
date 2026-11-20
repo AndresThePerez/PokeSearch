@@ -105,6 +105,9 @@ func (s *Server) handleV1Cards(w http.ResponseWriter, r *http.Request) {
 
 	ids, err := search.ParseCardIDs(raw)
 	if err != nil {
+		// Cut as every refused request's line is, so it stays small however
+		// long the list was.
+		entry.Params = cutLogParams(entry.Params)
 		s.v1BadRequest(w, r, entry, "ids", err.Error())
 		return
 	}

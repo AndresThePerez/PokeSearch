@@ -90,6 +90,11 @@ func New(es *elasticsearch.Client, static fs.FS, logW io.Writer, now func() time
 	s.mux.HandleFunc("GET /api/v1/cards/{id}", s.handleV1Card)
 	s.mux.HandleFunc("GET /api/v1/cards/{$}", s.handleV1Card)
 	s.mux.HandleFunc("GET /api/v1/sets", s.handleV1Sets())
+	// Every other GET under /api/ is an endpoint the API does not have. It is
+	// answered here, in the API's own error envelope, rather than falling
+	// through to the static file server's plain-text page. The pattern carries
+	// a method because a bare "/api/" conflicts with "GET /" below.
+	s.mux.HandleFunc("GET /api/", s.handleUnknownAPIPath)
 
 	etags, err := staticETags(static)
 	if err != nil {
@@ -100,7 +105,11 @@ func New(es *elasticsearch.Client, static fs.FS, logW io.Writer, now func() time
 		s.log.Warn("static asset validators unavailable", "err", err.Error())
 	}
 	s.staticETags = etags
-	s.mux.Handle("GET /", s.withStaticCache(http.FileServerFS(static)))
+	staticHandler := s.withStaticCache(http.FileServerFS(static))
+	s.mux.Handle("GET /", staticHandler)
+	// Without its own pattern the bare /api would be redirected to the "GET
+	// /api/" subtree above; it is not an API path and keeps the static answer.
+	s.mux.Handle("GET /api", staticHandler)
 
 	// Wrapped once: every route — including anything registered later, such as
 	// EnableMetrics' /debug/vars — inherits the request ID, the access line and
@@ -109,9 +118,63 @@ func New(es *elasticsearch.Client, static fs.FS, logW io.Writer, now func() time
 	// Compression sits between them: outside the mux, so it can never see the
 	// 304 withStaticCache returns from inside it, and inside observability, so
 	// the access line's byte count reports what actually went on the wire.
-	s.handler = s.withObservability(s.withGzip(s.withSecurityHeaders(s.withAPIKey(s.mux))))
+	s.handler = s.withObservability(s.withGzip(s.withSecurityHeaders(s.withAPIKey(s.withAPIMethodCheck(s.mux)))))
 	return s
 }
+
+// apiPrefix is the path space whose routing errors answer in the JSON error
+// envelope. Paths outside it keep the static file server's own answers.
+const apiPrefix = "/api/"
+
+// handleUnknownAPIPath is the 404 for a GET or HEAD under /api/ that names no
+// endpoint.
+func (s *Server) handleUnknownAPIPath(w http.ResponseWriter, r *http.Request) {
+	s.writeError(w, r, http.StatusNotFound, codeNotFound, "", "no such endpoint")
+}
+
+// withAPIMethodCheck gives a wrong method on an /api/ path the JSON envelope.
+// The mux alone decides that a request matched no pattern and which methods
+// the path does allow; this wrapper only asks it, through ServeMux.Handler,
+// and then replaces the mux's plain-text body with the envelope, keeping the
+// status and the Allow header exactly as the mux computed them.
+func (s *Server) withAPIMethodCheck(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, apiPrefix) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		h, pattern := s.mux.Handler(r)
+		if pattern != "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// No pattern matched: h is the mux's own error answer. Run it against
+		// a throwaway writer to learn its status and Allow header.
+		probe := &routingProbe{header: http.Header{}, status: http.StatusOK}
+		h.ServeHTTP(probe, r)
+		switch probe.status {
+		case http.StatusMethodNotAllowed:
+			w.Header().Set("Allow", probe.header.Get("Allow"))
+			s.writeError(w, r, http.StatusMethodNotAllowed, codeMethodNotAllowed, "",
+				"this endpoint does not answer that method; see the Allow header")
+		case http.StatusNotFound:
+			s.handleUnknownAPIPath(w, r)
+		default:
+			next.ServeHTTP(w, r)
+		}
+	})
+}
+
+// routingProbe records what the mux's error handler would have answered,
+// without sending any of it.
+type routingProbe struct {
+	header http.Header
+	status int
+}
+
+func (p *routingProbe) Header() http.Header         { return p.header }
+func (p *routingProbe) Write(b []byte) (int, error) { return len(b), nil }
+func (p *routingProbe) WriteHeader(code int)        { p.status = code }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.handler.ServeHTTP(w, r)
@@ -632,10 +695,12 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 // Error codes in the M3 contract. invalid_param is the client's fault (400);
-// es_unavailable is ours (503).
+// es_unavailable is ours (503); method_not_allowed is a known /api/ path asked
+// for with a method it does not answer (405).
 const (
-	codeInvalidParam  = "invalid_param"
-	codeESUnavailable = "es_unavailable"
+	codeInvalidParam     = "invalid_param"
+	codeESUnavailable    = "es_unavailable"
+	codeMethodNotAllowed = "method_not_allowed"
 )
 
 type errorDetail struct {

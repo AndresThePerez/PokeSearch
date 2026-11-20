@@ -149,6 +149,13 @@
         <button id="search-notice-dismiss" type="button" aria-label="Dismiss this notice" hidden>Dismiss</button>
       </div>
 
+      <div id="search-strip" class="search-strip" role="group" aria-label="Last search" aria-busy="false">
+        <div class="strip-item"><span class="strip-label" aria-hidden="true">ES</span><span id="strip-es" class="strip-value" aria-hidden="true">—</span><span id="strip-es-name" class="sr-only">Elasticsearch time: no search yet</span></div>
+        <div class="strip-item"><span class="strip-label" aria-hidden="true">Trip</span><span id="strip-roundtrip" class="strip-value" aria-hidden="true">—</span><span id="strip-roundtrip-name" class="sr-only">Round trip: no search yet</span></div>
+        <div class="strip-item"><span id="strip-count" class="strip-value strip-count" aria-hidden="true">—</span><span id="strip-count-name" class="sr-only">Result count: no search yet</span></div>
+        <button id="view-query" class="strip-action" type="button" aria-label="View query, the Elasticsearch query panel below the results">View query</button>
+      </div>
+
       <div id="badge-legend" class="badge-legend" hidden></div>
 
       <ul id="results-grid" tabindex="-1" aria-label="Card search results" aria-busy="true"></ul>
@@ -170,11 +177,12 @@
     </main>
 
     <aside class="observability-rail" aria-label="Search observability">
+      <button id="rail-back" class="rail-back" type="button">← Back to results</button>
       <section class="telemetry-panel" aria-labelledby="telemetry-heading">
         <div class="panel-heading">
           <div>
             <p class="eyebrow">Live telemetry</p>
-            <h2 id="telemetry-heading">Search health</h2>
+            <h2 id="telemetry-heading" tabindex="-1">Search health</h2>
           </div>
           <p id="service-status" class="service-status" aria-live="polite"><span></span>Connecting</p>
         </div>

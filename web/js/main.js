@@ -30,7 +30,7 @@ import {
   shownOutcome,
 } from "./suggest.js";
 import { bindModalEvents, openDeepLink, syncDialogToAddress } from "./modal.js";
-import { lastResponseHadDSL, refreshRankingLab, loadArchiveCounts } from "./telemetry.js";
+import { lastResponseHadDSL, refreshRankingLab, loadArchiveCounts, noteSearchLoading } from "./telemetry.js";
 import { showStats } from "./stats.js";
 
 // The app has two views and one hash router. #stats is a route; #card= is not
@@ -112,10 +112,12 @@ function releasePageScroll() {
 // body rather than part of any of the three regions, so nothing else can take
 // it out of the tab order — and it jumps to a grid the sheet covers; the
 // footer is the other direct child of body with a link in it. Between them
-// these five are every focusable thing outside the rail: the dialog is the
+// these are every focusable thing outside the rail: the dialog is the
 // only other child of body, and it is inert to the page in the other
-// direction, by showModal.
-const BEHIND_DRAWER = [".skip-link", ".site-header", "main", ".observability-rail", ".site-footer"];
+// direction, by showModal. The strip above the grid lives inside main, so
+// main already covers it; it is named anyway, so that moving it out of main
+// could not leave its button reachable behind the sheet.
+const BEHIND_DRAWER = [".skip-link", ".site-header", "main", ".search-strip", ".observability-rail", ".site-footer"];
 
 // Covering the page is not the same as taking it out of the tab order, so Tab
 // past the close button used to land on the search box behind the sheet, with
@@ -142,6 +144,42 @@ function closeFilterDrawer() {
 
 function filterDrawerOpen() {
   return $("filter-toggle").getAttribute("aria-expanded") === "true";
+}
+
+// "View query" on the strip above the grid: the rail is below every card at
+// these widths, so this takes the visitor to it. The query panel opens first
+// (it starts closed on a phone), focus goes to the rail's heading so a
+// keyboard or screen-reader visitor arrives there too, and the rail scrolls
+// to the top of the page's view, below the header where the header is sticky:
+// the page's scroll-padding does that, and its reduced-motion rule is the
+// reason the scroll takes no behavior of its own.
+function showQueryRail() {
+  $("query-inspector").open = true;
+  $("telemetry-heading").focus({ preventScroll: true });
+  document.querySelector(".observability-rail").scrollIntoView({ block: "start" });
+}
+
+// The way back: to the strip, and its button, which is where the visitor
+// pressed.
+function backToResults() {
+  $("search-strip").scrollIntoView({ block: "start" });
+  $("view-query").focus({ preventScroll: true });
+}
+
+// The strip learns that a search has started or ended from the grid, which is
+// where every search, whatever its outcome, raises and lowers its loading
+// flag; render.js and api.js are not asked to know about the strip.
+function watchSearchLoading() {
+  const grid = $("results-grid");
+  let loading = null;
+  const notify = () => {
+    const now = grid.classList.contains("is-loading");
+    if (now === loading) return;
+    loading = now;
+    noteSearchLoading(now);
+  };
+  new MutationObserver(notify).observe(grid, { attributes: true, attributeFilter: ["class"] });
+  notify();
 }
 
 // The example searches, on the landing and in the empty state. Pressing one is
@@ -235,6 +273,9 @@ function bindCoreEvents() {
     hideNotice();
     $("search-input").focus({ preventScroll: true });
   });
+
+  $("view-query").addEventListener("click", showQueryRail);
+  $("rail-back").addEventListener("click", backToResults);
 
   $("copy-dsl").addEventListener("click", async () => {
     await navigator.clipboard.writeText($("dsl-json").textContent);
@@ -425,6 +466,7 @@ function init() {
   renderExamples();
   renderGuide();
   loadArchiveCounts();
+  watchSearchLoading();
   bindCoreEvents();
   bindFilterEvents();
   bindExampleEvents();

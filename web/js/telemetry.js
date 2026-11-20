@@ -1,7 +1,9 @@
 // The observability rail: the stats grid, the SLA readouts, the service-status
 // pill, the two inspector panes that show the generated DSL and the raw
 // response, and the Ranking lab below them; also the archive's counts in the
-// header, read from the server. Imports util and state — state
+// header, read from the server, and the compact strip above the grid that
+// carries the rail's headline numbers where the rail has dropped below the
+// results. Imports util and state — state
 // imports nothing app-level, so the graph stays acyclic.
 
 import { $, element } from "./util.js";
@@ -139,7 +141,83 @@ export function setDegraded(isDegraded) {
     $("total-count").textContent = BLANK;
     $("stat-results").textContent = BLANK;
     $("stat-roundtrip").textContent = BLANK;
+    noteStripOutcome({ failed: true });
   }
+}
+
+// The strip above the grid, shown where the rail sits below the results: the
+// last search's Elasticsearch time, round trip and result count, and the
+// control that takes the visitor to the rail. The rail's own readouts are the
+// source; this only repeats three of them, formatted the way the rail
+// formats them.
+
+// searchStripView is what the strip says. state is "none" (no search has
+// answered yet), "loading" (one is on its way), "done" or "failed"; the three
+// numbers are the last answer's Elasticsearch time and round trip in
+// milliseconds and its total. Each text is the short form the strip shows,
+// each name the full form a screen reader gets. A number that is not what its
+// readout needs is a dash, never a word like NaN; a failed search shows no
+// numbers at all, since the last ones belong to a search that is gone. While a
+// search is on its way the last numbers stay, as the count line keeps its own,
+// and busy says so.
+export function searchStripView({ state = "none", esMs, roundTripMs, total } = {}) {
+  const phase = ["loading", "done", "failed"].includes(state) ? state : "none";
+  const shown = phase === "done" || phase === "loading";
+  const whyNot = { none: "no search yet", loading: "searching", failed: "unavailable, the last search failed" }[phase];
+  const isTime = (value) => Number.isFinite(value) && value >= 0;
+  const millis = (value) => (value === 1 ? "1 millisecond" : `${value} milliseconds`);
+
+  // A reading is its short text and its full name, or a dash and the reason
+  // there is no number: the state's, or, for an answer, the value's own.
+  const reading = (label, value, text, name) => (shown && value !== null
+    ? { text: text(value), name: `${label}: ${name(value)}` }
+    : { text: BLANK, name: `${label}: ${phase === "done" ? "not available" : whyNot}` });
+
+  const es = isTime(esMs) ? esMs || 0 : null;
+  const trip = isTime(roundTripMs) ? Math.round(roundTripMs) || 0 : null;
+  const cards = isCount(total) ? plural(total, "card", "cards") : null;
+  return {
+    es: reading("Elasticsearch time", es, (v) => `${v} ms`, millis),
+    roundTrip: reading("Round trip", trip, (v) => `${v} ms`, millis),
+    count: reading("Result count", cards, (v) => v, (v) => v),
+    action: { text: "View query", name: "View query, the Elasticsearch query panel below the results" },
+    busy: phase === "loading",
+  };
+}
+
+// What the strip last heard from the search: how it ended and, when it
+// answered, the numbers; and whether another search is on its way.
+const stripLast = { outcome: "none", esMs: undefined, roundTripMs: undefined, total: undefined };
+let stripLoading = false;
+
+function paintStrip() {
+  const view = searchStripView({ state: stripLoading ? "loading" : stripLast.outcome, ...stripLast });
+  $("strip-es").textContent = view.es.text;
+  $("strip-es-name").textContent = view.es.name;
+  $("strip-roundtrip").textContent = view.roundTrip.text;
+  $("strip-roundtrip-name").textContent = view.roundTrip.name;
+  $("strip-count").textContent = view.count.text;
+  $("strip-count-name").textContent = view.count.name;
+  $("view-query").setAttribute("aria-label", view.action.name);
+  $("search-strip").setAttribute("aria-busy", String(view.busy));
+}
+
+// noteStripOutcome records how a search ended. An answer brings its numbers;
+// a failure drops them. A refused search is neither: the page keeps what it
+// had, as the rail does, so it never calls this.
+function noteStripOutcome({ failed = false, esMs, roundTripMs, total } = {}) {
+  Object.assign(stripLast, failed
+    ? { outcome: "failed", esMs: undefined, roundTripMs: undefined, total: undefined }
+    : { outcome: "done", esMs, roundTripMs, total });
+  paintStrip();
+}
+
+// noteSearchLoading tells the strip a search has started or finished. main.js
+// calls it from the grid's loading flag, which is where every search, whatever
+// its outcome, raises and lowers it.
+export function noteSearchLoading(loading) {
+  stripLoading = Boolean(loading);
+  paintStrip();
 }
 
 // pillStatus decides the service-status pill from the two things that can
@@ -270,6 +348,7 @@ export function renderStats(data, roundTripMs) {
   $("stat-page").textContent = data.pages ? `${data.page} / ${data.pages}` : BLANK;
   $("sla-engine-state").textContent = data.took_ms < 100 ? "within target" : "above target";
   $("sla-roundtrip-state").textContent = roundTripMs < 250 ? "within target" : "above target";
+  noteStripOutcome({ esMs: data.took_ms, roundTripMs, total: data.total });
   // A search landed, so the lab is stale if the query moved. It is the rail's
   // own panel, and this is the moment the rail learns a search completed —
   // which is why the refresh hangs here rather than off every call site that

@@ -626,6 +626,66 @@ main { min-width: 0; }
 .badge-legend li { display: inline-flex; align-items: center; gap: .3rem; }
 .badge-legend-title { color: var(--ink); font-weight: 600; }
 
+/* The strip above the grid: the rail's headline numbers, for the widths where
+   the rail has dropped below the results and would otherwise be a long scroll
+   away. It is a single line that cannot wrap, so it has one height before the
+   first search, while one is running and after it answers or fails: every
+   piece of text in it is one line, and the grid under it does not move. Shown
+   only at 1050px and below, where the rail's own breakpoint puts it under the
+   grid. */
+.search-strip,
+.rail-back { display: none; }
+
+.search-strip {
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  min-height: 56px;
+  margin: 0 0 1rem;
+  padding: .4rem .5rem .4rem .75rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.strip-item { display: flex; flex-direction: column; gap: .2rem; min-width: 0; }
+
+.strip-label {
+  color: var(--muted);
+  font-size: .6rem;
+  font-weight: 750;
+  letter-spacing: .06em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.strip-value {
+  color: var(--accent-strong);
+  font: 1rem/1 Georgia, serif;
+  white-space: nowrap;
+}
+
+.strip-count { color: var(--ink); font-size: .95rem; white-space: nowrap; }
+
+/* Numbers still on show while the next search runs are the last answer's. */
+.search-strip[aria-busy="true"] .strip-value { opacity: .55; }
+
+.strip-action,
+.rail-back {
+  min-height: 44px;
+  padding: 0 .85rem;
+  border: 1px solid rgba(200, 31, 50, .4);
+  border-radius: 9px;
+  color: var(--accent-strong);
+  font-size: .8rem;
+  font-weight: 650;
+  white-space: nowrap;
+  background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--surface);
+  cursor: pointer;
+}
+
+.strip-action { flex: none; }
+
 .sort-controls { display: flex; align-items: end; gap: .5rem; }
 .sort-controls label { color: var(--muted); font-size: .68rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .sort-controls select { min-width: 130px; }
@@ -1519,6 +1579,8 @@ body.route-stats #degraded-banner,
 body.route-stats #search-notice,
 body.route-stats #landing,
 body.route-stats #badge-legend,
+body.route-stats .search-strip,
+body.route-stats .rail-back,
 body.route-stats #filter-rail { display: none; }
 
 /* Two columns instead of three: the charts take the filter rail's space, and
@@ -1875,6 +1937,22 @@ body.route-stats .app-layout { grid-template-columns: minmax(0, 1fr) minmax(340p
     padding-left: 2rem;
   }
   #results-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+}
+
+/* Where the rail drops below the grid (this width and below, through the two
+   blocks that follow), the strip above the grid stands in for its top line and
+   the rail gets a way back. */
+@media (max-width: 1050px) {
+  .search-strip {
+    display: flex;
+    flex-wrap: nowrap;
+    min-width: 0;
+  }
+  .rail-back {
+    display: inline-flex;
+    align-items: center;
+    justify-self: start;
+  }
 }
 
 @media (max-width: 1050px) and (min-width: 769px) {

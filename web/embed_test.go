@@ -46,6 +46,9 @@ func TestEmbeddedMarkupHasRequiredElements(t *testing.T) {
 		"spark-p50", "spark-p95", "request-id-line", "stat-request-id",
 		"archive-cards", "archive-sets", "landing", "landing-examples",
 		"empty-guide", "empty-examples", "badge-legend",
+		"search-strip", "strip-es", "strip-es-name", "strip-roundtrip",
+		"strip-roundtrip-name", "strip-count", "strip-count-name",
+		"view-query", "rail-back", "telemetry-heading",
 	}
 	for _, id := range ids {
 		if !strings.Contains(page, `id="`+id+`"`) {

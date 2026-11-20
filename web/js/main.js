@@ -19,6 +19,8 @@ import {
   isOwnStepBack,
   noteHistoryNavigation,
   popstateRunsSearch,
+  queryPanelRequest,
+  refreshQuery,
 } from "./api.js";
 import {
   scheduleSuggest,
@@ -334,9 +336,11 @@ function bindCoreEvents() {
   });
 
   $("query-inspector").addEventListener("toggle", () => {
-    if (!$("query-inspector").open || lastResponseHadDSL()) return;
+    const action = queryPanelRequest($("query-inspector").open, lastResponseHadDSL());
+    if (action === "none") return;
     // Whichever view is open owes the inspector its own DSL.
     if (statsViewOpen()) showStats();
+    else if (action === "query-only") refreshQuery();
     else runSearch();
   });
 

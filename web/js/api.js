@@ -19,6 +19,10 @@ import { renderInspector, setDegraded, startHealthCheck, debugEnabled, recordTim
 import { $ } from "./util.js";
 
 let searchController = null;
+// How many searches are on their way, and which one started last: the query
+// panel's own request (see refreshQuery) only paints if no search began after it.
+let searchesRunning = 0;
+let searchSerial = 0;
 let debounceTimer = null;
 let idleTimer = null;
 
@@ -165,6 +169,8 @@ export async function runSearch({ append = false, push = false, fromHistory = fa
   const controller = new AbortController();
   const startedAt = performance.now();
   searchController = controller;
+  searchSerial += 1;
+  searchesRunning += 1;
   setLoading(true, { append, pageSize: SEARCH_PAGE_SIZE });
   try {
     const res = await fetch(`/api/search?${searchRequestParams({ debug: debugEnabled() })}`, { signal: controller.signal });
@@ -213,9 +219,46 @@ export async function runSearch({ append = false, push = false, fromHistory = fa
     setStale(true);
     return "failed";
   } finally {
+    searchesRunning -= 1;
     if (searchController === controller) {
       setLoading(false, { append });
     }
+  }
+}
+
+// queryPanelAction decides what opening the query panel asks for. The first
+// answer on a phone carries no query (the panel was closed, so none was
+// requested), and fetching it must not search the cards again: that would
+// reset the list to its first page. With no search running, the query alone
+// is asked for; with one running, that search was started before the panel
+// opened and the panel still needs a search that asks for the query, as it
+// always has.
+export function queryPanelAction({ open, hadQuery, searching } = {}) {
+  if (open !== true || hadQuery === true) return "none";
+  return searching === true ? "search" : "query-only";
+}
+
+// queryPanelRequest is the call main.js makes when the panel opens or closes.
+export function queryPanelRequest(open, hadQuery) {
+  return queryPanelAction({ open, hadQuery, searching: searchesRunning > 0 });
+}
+
+const QUERY_UNAVAILABLE = "The query could not be loaded just now. Search again to see it.";
+
+// refreshQuery asks for the search on screen once more with its query
+// requested, and fills the rail's two panes from the answer. The cards, the
+// counts, the address, the history, the status pill and the timings stay as
+// they are. It paints only if no search began after it, since that search
+// brings its own query.
+export async function refreshQuery() {
+  const serial = searchSerial;
+  try {
+    const res = await fetch(`/api/search?${searchRequestParams({ debug: true })}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (serial === searchSerial) renderInspector(data.dsl, data);
+  } catch {
+    if (serial === searchSerial) $("dsl-json").textContent = QUERY_UNAVAILABLE;
   }
 }
 

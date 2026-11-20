@@ -47,7 +47,7 @@ func goModVersion(t *testing.T) string {
 	t.Helper()
 	version := ""
 	for _, l := range trimmedLines(t, "../../go.mod") {
-		if strings.HasPrefix(l, "toolchain ") {
+		if f := strings.Fields(l); len(f) > 0 && f[0] == "toolchain" {
 			t.Errorf("go.mod has a toolchain line %q: the go directive alone names the release", l)
 		}
 		if strings.HasPrefix(l, "go ") && version == "" {
@@ -149,6 +149,18 @@ func startStackStep(t *testing.T) []string {
 	return step
 }
 
+// beforeYAMLComment cuts a YAML scalar at its trailing comment: a `#` that
+// follows whitespace starts one, while a `#` glued to the text (as in
+// "${GITHUB_SHA:0:7}") is part of the value.
+func beforeYAMLComment(v string) string {
+	for i := 1; i < len(v); i++ {
+		if v[i] == '#' && (v[i-1] == ' ' || v[i-1] == '\t') {
+			return v[:i]
+		}
+	}
+	return v
+}
+
 // stampValue returns what the step assigns to name, written either as a shell
 // prefix (`NAME=value \`) or as an `env:` entry (`NAME: value`), and whether it
 // assigns it at all.
@@ -156,6 +168,9 @@ func stampValue(step []string, name string) (string, bool) {
 	for _, l := range step {
 		for _, sep := range []string{"=", ": "} {
 			if rest, ok := strings.CutPrefix(l, name+sep); ok {
+				if sep == ": " {
+					rest = beforeYAMLComment(rest)
+				}
 				rest = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(rest), `\`))
 				return strings.Trim(rest, `"'`), true
 			}
@@ -200,6 +215,21 @@ func TestStampValueReadsBothSpellings(t *testing.T) {
 		"BUILT":   "dev",
 	} {
 		if got, ok := stampValue(step, name); !ok || got != want {
+			t.Errorf("stampValue(%s) = %q, %v; want %q, true", name, got, ok, want)
+		}
+	}
+	// A `#` glued to the text is part of a shell value, not a comment.
+	shell := []string{
+		`COMMIT="${GITHUB_SHA:0:7}" \`,
+		`BUILT="$(date -u +%FT%TZ)" \`,
+		`TAG=a#b \`,
+	}
+	for name, want := range map[string]string{
+		"COMMIT": "${GITHUB_SHA:0:7}",
+		"BUILT":  "$(date -u +%FT%TZ)",
+		"TAG":    "a#b",
+	} {
+		if got, ok := stampValue(shell, name); !ok || got != want {
 			t.Errorf("stampValue(%s) = %q, %v; want %q, true", name, got, ok, want)
 		}
 	}

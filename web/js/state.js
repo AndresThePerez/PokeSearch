@@ -249,18 +249,61 @@ export const ENERGY_TYPES = Object.freeze([
   "Fire", "Grass", "Lightning", "Metal", "Psychic", "Water",
 ]);
 
-const TYPE_ALIASES = Object.freeze({ steel: "Metal", normal: "Colorless" });
+export const TYPE_ALIASES = Object.freeze({ steel: "Metal", normal: "Colorless" });
 
+// The characters the server takes for white space when it trims a member or
+// splits a rarity into words: Go's unicode.IsSpace, which strings.TrimSpace
+// and strings.Fields use. It holds U+0085 and not U+FEFF, unlike the white
+// space of JavaScript's trim() and \s, so a member the server would read
+// differently is never trimmed into another one here.
+const GO_SPACE = "\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000";
+const GO_TRIM = new RegExp(`^[${GO_SPACE}]+|[${GO_SPACE}]+$`, "gu");
+const GO_FIELDS = new RegExp(`[${GO_SPACE}]+`, "u");
+
+// goTrim is strings.TrimSpace.
+function goTrim(value) {
+  return value.replace(GO_TRIM, "");
+}
+
+// goFields is strings.Fields: the words between runs of white space.
+function goFields(value) {
+  return value.split(GO_FIELDS).filter(Boolean);
+}
+
+// goLower is strings.ToLower where it differs from toLowerCase on a letter
+// that lowers onto an ASCII one: Go makes the dotted capital I a plain i.
+function goLower(value) {
+  return value.replaceAll("\u0130", "i").toLowerCase();
+}
+
+// asciiFold is how strings.EqualFold compares a letter with an ASCII one:
+// letter case does not count, the long s is an s and the Kelvin sign a k.
+// The types are ASCII, so no other letter can match one.
+function asciiFold(value) {
+  return value.replace(/[A-Z]/g, (letter) => letter.toLowerCase()).replaceAll("\u017f", "s").replaceAll("\u212a", "k");
+}
+
+// listMembers is how the server reads a list parameter: split on commas,
+// each member trimmed, empty members dropped.
+function listMembers(value) {
+  return value.split(",").map(goTrim).filter(Boolean);
+}
+
+// acceptedType is the server's reading of one types member: trimmed, an
+// alias looked up in lower case, then compared with each type the way
+// strings.EqualFold compares.
 function acceptedType(member) {
-  const lower = member.trim().toLowerCase();
-  const name = Object.hasOwn(TYPE_ALIASES, lower) ? TYPE_ALIASES[lower] : lower;
-  return ENERGY_TYPES.find((type) => type.toLowerCase() === name.toLowerCase()) ?? null;
+  const trimmed = goTrim(member);
+  const lower = goLower(trimmed);
+  const name = Object.hasOwn(TYPE_ALIASES, lower) ? TYPE_ALIASES[lower] : trimmed;
+  const folded = asciiFold(name);
+  return ENERGY_TYPES.find((type) => asciiFold(type) === folded) ?? null;
 }
 
 // foldRarity is the server's comparison of rarity spellings: letter case and
 // runs of spaces do not count, nor do spaces at either end.
 function foldRarity(value) {
-  return value.trim().split(/\s+/u).join(" ").toLowerCase();
+  return goLower(goFields(value).join(" "));
 }
 
 function rarityValues(facets) {
@@ -277,16 +320,19 @@ function rarityValues(facets) {
 // onto a value only when exactly one of all 44 folds the same, and a mapped
 // rarity with cards listed would have found them. A spelling that folds to no
 // listed value, or to two, or one on a search that found nothing, is left as
-// given: it is still what the search asked for.
+// given, trimmed: it is still what the search asked for. A list with no
+// member was no filter; a list of several is left as given.
 function acceptedRarity(given, { total, facets }) {
-  if (!given.trim()) return "";
+  const members = listMembers(given);
+  if (members.length === 0) return "";
+  const trimmed = goTrim(given);
+  if (given.includes(",")) return trimmed;
   const values = rarityValues(facets);
-  const trimmed = given.trim();
   if (values.includes(trimmed)) return trimmed;
-  if (!(total > 0)) return given;
-  const folded = foldRarity(given);
+  if (!(total > 0)) return trimmed;
+  const folded = foldRarity(trimmed);
   const matches = values.filter((value) => foldRarity(value) === folded);
-  return matches.length === 1 ? matches[0] : given;
+  return matches.length === 1 ? matches[0] : trimmed;
 }
 
 // acceptedFilters reads the filters a search actually used off its answer, for
@@ -295,9 +341,11 @@ function acceptedRarity(given, { total, facets }) {
 // the stored value the server mapped another spelling onto (acceptedRarity).
 // set and series are matched exactly by the server, so they stay as given,
 // trimmed as the server trims them: one that matches nothing found nothing,
-// and its chip stays so it can be removed. A value that is only spaces was no
-// filter at all. changed says whether any of the four differs from the state
-// given, which is left as it was.
+// and its chip stays so it can be removed. A value that is only spaces, or a
+// rarity or series list with no member, was no filter at all. changed says
+// whether any of the four differs from the state given, which is left as it
+// was. Every reading is the server's own, so an address rewritten from these
+// gives the same cards on a reload.
 export function acceptedFilters({ state: from, total, facets }) {
   const types = [];
   for (const member of from.types) {
@@ -305,8 +353,9 @@ export function acceptedFilters({ state: from, total, facets }) {
     if (type && !types.includes(type)) types.push(type);
   }
   const rarity = acceptedRarity(String(from.rarity ?? ""), { total, facets });
-  const set = String(from.set ?? "").trim();
-  const series = String(from.series ?? "").trim();
+  const set = goTrim(String(from.set ?? ""));
+  const givenSeries = String(from.series ?? "");
+  const series = listMembers(givenSeries).length ? goTrim(givenSeries) : "";
   const changed = types.join(",") !== from.types.join(",")
     || rarity !== from.rarity || set !== from.set || series !== from.series;
   return { types, rarity, set, series, changed };

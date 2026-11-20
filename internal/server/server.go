@@ -60,6 +60,8 @@ type Server struct {
 	// inFlight is the cap on requests handled at once (withInFlightCap). A
 	// pointer swapped whole, so SetMaxInFlight is safe while serving.
 	inFlight atomic.Pointer[inFlightSlots]
+	// healthzCount lets concurrent /healthz probes share one _count call.
+	healthzCount sharedCount
 }
 
 func New(es *elasticsearch.Client, static fs.FS, logW io.Writer, now func() time.Time) *Server {
@@ -890,8 +892,9 @@ func (s *Server) handleLivez(w http.ResponseWriter, _ *http.Request) {
 
 // handleHealthz is a frozen contract — {"docs":N,"status":"ok"} with a real ES
 // round trip. Courier asserts on it; do not change its shape or its semantics.
+// Concurrent probes share one round trip (sharedCount); nothing is cached.
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
-	docs, err := s.countDocs(r)
+	docs, err := s.healthzCount.do(r.Context(), s.esTimeout, s.countDocsCtx)
 	if err != nil {
 		// The body stays the bare frozen shape; the cause goes to the log,
 		// tied to the request, so a failing probe can be told apart from a
@@ -908,6 +911,11 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 func (s *Server) countDocs(r *http.Request) (int, error) {
 	ctx, cancel := s.esCtx(r)
 	defer cancel()
+	return s.countDocsCtx(ctx)
+}
+
+// countDocsCtx is countDocs under a context the caller has already bounded.
+func (s *Server) countDocsCtx(ctx context.Context) (int, error) {
 	res, err := s.es.Count(
 		s.es.Count.WithContext(ctx),
 		s.es.Count.WithIndex(esindex.IndexName),

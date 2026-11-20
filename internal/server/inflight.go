@@ -64,9 +64,10 @@ func (s *Server) SetMaxInFlight(n int) error {
 // container healthcheck (the binary's -ping asks /livez) and an uptime monitor
 // must keep seeing the process as up while it sheds load, or a burst would be
 // reported as an outage and could get a healthy container restarted. The cost
-// is that probe requests are not bounded by the cap: every /healthz makes its
-// own _count call upstream, and a flood of probes is for the edge in front to
-// bound. /debug/vars is not a probe and is capped like everything else.
+// is that probe requests are not bounded by the cap: concurrent /healthz probes
+// share one _count call upstream (sharedCount), and a flood of probes is for
+// the edge in front to bound. /debug/vars is not a probe and is capped like
+// everything else.
 func exemptFromCap(path string) bool {
 	return path == "/livez" || path == "/healthz"
 }

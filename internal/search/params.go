@@ -5,7 +5,6 @@ package search
 
 import (
 	"net/url"
-	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -103,11 +102,14 @@ func canonicalRarity(item string) string {
 
 // parseRarity maps each member of the rarity list onto its stored spelling and
 // drops repeats, keeping the first position. Unknown members are kept: the
-// filter then matches nothing, as it always has, rather than widening.
+// filter then matches nothing, as it always has, rather than widening. Repeats
+// are tracked in a set, so a long list costs time linear in its length.
 func parseRarity(s string) []string {
 	var out []string
+	seen := map[string]bool{}
 	for _, item := range splitList(s) {
-		if item = canonicalRarity(item); !slices.Contains(out, item) {
+		if item = canonicalRarity(item); !seen[item] {
+			seen[item] = true
 			out = append(out, item)
 		}
 	}

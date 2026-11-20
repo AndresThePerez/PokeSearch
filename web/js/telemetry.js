@@ -71,8 +71,9 @@ export const BRANCHES = Object.freeze({
 });
 
 // isCount accepts what a server count can honestly be: a whole number, zero
-// or more. Anything else is shown as no number at all.
-function isCount(value) {
+// or more. Anything else is shown as no number at all. The header's counts
+// and the count line above the grid both ask it.
+export function isCount(value) {
   return Number.isInteger(value) && value >= 0;
 }
 

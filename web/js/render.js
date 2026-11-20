@@ -7,7 +7,7 @@
 
 import { $, element } from "./util.js";
 import { state, queryText, effectiveSort, effectiveOrder } from "./state.js";
-import { renderStats, noteArchiveSets, BRANCHES } from "./telemetry.js";
+import { renderStats, noteArchiveSets, BRANCHES, isCount } from "./telemetry.js";
 
 // The rendered cards, keyed by id, so the modal and the #card= deep link can
 // open one without a second request.
@@ -587,11 +587,18 @@ export function setStale(isStale) {
 // countLineText decides what the count line above the grid says. While a
 // search is on its way it keeps what it says (the markup's "Loading cards…"
 // before the first answer, the last count after that). A search that answered
-// writes its total. One that failed or was refused leaves the count of the
-// cards still on screen, or a dash when there are none, so the line never
-// goes on saying it is loading once nothing is.
+// writes its total when the total is a count (zero written "0"); a total that
+// is not one is never formatted, and the line keeps what it said, or shows a
+// dash. A search that ended without an answer to count leaves a dash when no
+// card is on screen. Over cards still on screen, a refused search keeps their
+// count; a failed one shows a dash there too, because the outage handling
+// blanks the line on purpose before this is asked.
 export function countLineText({ phase, total, cardsShown = 0, current = "" }) {
-  if (phase === "done") return `${Number(total).toLocaleString()} ${total === 1 ? "card" : "cards"}`;
+  if (phase === "done") {
+    if (!isCount(total)) return current || "—";
+    const count = total === 0 ? 0 : total;
+    return `${count.toLocaleString()} ${count === 1 ? "card" : "cards"}`;
+  }
   if (phase === "ended" && !(cardsShown > 0)) return "—";
   return current;
 }

@@ -8,11 +8,11 @@ import {
   state,
   buildParams,
   writeStateToURL,
-  addressDiffersFromState,
   failureAction,
   withoutField,
   ignoredNotice,
-  historyAction,
+  historyStep,
+  freshHistoryMemo,
 } from "./state.js";
 import { renderResults, setLoading, setStale, syncControls, syncFilterControls } from "./render.js";
 import { renderInspector, setDegraded, startHealthCheck, debugEnabled, recordTiming } from "./telemetry.js";
@@ -22,37 +22,76 @@ let searchController = null;
 let debounceTimer = null;
 let idleTimer = null;
 
-// draftEntry is true while the current history entry is one a typing burst
-// pushed and the visitor has not finished yet: further keystrokes rewrite it
-// rather than stacking an entry per pause.
-let draftEntry = false;
+// What the page remembers about history between searches: whether the
+// current entry is a draft a typing burst pushed, and the address beneath it.
+// historyStep decides; this module only carries the decision out.
+let historyMemo = freshHistoryMemo();
+
+// The querystring a step back is heading for, until its popstate arrives.
+let stepBackTo = null;
 
 // The query counts as finished after this long with no keystroke.
 const IDLE_COMMIT_MS = 1000;
 
-// writeHistory puts the state in the address bar the way historyAction says
-// for what started the search.
+function addressQuery() {
+  return new URLSearchParams(location.search).toString();
+}
+
+function planHistory(trigger) {
+  return historyStep({ trigger, memo: historyMemo, address: addressQuery(), wanted: buildParams().toString() });
+}
+
+// writeHistory carries out historyStep's decision for what started the search.
 function writeHistory(trigger) {
-  const action = historyAction(trigger, { draft: draftEntry, changed: addressDiffersFromState() });
-  if (action === "none") return;
-  const pushed = writeStateToURL({ push: action === "push" });
-  if (trigger === "typing") {
-    if (pushed) draftEntry = true;
-  } else if (trigger === "enter" || trigger === "blur" || trigger === "idle" || pushed) {
-    draftEntry = false;
+  const { action, memo } = planHistory(trigger);
+  historyMemo = memo;
+  if (action === "push" || action === "replace") {
+    writeStateToURL({ push: action === "push" });
+  } else if (action === "back") {
+    // The entry beneath the draft already holds this query. Its popstate is
+    // the page's own doing and is ignored (see isOwnStepBack).
+    stepBackTo = buildParams().toString();
+    history.back();
   }
+}
+
+// isOwnStepBack tells the popstate listener that this popstate is the step
+// back writeHistory asked for, which needs no search and no write: the search
+// for that query is already running. It answers once.
+export function isOwnStepBack() {
+  const expected = stepBackTo;
+  stepBackTo = null;
+  return expected !== null && expected === addressQuery();
+}
+
+// noteHistoryNavigation is called on every Back or Forward the visitor makes.
+// A keystroke search or commit still waiting would write against the entry
+// they just landed on, so both are dropped, and the draft is forgotten.
+export function noteHistoryNavigation() {
+  cancelScheduledSearch();
+  historyMemo = historyStep({ trigger: "popstate", memo: historyMemo, address: "", wanted: "" }).memo;
+}
+
+// noticeView decides how the notice under the search controls looks for a
+// given text. The live region itself is never hidden — a status region that
+// appears already filled is often not announced — so an empty notice only
+// drops its box and takes its Dismiss button out of the tab order.
+export function noticeView(text) {
+  const trimmed = typeof text === "string" ? text.trim() : "";
+  return { text: trimmed, shown: trimmed !== "", dismissHidden: trimmed === "" };
 }
 
 // The notice under the search controls: what the page ignored, or why a
 // search could not run. Plain text, and it never stacks with the banner.
-export function showNotice(text) {
-  $("search-notice").hidden = false;
+export function showNotice(message) {
+  const { text, shown, dismissHidden } = noticeView(message);
+  $("search-notice").classList.toggle("is-shown", shown);
+  $("search-notice-dismiss").hidden = dismissHidden;
   $("search-notice-text").textContent = text;
 }
 
 export function hideNotice() {
-  $("search-notice").hidden = true;
-  $("search-notice-text").textContent = "";
+  showNotice("");
 }
 
 async function readErrorBody(res) {
@@ -71,8 +110,7 @@ async function readErrorBody(res) {
 // after the server refused them.
 export async function runSearch({ append = false, push = false, fromHistory = false, trigger = "", dropped = [] } = {}) {
   if (!append) state.page = 1;
-  if (fromHistory) draftEntry = false;
-  else writeHistory(trigger || (push ? "filter" : "refresh"));
+  if (!fromHistory) writeHistory(trigger || (push ? "filter" : "refresh"));
   // Only the newest search may paint. An aborted one is not a failure and must
   // not raise the degraded banner.
   searchController?.abort();
@@ -146,9 +184,9 @@ export function scheduleSearch() {
 // now instead; a query the address already holds writes nothing.
 export function commitQuery(trigger) {
   clearTimeout(idleTimer);
-  const action = historyAction(trigger, { draft: draftEntry, changed: addressDiffersFromState() });
+  const { action, memo } = planHistory(trigger);
   if (action === "none") {
-    draftEntry = false;
+    historyMemo = memo;
     return;
   }
   clearTimeout(debounceTimer);

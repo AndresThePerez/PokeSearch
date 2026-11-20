@@ -94,11 +94,13 @@ export function withoutField(from, field) {
 }
 
 // A value quoted back to the visitor is cut short: a pasted address can hold
-// a parameter thousands of characters long.
+// a parameter thousands of characters long. The limit counts characters, not
+// UTF-16 units, so a cut never splits an emoji in half.
 const NOTICE_VALUE_LIMIT = 40;
 
 function quoteParam({ field, value }) {
-  const shown = value.length > NOTICE_VALUE_LIMIT ? `${value.slice(0, NOTICE_VALUE_LIMIT)}…` : value;
+  const chars = Array.from(value);
+  const shown = chars.length > NOTICE_VALUE_LIMIT ? `${chars.slice(0, NOTICE_VALUE_LIMIT).join("")}…` : value;
   return `"${field}=${shown}"`;
 }
 
@@ -186,4 +188,45 @@ export function effectiveOrder() {
   if (effectiveSort() === "hp") return "desc";
   if (effectiveSort() === "name") return "asc";
   return "";
+}
+
+// freshHistoryMemo is what the page remembers about history when no typing
+// burst is open: no draft entry, and so no address beneath one.
+export function freshHistoryMemo() {
+  return { draft: false, below: null };
+}
+
+// historyStep is the whole history decision for one search. Given what
+// started it, what the page remembers (memo), the querystring the address
+// holds and the one the state wants, it returns what to do — "push",
+// "replace", "back" or "none" — and the memo to keep.
+//
+// A typing burst pushes one draft entry and remembers the address beneath it.
+// Typing back to that address steps back to it instead of leaving two equal
+// entries side by side. Everything that finishes a query (Enter, blur, idle,
+// a suggestion, a filter) closes the draft, whatever it writes, so the next
+// burst cannot rewrite the finished entry. Back and Forward write nothing
+// and forget the draft.
+export function historyStep({ trigger, memo, address, wanted }) {
+  if (trigger === "popstate") return { action: "none", memo: freshHistoryMemo() };
+  if (memo.draft && wanted === memo.below && wanted !== address) {
+    return { action: "back", memo: freshHistoryMemo() };
+  }
+  const changed = wanted !== address;
+  switch (trigger) {
+    case "typing": {
+      const action = historyAction("typing", { draft: memo.draft, changed });
+      if (action === "push") return { action, memo: { draft: true, below: address } };
+      return { action, memo: { ...memo } };
+    }
+    case "enter":
+    case "blur":
+    case "idle":
+      return { action: historyAction(trigger, { draft: memo.draft, changed }), memo: freshHistoryMemo() };
+    case "suggestion":
+    case "filter":
+      return { action: changed ? "push" : "replace", memo: freshHistoryMemo() };
+    default:
+      return { action: "replace", memo: { ...memo } };
+  }
 }

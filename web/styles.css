@@ -572,7 +572,16 @@ main { min-width: 0; }
   background: var(--surface);
 }
 
-#search-notice[hidden] { display: none; }
+/* The status line inside stays rendered so screen readers hear it change;
+   with nothing to say, the box around it gives up its space and its frame. */
+#search-notice:not(.is-shown) {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+#search-notice-dismiss[hidden] { display: none; }
 #search-notice-text { flex: 1; margin: 0; overflow-wrap: anywhere; }
 
 #search-notice-dismiss {

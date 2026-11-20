@@ -8,7 +8,15 @@ import {
   syncFilterControls,
   setFilterChangeHandler,
 } from "./render.js";
-import { runSearch, scheduleSearch, refreshHealth, commitQuery, hideNotice } from "./api.js";
+import {
+  runSearch,
+  scheduleSearch,
+  refreshHealth,
+  commitQuery,
+  hideNotice,
+  isOwnStepBack,
+  noteHistoryNavigation,
+} from "./api.js";
 import { scheduleSuggest, closeSuggestions, handleSuggestKeydown } from "./suggest.js";
 import { bindModalEvents, openDeepLink } from "./modal.js";
 import { lastResponseHadDSL, refreshRankingLab } from "./telemetry.js";
@@ -255,6 +263,10 @@ function bindCoreEvents() {
   // differs by the #card= hash is the modal's, not a search's, and re-running
   // the identical query for it would be pure waste.
   window.addEventListener("popstate", () => {
+    // Typing back to the query beneath a draft entry steps back to it; that
+    // search is already running, and the entry it lands on has the same hash.
+    if (isOwnStepBack()) return;
+    noteHistoryNavigation();
     renderRoute();
     const before = buildParams().toString();
     readStateFromURL();

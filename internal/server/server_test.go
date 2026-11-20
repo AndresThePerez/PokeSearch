@@ -1260,9 +1260,11 @@ func TestStaticCacheValidators(t *testing.T) {
 	if got := first.Header().Get("Cache-Control"); got != staticCacheControl {
 		t.Errorf("Cache-Control = %q, want %q", got, staticCacheControl)
 	}
+	// Weak: the same tag covers the identity and the gzip answer, which are
+	// different bytes.
 	etag := first.Header().Get("ETag")
-	if !strings.HasPrefix(etag, `"`) || !strings.HasSuffix(etag, `"`) || len(etag) != etagHexLen+2 {
-		t.Fatalf("ETag = %q, want a quoted %d-character hash", etag, etagHexLen)
+	if !strings.HasPrefix(etag, `W/"`) || !strings.HasSuffix(etag, `"`) || len(etag) != etagHexLen+4 {
+		t.Fatalf("ETag = %q, want a weak quoted %d-character hash", etag, etagHexLen)
 	}
 	if second := get(t, s, "/styles.css").Header().Get("ETag"); second != etag {
 		t.Errorf("ETag changed between requests: %q then %q", etag, second)

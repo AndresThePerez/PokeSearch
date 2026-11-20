@@ -212,9 +212,9 @@ func (s *Server) writeV1(w http.ResponseWriter, r *http.Request, v any) int {
 	h := w.Header()
 	h.Set("ETag", "W/"+opaque)
 	h.Set("Cache-Control", "no-cache")
-	// etagMatches already drops a W/ prefix from each candidate, so comparing
-	// against the opaque part is the weak comparison If-None-Match requires.
-	if etagMatches(r.Header.Get("If-None-Match"), opaque) {
+	// etagMatches drops a W/ prefix on both sides, which is the weak
+	// comparison If-None-Match requires.
+	if etagMatches(r.Header.Get("If-None-Match"), "W/"+opaque) {
 		w.WriteHeader(http.StatusNotModified)
 		return http.StatusNotModified
 	}

@@ -300,7 +300,7 @@ const indexFile = "index.html"
 const etagHexLen = 16
 
 // staticETags hashes every embedded asset once and maps the request path that
-// serves it to a quoted strong validator.
+// serves it to a quoted weak validator.
 //
 // This is the whole fix for the defect. embed.FS reports a zero ModTime for
 // every entry, so http.ServeContent has no Last-Modified to emit and no
@@ -323,7 +323,11 @@ func staticETags(fsys fs.FS) (map[string]string, error) {
 			return err
 		}
 		sum := sha256.Sum256(data)
-		tag := `"` + hex.EncodeToString(sum[:])[:etagHexLen] + `"`
+		// Weak, because withGzip may compress the body after this tag is set:
+		// the identity and gzip answers are different bytes for the same
+		// content, which is what a weak validator covers and a strong one
+		// must not (RFC 9110 §8.8.1).
+		tag := `W/"` + hex.EncodeToString(sum[:])[:etagHexLen] + `"`
 		if name == indexFile || strings.HasSuffix(name, "/"+indexFile) {
 			// http.FileServerFS redirects a request for index.html to the bare
 			// directory path and serves the document from there, so that is
@@ -387,12 +391,13 @@ func isIndexPath(p string) bool {
 
 // etagMatches reports whether an If-None-Match header selects tag. The
 // comparison is the weak one the specification requires for this header, so a
-// "W/" prefix on the candidate is ignored, and "*" matches any representation
-// that exists.
+// "W/" prefix is ignored on the candidate and on tag alike, and "*" matches any
+// representation that exists.
 func etagMatches(inm, tag string) bool {
+	opaque := strings.TrimPrefix(tag, "W/")
 	for _, candidate := range strings.Split(inm, ",") {
 		candidate = strings.TrimSpace(candidate)
-		if candidate == "*" || (candidate != "" && strings.TrimPrefix(candidate, "W/") == tag) {
+		if candidate == "*" || (candidate != "" && strings.TrimPrefix(candidate, "W/") == opaque) {
 			return true
 		}
 	}

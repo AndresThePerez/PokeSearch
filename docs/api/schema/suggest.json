@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GET /api/suggest 200",
+  "description": "Card names that complete the typed text. A pre-v1 endpoint, described here unchanged. When the text starts a word of some names, those names, most printed first; otherwise a misspelling falls back to fuzzy completion, in the engine's order. The list is empty when q is empty or nothing completes it, and it never repeats a name. Only q is read; a q over 256 characters is a 400, error.json. The body carries no request_id (the X-Request-Id header does).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["suggestions"],
+  "properties": {
+    "suggestions": {
+      "description": "Display-cased card names, at most 8.",
+      "type": "array",
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

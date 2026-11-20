@@ -368,8 +368,19 @@ func optionalMembers(schema, shp string) []string {
 		return []string{"name", "attacks.name", "abilities.name", "attacks.text", "abilities.text", "flavor_text"}
 	case schema == "search.json" && strings.HasPrefix(shp, "/facets/") && strings.HasSuffix(shp, "/*"):
 		return []string{"label", "release_date"}
+	case schema == "stats.json" && shp == "":
+		return []string{"dsl"}
+	case schema == "explain.json" && shp == "/branches/*":
+		return []string{"description", "components"}
 	}
 	return nil
+}
+
+// dataKeyedShapes are the shapes in a live answer whose member names are data
+// (see dataKeyedMaps): an unknown member is not an error there.
+var dataKeyedShapes = map[string]bool{
+	"compare.json#/a/boosts": true,
+	"compare.json#/b/boosts": true,
 }
 
 func diff(all, always []string) []string {
@@ -419,6 +430,9 @@ func TestLiveAnswersAreClosedAtEveryDepthAndRequireExactlyTheAlwaysPresentMember
 			for _, p := range paths {
 				shp := shape(p)
 				visited[tc.schema][shp] = true
+				if dataKeyedShapes[tc.schema+"#"+shp] {
+					continue
+				}
 
 				// An unknown member anywhere is rejected.
 				doc := fresh()
@@ -458,6 +472,10 @@ func TestLiveAnswersAreClosedAtEveryDepthAndRequireExactlyTheAlwaysPresentMember
 		"error.json":                {"", "/error"},
 		"meta.json":                 {"", "/seed"},
 		"search.json":               {"", "/results/*", "/results/*/attacks/*", "/highlights/*", "/facets", "/facets/sets/*", "/facets/types/*"},
+		"suggest.json":              {""},
+		"explain.json":              {"", "/branches/*", "/branches/*/components/*"},
+		"compare.json":              {"", "/a", "/b", "/a/boosts", "/a/results/*", "/deltas/*"},
+		"stats.json":                {"", "/per_year/*", "/hp/*", "/types/*", "/supertype/*", "/rarity/*", "/series/*"},
 	} {
 		for _, shp := range want {
 			if !visited[schema][shp] {

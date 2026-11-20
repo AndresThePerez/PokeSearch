@@ -365,6 +365,39 @@ two-project change, not a unilateral one.
   validation, not a limiter, and the optional API key on `/api/v1/` only
   labels a client on the access line; nothing is throttled by it.
 
+**Amended 2026-11-20 (second note).** The entries and the note above stay as
+written. On 2026-11-20 the owner overturned the absence of an app-level
+limiter, after it was measured that the 256 MB process could be killed by
+concurrency alone: enough requests at once, of any shape and each
+within every per-request limit, held more memory than the container has. This
+note supersedes the sentence "There is still no app-level rate limiting" in
+the note above.
+
+- *What was built.* A cap on requests in flight. At most `MAX_IN_FLIGHT`
+  requests are handled at once, 128 by default, a number measured against the
+  256 MB limit (the arithmetic is beside `DefaultMaxInFlight` in
+  `internal/server`). Every further request is answered at once with `503`,
+  `Retry-After: 1` and `Connection: close`: under `/api/` in the error envelope
+  with a new code, `overloaded`, and elsewhere as plain text, which is a third
+  answer outside the envelope beside the two ADR 7 names. A refused request is
+  not queued, its parameters are not read and it never reaches Elasticsearch;
+  it keeps its request id, the security headers and its access line.
+  `es_unavailable` keeps its meaning. `GET /livez` and `GET /healthz` are never
+  refused, so health checks stay green while the server sheds load. A
+  `MAX_IN_FLIGHT` that is not a whole number of at least 1 stops the server at
+  start-up. `docker-compose.server.yml` also gives the app `GOMEMLIMIT=180MiB`
+  under its `256m` limit, as a second belt.
+- *What it is not.* It is not a per-client rate limit: it does not tell
+  clients apart, keyed or anonymous, so one busy client can take every place.
+  It answers `503`, not `429`, because it speaks for the server's capacity and
+  not for a client's quota. Telling clients apart stays the job of an edge rule
+  in front, as the entry above says. Courier's load runs, at most 50 workers at
+  a time, stay below the default, so the tool built to exercise the API is not
+  refused in ordinary use.
+- *The API key.* [ADR 12](#adr-12--a-versioned-api-for-outside-clients) says
+  the key exists so that a future limiter could exempt keyed clients. The cap
+  exempts no one; the key still only labels a client.
+
 ---
 
 ## ADR 9 — How relevance is evaluated

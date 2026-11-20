@@ -105,3 +105,15 @@ docker compose -f docker-compose.yml -f docker-compose.server.yml logs app | gre
 ```
 
 Every other Elasticsearch failure is still a `503` with code `es_unavailable`, and the `/api/v1/` routes answer all of them that way.
+
+## Requests in flight
+
+The server handles at most `MAX_IN_FLIGHT` requests at once: 128 unless the app's `environment:` sets another value. A value that is not a whole number of at least 1 stops the server at start-up, and the start-up line `PokéSearch listening` names the value in use as `max_in_flight`. A request that arrives while every place is taken is answered at once with `503`, `Retry-After: 1` and `Connection: close`: under `/api/` in the error envelope with code `overloaded`, elsewhere as plain text. It is not queued, its parameters are not read, nothing is sent to Elasticsearch and it writes no query line, only its access line:
+
+```text
+{"time":"2026-11-20T14:23:16.001Z","level":"INFO","msg":"access","method":"GET","path":"/api/search","status":503,"bytes":122,"dur_ms":0,"request_id":"example-refused-1"}
+```
+
+`GET /livez` and `GET /healthz` are never refused, so the container healthcheck (`/server -ping` asks `/livez`) and an uptime monitor stay green while the server sheds load. A rise in `503` access lines while `/healthz` answers `200` is load, not an outage. An `es_unavailable` `503` also writes a query line, or a `healthz check failed` line, with the same `request_id`; a `503` access line with no other line for its `request_id` is a refusal.
+
+The default was measured on a build held to 256 MB with no swap: 128 of the costliest accepted searches at once hold about 51 MiB, and bursts of up to 10,000 requests at once peaked at no more than 128 MiB, the process staying up and answering its health probes. `docker-compose.server.yml` keeps the app at `mem_limit: 256m` and sets `GOMEMLIMIT=180MiB`, a soft target that makes the Go collector work harder before the hard limit is reached; it is a second belt, not a guarantee. Raise `MAX_IN_FLIGHT` only together with the memory limit. The cap does not tell clients apart: rate-limiting one client is the job of the proxy in front.

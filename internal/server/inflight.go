@@ -22,8 +22,6 @@ import (
 //     gone out and the connection is closed: 2,000 of the costliest at once
 //     peaked at 89 MiB, 10,000 small searches at once at 116 MiB and 4,000
 //     kept-alive connections at 84 MiB, all under half the limit.
-//   - Without a cap, 4,000 small searches or 800 of the costliest at once got
-//     the process killed at the limit.
 //
 // Honest traffic is far below it: the page makes a handful of requests per
 // search, a Courier load run uses at most 50 workers and runs one at a time,

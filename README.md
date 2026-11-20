@@ -42,7 +42,7 @@ APP_PORT=8081 docker compose up -d --build
 
 ## Development
 
-The Go server defaults to `PORT=8080` and `ES_URL=http://127.0.0.1:9200`. Opt into a host-published development Elasticsearch with:
+The Go server defaults to `PORT=8080` and `ES_URL=http://127.0.0.1:9200`, and handles at most `MAX_IN_FLIGHT=128` requests at once (see `overloaded` under *Errors*); a `MAX_IN_FLIGHT` that is not a whole number of at least 1 stops it from starting. Opt into a host-published development Elasticsearch with:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d es
@@ -194,7 +194,8 @@ Every non-2xx **JSON API** response uses one shape: an `error` object carrying `
 | `unauthorized` | `401` | An `X-Api-Key` header on an `/api/v1/` route names no configured key. The answer carries `WWW-Authenticate`. |
 | `not_found` | `404` | No endpoint has the path under `/api/`, or no card has the id on `GET /api/v1/cards/{id}` (then with `field` set to `id`). |
 | `method_not_allowed` | `405` | The `/api/` path exists but not for that method. The `Allow` header lists the methods it answers. |
-| `es_unavailable` | `503` | Elasticsearch could not be reached, the index is missing, or the cluster failed in any way other than rejecting the query. The cause — including a truncated Elasticsearch error body — goes to the log, never to the client. The `/api/v1/` routes answer every Elasticsearch failure this way. |
+| `es_unavailable` | `503` | Elasticsearch could not be reached, the index is missing, or the cluster failed in any way other than rejecting the query. The cause — including a truncated Elasticsearch error body — goes to the log, never to the client. The `/api/v1/` routes answer every Elasticsearch failure this way. It is not the only `503`: `overloaded` below is a busy server, not a failed cluster. |
+| `overloaded` | `503` | The server was already handling as many requests as it admits at once (`MAX_IN_FLIGHT`, 128 by default), so this one was refused at once, without waiting, without its parameters being read and without reaching Elasticsearch. The answer carries `Retry-After: 1` and `Connection: close`: try again after a second. Outside `/api/` the same refusal is a plain-text `503`. `GET /livez` and `GET /healthz` are never refused. |
 
 The Elasticsearch client retries a failed call once, after 100 ms, when the cluster cannot be reached or answers `502` or `504`. Any other answer, `503` included, fails at once. A dead cluster therefore costs a request about a tenth of a second.
 
@@ -218,7 +219,7 @@ Some spellings are accepted as the same value:
 - A `rarity` that differs from a stored value only in letter case or spacing is mapped onto it: `rarity=common` returns the same 5,407 cards as `Common`. The one exception is `Rare Holo EX` and `Rare Holo ex`, which differ only in case and so stay exact.
 - `series` and `set` are matched exactly: `series=sword & shield` and `set=BASE1` match nothing.
 
-Out-of-range integers that parse are clamped, not rejected — a clamp is a contract, an alphabetic `page` is a typo. `page_size=500` becomes `100`, `page=-5` becomes `1`. A value that is not an integer, or is too large for a 64-bit integer (a 20-digit one), is a `400`. `GET /api/suggest` reads only `q`, so errors on its other parameters are ignored; the one it can return is the `q` length. The two responses that sit outside the envelope by design, `/healthz` answering a failed probe and the static file handler's plain-text answers to paths outside `/api/`, are described in [ADR 7](docs/DECISIONS.md#adr-7--a-strictlenient-error-contract) with the rest of the rationale.
+Out-of-range integers that parse are clamped, not rejected — a clamp is a contract, an alphabetic `page` is a typo. `page_size=500` becomes `100`, `page=-5` becomes `1`. A value that is not an integer, or is too large for a 64-bit integer (a 20-digit one), is a `400`. `GET /api/suggest` reads only `q`, so errors on its other parameters are ignored; the one it can return is the `q` length. The two responses that sit outside the envelope by design, `/healthz` answering a failed probe and the static file handler's plain-text answers to paths outside `/api/`, are described in [ADR 7](docs/DECISIONS.md#adr-7--a-strictlenient-error-contract) with the rest of the rationale. The plain-text `overloaded` refusal of a path outside `/api/` is the third, recorded under [ADR 8](docs/DECISIONS.md#adr-8--what-was-deliberately-not-built).
 
 ### Type names
 
@@ -268,7 +269,7 @@ Elasticsearch runs `docker.elastic.co/elasticsearch/elasticsearch:8.19.24` as a 
 
 ## Deployment
 
-`docker-compose.yml` is the whole stack; layering `docker-compose.server.yml` on top of it adds `restart: unless-stopped` and per-service memory caps for a host that runs other tenants.
+`docker-compose.yml` is the whole stack; layering `docker-compose.server.yml` on top of it adds `restart: unless-stopped` and per-service memory caps for a host that runs other tenants, and gives the app `GOMEMLIMIT=180MiB` under its `256m` cap. With the cap on requests in flight (`MAX_IN_FLIGHT`), that ties the app's memory mostly to the requests it works on rather than to how many arrive (a refused one costs its connection only until the `503` is sent); telling clients apart and rate-limiting them is left to the proxy in front.
 
 Deploy on any Docker host behind a TLS-terminating reverse proxy; the public instance at <https://pokesearch.andrestheperez.com> sits behind one. Elasticsearch stays on the Compose-internal network with no host port in any topology, so only the Go application is ever reachable.
 

@@ -119,7 +119,7 @@ function renderWaterfall(es, total) {
 
 // quantile picks the nearest-rank value: with 20 samples p95 is the highest,
 // which is the honest reading of a sample this small.
-function quantile(sorted, p) {
+export function quantile(sorted, p) {
   return sorted.length ? sorted[Math.min(sorted.length - 1, Math.ceil(p * sorted.length) - 1)] : 0;
 }
 

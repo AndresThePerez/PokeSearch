@@ -2,6 +2,7 @@ package web
 
 import (
 	"io/fs"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -111,4 +112,51 @@ func jsFiles(t *testing.T) []string {
 	}
 	slices.Sort(out)
 	return out
+}
+
+// embeddedJS lists every file under the embedded js/ directory, whatever its
+// extension, so a stray file cannot hide behind the ".js" filter of jsFiles.
+func embeddedJS(t *testing.T) []string {
+	t.Helper()
+	entries, err := fs.ReadDir(Files, "js")
+	if err != nil {
+		t.Fatalf("read embedded js: %v", err)
+	}
+	var out []string
+	for _, e := range entries {
+		out = append(out, e.Name())
+	}
+	slices.Sort(out)
+	return out
+}
+
+// The node:test suites live beside the modules they cover. They are not part
+// of the page and must not ship in the binary.
+func TestTestFilesAreNotEmbedded(t *testing.T) {
+	for _, name := range embeddedJS(t) {
+		if strings.HasSuffix(name, ".mjs") {
+			t.Errorf("js/%s is embedded; test files must stay out of the binary", name)
+		}
+	}
+}
+
+// Narrowing the embed pattern to js/*.js must never silently drop a shipped
+// script: the embedded set has to be exactly the .js files on disk.
+func TestEmbeddedScriptsAreTheJSFilesOnDisk(t *testing.T) {
+	onDisk, err := filepath.Glob("js/*.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(onDisk) == 0 {
+		t.Fatal("no js/*.js files on disk; the glob is wrong, not the code")
+	}
+	var want []string
+	for _, p := range onDisk {
+		want = append(want, filepath.Base(p))
+	}
+	slices.Sort(want)
+	got := embeddedJS(t)
+	if !slices.Equal(got, want) {
+		t.Errorf("embedded js/ files = %v, js/*.js on disk = %v", got, want)
+	}
 }

@@ -327,7 +327,7 @@ func TestBuildSuggest(t *testing.T) {
 	gotF := canonV(t, BuildSuggest("alak", true))
 	wantF := canonS(t, `{"suggest": {"card": {"prefix": "alak",
 	  "completion": {"field": "name.suggest", "size": 8, "skip_duplicates": true,
-	    "fuzzy": {"fuzziness": "AUTO"}}}}}`)
+	    "fuzzy": {"fuzziness": "AUTO", "unicode_aware": true}}}}}`)
 	if gotF != wantF {
 		t.Errorf("fuzzy suggest\n got %s\nwant %s", gotF, wantF)
 	}

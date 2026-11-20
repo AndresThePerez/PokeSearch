@@ -459,7 +459,9 @@ func BuildSuggest(q string, fuzzy bool) map[string]any {
 		"skip_duplicates": true,
 	}
 	if fuzzy {
-		completion["fuzzy"] = map[string]any{"fuzziness": "AUTO"}
+		// unicode_aware measures edits in characters, not bytes, so an
+		// unaccented "pokemon" is one edit from "Pokémon" rather than two.
+		completion["fuzzy"] = map[string]any{"fuzziness": "AUTO", "unicode_aware": true}
 	}
 	return map[string]any{"suggest": map[string]any{"card": map[string]any{
 		"prefix":     q,

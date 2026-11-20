@@ -4,20 +4,75 @@
 // Imports state, render and telemetry — never suggest.js or modal.js, which
 // import this module instead. That direction is what keeps the graph acyclic.
 
-import { state, buildParams, writeStateToURL } from "./state.js";
-import { renderResults, setLoading, setStale } from "./render.js";
-import { renderInspector, setDegraded, setServiceStatus, debugEnabled, recordTiming } from "./telemetry.js";
+import {
+  state,
+  buildParams,
+  writeStateToURL,
+  addressDiffersFromState,
+  failureAction,
+  withoutField,
+  ignoredNotice,
+  historyAction,
+} from "./state.js";
+import { renderResults, setLoading, setStale, syncControls, syncFilterControls } from "./render.js";
+import { renderInspector, setDegraded, startHealthCheck, debugEnabled, recordTiming } from "./telemetry.js";
 import { $ } from "./util.js";
 
 let searchController = null;
 let debounceTimer = null;
+let idleTimer = null;
+
+// draftEntry is true while the current history entry is one a typing burst
+// pushed and the visitor has not finished yet: further keystrokes rewrite it
+// rather than stacking an entry per pause.
+let draftEntry = false;
+
+// The query counts as finished after this long with no keystroke.
+const IDLE_COMMIT_MS = 1000;
+
+// writeHistory puts the state in the address bar the way historyAction says
+// for what started the search.
+function writeHistory(trigger) {
+  const action = historyAction(trigger, { draft: draftEntry, changed: addressDiffersFromState() });
+  if (action === "none") return;
+  const pushed = writeStateToURL({ push: action === "push" });
+  if (trigger === "typing") {
+    if (pushed) draftEntry = true;
+  } else if (trigger === "enter" || trigger === "blur" || trigger === "idle" || pushed) {
+    draftEntry = false;
+  }
+}
+
+// The notice under the search controls: what the page ignored, or why a
+// search could not run. Plain text, and it never stacks with the banner.
+export function showNotice(text) {
+  $("search-notice").hidden = false;
+  $("search-notice-text").textContent = text;
+}
+
+export function hideNotice() {
+  $("search-notice").hidden = true;
+  $("search-notice-text").textContent = "";
+}
+
+async function readErrorBody(res) {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
 
 // push marks a search the user asked for, which earns a history entry.
 // fromHistory marks one Back or Forward produced, which must not write history
 // back — that is how you get a Back button that cannot leave the current entry.
-export async function runSearch({ append = false, push = false, fromHistory = false } = {}) {
+// trigger names a search that came from the search box ("typing", "enter",
+// "blur", "idle"); dropped lists the parameters this search already dropped
+// after the server refused them.
+export async function runSearch({ append = false, push = false, fromHistory = false, trigger = "", dropped = [] } = {}) {
   if (!append) state.page = 1;
-  if (!fromHistory) writeStateToURL({ push });
+  if (fromHistory) draftEntry = false;
+  else writeHistory(trigger || (push ? "filter" : "refresh"));
   // Only the newest search may paint. An aborted one is not a failure and must
   // not raise the degraded banner.
   searchController?.abort();
@@ -27,7 +82,29 @@ export async function runSearch({ append = false, push = false, fromHistory = fa
   setLoading(true, { append });
   try {
     const res = await fetch(`/api/search?${buildParams({ page: true, debug: debugEnabled() })}`, { signal: controller.signal });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      const body = await readErrorBody(res);
+      if (controller.signal.aborted) return;
+      const decision = failureAction({ status: res.status, body, state, dropped });
+      if (decision.action === "retry") {
+        // The server named a parameter it will not take. Drop it, rewrite the
+        // address without it, and search again; the field cannot come back
+        // in this search, so the retries end.
+        Object.assign(state, withoutField(state, decision.field));
+        syncControls();
+        syncFilterControls();
+        return runSearch({ append, dropped: [...dropped, { field: decision.field, value: decision.value }] });
+      }
+      if (decision.action === "notice") {
+        // The archive answered, so this is not an outage. The cards under the
+        // notice are still the previous search's.
+        setDegraded(false);
+        setStale(true);
+        showNotice(decision.notice);
+        return;
+      }
+      throw new Error(`HTTP ${res.status}`);
+    }
     const data = await res.json();
     const roundTripMs = performance.now() - startedAt;
     renderResults(data, { append, roundTripMs });
@@ -37,8 +114,11 @@ export async function runSearch({ append = false, push = false, fromHistory = fa
     recordTiming(data.took_ms, roundTripMs, res.headers.get("X-Request-Id"));
     setDegraded(false);
     setStale(false);
+    if (dropped.length) showNotice(ignoredNotice(dropped));
+    else hideNotice();
   } catch (err) {
     if (err.name === "AbortError") return;
+    hideNotice();
     setDegraded(true);
     // The grid still holds the last successful search's cards. Mark them as
     // what they are rather than let the banner and the results contradict
@@ -51,17 +131,35 @@ export async function runSearch({ append = false, push = false, fromHistory = fa
   }
 }
 
-// The debounce already collapses a typing burst into one search, so one burst
-// leaves exactly one history entry — Back steps back a query, not a keystroke.
+// The debounce collapses a typing burst into one search. Its history entry is
+// pushed once, when the burst starts, and rewritten after that; a second with
+// no keystroke finishes the query, so the next burst gets an entry of its own.
 export function scheduleSearch() {
   clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(() => runSearch({ push: true }), 200);
+  clearTimeout(idleTimer);
+  debounceTimer = setTimeout(() => runSearch({ trigger: "typing" }), 200);
+  idleTimer = setTimeout(() => commitQuery("idle"), IDLE_COMMIT_MS);
+}
+
+// commitQuery finishes the query in the search box: Enter, leaving the box,
+// or the idle timer. A keystroke search still waiting on the debounce runs
+// now instead; a query the address already holds writes nothing.
+export function commitQuery(trigger) {
+  clearTimeout(idleTimer);
+  const action = historyAction(trigger, { draft: draftEntry, changed: addressDiffersFromState() });
+  if (action === "none") {
+    draftEntry = false;
+    return;
+  }
+  clearTimeout(debounceTimer);
+  runSearch({ trigger });
 }
 
 // cancelScheduledSearch drops a pending debounce. Picking a suggestion runs a
 // search immediately, and the queued keystroke search must not land after it.
 export function cancelScheduledSearch() {
   clearTimeout(debounceTimer);
+  clearTimeout(idleTimer);
 }
 
 // fetchSuggestions is the network half of autocomplete; suggest.js owns the
@@ -118,15 +216,18 @@ export async function fetchTopCard(sort) {
   return data.results[0] ?? null;
 }
 
+// The health check feeds the status pill, but only a check started after the
+// newest search finished may change it: the pill is the newest outcome's.
 export async function refreshHealth() {
+  const settle = startHealthCheck();
   try {
     const res = await fetch("/healthz");
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     $("stat-indexed").textContent = Number(data.docs).toLocaleString();
-    setServiceStatus("Online");
+    settle(true);
   } catch {
     $("stat-indexed").textContent = "Unavailable";
-    setServiceStatus("Degraded", true);
+    settle(false);
   }
 }

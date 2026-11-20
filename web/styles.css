@@ -558,6 +558,34 @@ main { min-width: 0; }
 #degraded-banner span { display: block; }
 #degraded-banner span { margin-top: .25rem; color: #d8a2a8; }
 
+/* A parameter the page dropped, or a search too long to run: the visitor's
+   input, not an outage, so it reads as a note rather than an alarm. */
+#search-notice {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: 1rem 0;
+  padding: .75rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  background: var(--surface);
+}
+
+#search-notice[hidden] { display: none; }
+#search-notice-text { flex: 1; margin: 0; overflow-wrap: anywhere; }
+
+#search-notice-dismiss {
+  padding: .35rem .8rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  background: transparent;
+  cursor: pointer;
+}
+
+#search-notice-dismiss:hover { border-color: var(--accent-strong); }
+
 #empty-state {
   padding: 4rem 1rem;
   border-color: var(--line);
@@ -1348,6 +1376,7 @@ body.route-stats #results-grid,
 body.route-stats #load-more,
 body.route-stats #empty-state,
 body.route-stats #degraded-banner,
+body.route-stats #search-notice,
 body.route-stats #filter-rail { display: none; }
 
 /* Two columns instead of three: the charts take the filter rail's space, and

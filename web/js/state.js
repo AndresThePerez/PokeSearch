@@ -60,14 +60,118 @@ export function buildParams({ page = false, debug = false } = {}) {
 // programmatic one replaces, so the history does not fill with steps nobody
 // took. Push is downgraded to replace when the querystring did not actually
 // change, or Back would step through a run of identical entries.
+// It returns whether a new entry was pushed, so the caller can tell a typing
+// burst's first entry from one it only rewrote.
 export function writeStateToURL({ push = false } = {}) {
   const qs = buildParams().toString();
   const url = `${location.pathname}${qs ? `?${qs}` : ""}${location.hash}`;
-  if (push && qs !== new URLSearchParams(location.search).toString()) {
+  if (push && addressDiffersFromState()) {
     history.pushState(null, "", url);
-    return;
+    return true;
   }
   history.replaceState(null, "", url);
+  return false;
+}
+
+// addressDiffersFromState says whether writing the state now would change the
+// querystring in the address bar.
+export function addressDiffersFromState() {
+  return buildParams().toString() !== new URLSearchParams(location.search).toString();
+}
+
+// The fields the address carries. A 400 that names one of them is the
+// visitor's input, and the page can drop it and search again.
+const ADDRESS_FIELDS = ["q", "supertype", "types", "set", "rarity", "series", "sort", "order"];
+
+// withoutField returns a copy of a state with one field back at its default.
+// The input is left alone, and the copy never shares a list with it.
+export function withoutField(from, field) {
+  const next = { ...from, types: [...from.types] };
+  if (Object.hasOwn(defaults, field)) {
+    next[field] = Array.isArray(defaults[field]) ? [] : defaults[field];
+  }
+  return next;
+}
+
+// A value quoted back to the visitor is cut short: a pasted address can hold
+// a parameter thousands of characters long.
+const NOTICE_VALUE_LIMIT = 40;
+
+function quoteParam({ field, value }) {
+  const shown = value.length > NOTICE_VALUE_LIMIT ? `${value.slice(0, NOTICE_VALUE_LIMIT)}…` : value;
+  return `"${field}=${shown}"`;
+}
+
+// ignoredNotice is the sentence shown after the page dropped parameters the
+// server refused and searched without them.
+export function ignoredNotice(dropped) {
+  if (!dropped.length) return "";
+  const quoted = dropped.map(quoteParam);
+  if (quoted.length === 1) return `Ignored ${quoted[0]}: not a valid value.`;
+  const list = `${quoted.slice(0, -1).join(", ")} and ${quoted[quoted.length - 1]}`;
+  return `Ignored ${list}: not valid values.`;
+}
+
+const TOO_LONG = "That search is too long to run. Try a shorter one.";
+
+function paramValue(from, field) {
+  return field === "types" ? from.types.join(",") : String(from[field] ?? "");
+}
+
+function withIgnored(dropped, sentence) {
+  const ignored = ignoredNotice(dropped);
+  return ignored ? `${ignored} ${sentence}` : sentence;
+}
+
+// failureAction decides what a failed search means. A network failure or a
+// 5xx is an outage: the banner and its retry. Anything else is an answer
+// about the request itself, so it never raises the banner. A 400 that names a
+// field the page holds drops that field and searches again — each field at
+// most once per search, so the retries end. The query text is never dropped:
+// a query the server finds too long stays in the box for the visitor to
+// shorten.
+export function failureAction({ status, body, state: from, dropped = [] }) {
+  if (!status || status >= 500) return { action: "outage" };
+  const error = body && typeof body === "object" && body.error && typeof body.error === "object" ? body.error : null;
+  const field = typeof error?.field === "string" ? error.field : "";
+  if (status === 400 && field === "q") {
+    return { action: "notice", notice: withIgnored(dropped, TOO_LONG) };
+  }
+  if (status === 400 && ADDRESS_FIELDS.includes(field)
+    && !dropped.some((entry) => entry.field === field)) {
+    const value = paramValue(from, field);
+    if (value) return { action: "retry", field, value };
+  }
+  const message = typeof error?.message === "string" ? error.message.trim().replace(/\.+$/, "") : "";
+  const sentence = `PokéSearch could not run that search${message ? `: ${message}` : ""}.`;
+  return { action: "notice", notice: withIgnored(dropped, sentence) };
+}
+
+// historyAction decides what a search writes to the address bar. Typing
+// pushes once, when a burst starts on an entry the visitor already finished
+// with, and only rewrites that entry afterwards; a draft entry is the one a
+// burst created and has not finished. Enter, blur and a second of idle
+// finish the query: they keep a draft in place, push a query the address
+// does not hold yet, and do nothing when it already does. Suggestions and
+// filters push as they always have, Back and Forward write nothing, and
+// anything else (a retry, a refresh) only rewrites.
+export function historyAction(trigger, { draft, changed }) {
+  switch (trigger) {
+    case "typing":
+      return changed && !draft ? "push" : "replace";
+    case "enter":
+    case "blur":
+    case "idle":
+      if (!changed) return "none";
+      return draft ? "replace" : "push";
+    case "suggestion":
+    case "filter":
+      return "push";
+    case "popstate":
+      return "none";
+    default:
+      return "replace";
+  }
 }
 
 // The server applies the same two defaults; the UI has to know them to render

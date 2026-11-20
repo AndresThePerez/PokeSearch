@@ -58,7 +58,7 @@ const BLANK = "—";
 
 export function setDegraded(isDegraded) {
   $("degraded-banner").hidden = !isDegraded;
-  setServiceStatus(isDegraded ? "Degraded" : "Online", isDegraded);
+  recordSearchOutcome(!isDegraded);
   // A failed search leaves the previous query's totals on screen, where they
   // read as a count of what is showing now. Blank them to a dash — the
   // elements and their live regions stay put, so the next success has
@@ -68,6 +68,48 @@ export function setDegraded(isDegraded) {
     $("stat-results").textContent = BLANK;
     $("stat-roundtrip").textContent = BLANK;
   }
+}
+
+// pillStatus decides the service-status pill from the two things that can
+// set it: the newest search's outcome (taken when it finished) and the newest
+// health check (taken when it started). Whichever was taken later wins, so a
+// health check already in flight when a search finished cannot overwrite it.
+// A search that ended in an outage keeps the pill Degraded whatever the
+// health check says, because the banner is up and the two must agree.
+export function pillStatus({ search, health }) {
+  if (search && !search.ok) return { label: "Degraded", degraded: true };
+  if (health && (!search || health.at > search.at)) {
+    return health.ok ? { label: "Online", degraded: false } : { label: "Degraded", degraded: true };
+  }
+  if (search) return { label: "Online", degraded: false };
+  return { label: "Connecting", degraded: false };
+}
+
+// The two outcomes the pill is built from, and the clock that orders them.
+let pillClock = 0;
+let lastSearch = null;
+let lastHealth = null;
+
+function paintPill() {
+  const { label, degraded } = pillStatus({ search: lastSearch, health: lastHealth });
+  setServiceStatus(label, degraded);
+}
+
+// startHealthCheck marks the moment a health check is sent; the returned
+// function records its result against that moment.
+export function startHealthCheck() {
+  const at = ++pillClock;
+  return (ok) => {
+    if (!lastHealth || at > lastHealth.at) lastHealth = { at, ok };
+    paintPill();
+  };
+}
+
+// recordSearchOutcome records a finished search: ok is false only for an
+// outage, since any answer from the server means the service is up.
+export function recordSearchOutcome(ok) {
+  lastSearch = { at: ++pillClock, ok };
+  paintPill();
 }
 
 export function setServiceStatus(label, degraded = false) {

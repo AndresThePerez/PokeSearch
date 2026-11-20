@@ -8,7 +8,7 @@ import {
   syncFilterControls,
   setFilterChangeHandler,
 } from "./render.js";
-import { runSearch, scheduleSearch, refreshHealth } from "./api.js";
+import { runSearch, scheduleSearch, refreshHealth, commitQuery, hideNotice } from "./api.js";
 import { scheduleSuggest, closeSuggestions, handleSuggestKeydown } from "./suggest.js";
 import { bindModalEvents, openDeepLink } from "./modal.js";
 import { lastResponseHadDSL, refreshRankingLab } from "./telemetry.js";
@@ -136,7 +136,11 @@ function bindCoreEvents() {
   });
 
   $("search-input").addEventListener("keydown", handleSuggestKeydown);
-  $("search-input").addEventListener("blur", () => setTimeout(closeSuggestions, 100));
+  // Leaving the search box finishes the query, the same as Enter or a pause.
+  $("search-input").addEventListener("blur", () => {
+    commitQuery("blur");
+    setTimeout(closeSuggestions, 100);
+  });
 
   $("sort-select").addEventListener("change", (event) => {
     state.sort = event.target.value;
@@ -161,6 +165,11 @@ function bindCoreEvents() {
   // entry — Back still goes back a query.
   $("retry-search").addEventListener("click", () => {
     runSearch();
+  });
+
+  $("search-notice-dismiss").addEventListener("click", () => {
+    hideNotice();
+    $("search-input").focus({ preventScroll: true });
   });
 
   $("copy-dsl").addEventListener("click", async () => {

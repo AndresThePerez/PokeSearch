@@ -4,7 +4,7 @@
 
 import { $ } from "./util.js";
 import { state, queryText } from "./state.js";
-import { fetchSuggestions, runSearch, cancelScheduledSearch } from "./api.js";
+import { fetchSuggestions, runSearch, cancelScheduledSearch, commitQuery } from "./api.js";
 
 let suggestController = null;
 let suggestTimer = null;
@@ -101,6 +101,10 @@ export function handleSuggestKeydown(event) {
   } else if (event.key === "Enter" && activeSuggestion >= 0) {
     event.preventDefault();
     pickSuggestion(activeSuggestion);
+  } else if (event.key === "Enter") {
+    // Enter on the typed text finishes the query, which earns it a history
+    // entry of its own.
+    commitQuery("enter");
   } else if (event.key === "Escape") {
     // Only swallow Escape when the list is open, so it still closes the modal.
     if (!$("suggest-list").hidden) event.preventDefault();

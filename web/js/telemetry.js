@@ -159,8 +159,10 @@ export function setDegraded(isDegraded) {
 // readout needs is a dash, never a word like NaN; a failed search shows no
 // numbers at all, since the last ones belong to a search that is gone. While a
 // search is on its way the last numbers stay, as the count line keeps its own,
-// and busy says so.
-export function searchStripView({ state = "none", esMs, roundTripMs, total } = {}) {
+// and busy says so. compact is for a screen too narrow for the whole line: the
+// count then shows its number alone, the name still says "cards", and nothing
+// else changes — a time is never shortened, it is the rail's own figure.
+export function searchStripView({ state = "none", esMs, roundTripMs, total, compact = false } = {}) {
   const phase = ["loading", "done", "failed"].includes(state) ? state : "none";
   const shown = phase === "done" || phase === "loading";
   const whyNot = { none: "no search yet", loading: "searching", failed: "unavailable, the last search failed" }[phase];
@@ -179,7 +181,7 @@ export function searchStripView({ state = "none", esMs, roundTripMs, total } = {
   return {
     es: reading("Elasticsearch time", es, (v) => `${v} ms`, millis),
     roundTrip: reading("Round trip", trip, (v) => `${v} ms`, millis),
-    count: reading("Result count", cards, (v) => v, (v) => v),
+    count: reading("Result count", cards, (v) => (compact === true ? v.replace(/ cards?$/, "") : v), (v) => v),
     action: { text: "View query", name: "View query, the Elasticsearch query panel below the results" },
     busy: phase === "loading",
   };
@@ -189,9 +191,10 @@ export function searchStripView({ state = "none", esMs, roundTripMs, total } = {
 // answered, the numbers; and whether another search is on its way.
 const stripLast = { outcome: "none", esMs: undefined, roundTripMs: undefined, total: undefined };
 let stripLoading = false;
+let stripCompact = false;
 
 function paintStrip() {
-  const view = searchStripView({ state: stripLoading ? "loading" : stripLast.outcome, ...stripLast });
+  const view = searchStripView({ state: stripLoading ? "loading" : stripLast.outcome, ...stripLast, compact: stripCompact });
   $("strip-es").textContent = view.es.text;
   $("strip-es-name").textContent = view.es.name;
   $("strip-roundtrip").textContent = view.roundTrip.text;
@@ -217,6 +220,13 @@ function noteStripOutcome({ failed = false, esMs, roundTripMs, total } = {}) {
 // its outcome, raises and lowers it.
 export function noteSearchLoading(loading) {
   stripLoading = Boolean(loading);
+  paintStrip();
+}
+
+// setStripCompact tells the strip whether the screen is narrow enough for the
+// short count. main.js calls it from the width the styles also call narrow.
+export function setStripCompact(compact) {
+  stripCompact = compact === true;
   paintStrip();
 }
 

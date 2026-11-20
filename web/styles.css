@@ -659,9 +659,15 @@ main { min-width: 0; }
   text-transform: uppercase;
 }
 
+/* A figure too long for its room is cut inside its own box with an ellipsis,
+   so it can never run under its neighbour or the button; the full figure is in
+   the item's accessible name. */
 .strip-value {
+  min-width: 0;
+  overflow: hidden;
   color: var(--accent-strong);
-  font: 1rem/1 Georgia, serif;
+  font: 1rem/1.2 Georgia, serif;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -2074,6 +2080,23 @@ body.route-stats .app-layout { grid-template-columns: minmax(0, 1fr) minmax(340p
   #response-json { max-height: 320px; }
   .modal-shell { grid-template-columns: minmax(180px, 38%) 1fr; }
   .modal-details { align-self: start; }
+}
+
+/* A phone has about 270px for three figures and the button. The count drops
+   its noun at this width (main.js asks the same query) and the spacing tightens
+   so that a twelve-second time and a seven-digit count still fit whole. */
+@media (max-width: 430px) {
+  .search-strip { gap: .4rem; padding: .4rem .4rem .4rem .6rem; }
+  .strip-value { font-size: .9rem; }
+  .strip-action { padding: 0 .65rem; font-size: .76rem; }
+}
+
+/* The narrowest phones: 272px less the button leaves room for 12345 ms twice
+   and a seven-digit count only at a smaller size. */
+@media (max-width: 340px) {
+  .search-strip { gap: .25rem; padding: .4rem .25rem .4rem .4rem; }
+  .strip-value { font-size: .78rem; }
+  .strip-action { padding: 0 .4rem; font-size: .7rem; }
 }
 
 @media (max-width: 500px) {

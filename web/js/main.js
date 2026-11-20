@@ -30,7 +30,7 @@ import {
   shownOutcome,
 } from "./suggest.js";
 import { bindModalEvents, openDeepLink, syncDialogToAddress } from "./modal.js";
-import { lastResponseHadDSL, refreshRankingLab, loadArchiveCounts, noteSearchLoading } from "./telemetry.js";
+import { lastResponseHadDSL, refreshRankingLab, loadArchiveCounts, noteSearchLoading, setStripCompact } from "./telemetry.js";
 import { showStats } from "./stats.js";
 
 // The app has two views and one hash router. #stats is a route; #card= is not
@@ -467,6 +467,11 @@ function init() {
   renderGuide();
   loadArchiveCounts();
   watchSearchLoading();
+  // The strip drops the noun from its count at the width the styles squeeze it
+  // for (max-width: 430px in styles.css).
+  const narrowScreen = window.matchMedia("(max-width: 430px)");
+  setStripCompact(narrowScreen.matches);
+  narrowScreen.addEventListener("change", (event) => setStripCompact(event.matches));
   bindCoreEvents();
   bindFilterEvents();
   bindExampleEvents();

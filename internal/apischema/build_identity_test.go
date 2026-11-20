@@ -2,16 +2,26 @@ package apischema
 
 import (
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 )
 
-// The vulnerability scan in CI (govulncheck) reads the standard library of the
-// Go release the module pins, so a stale patch level turns the badge red
-// without any change to our code. 1.26.10 is the first 1.26 patch release on
-// which the scan is clean; the pin must not slip back below it.
-const minGoRelease = "1.26.10"
+// Two lines of go.mod name a Go release, and they mean different things.
+//
+// The go line is the oldest Go that may build the module. It stays where a
+// workstation that is one patch release behind can still run every go command,
+// so it is not what CI or the image are built with.
+//
+// The toolchain line is the release CI and the image are built with. It is
+// also what the vulnerability scan in CI (govulncheck) reads the standard
+// library of, so a stale patch level turns the badge red without any change to
+// our code. 1.26.11 is the first 1.26 patch release on which the scan is
+// clean; the toolchain line must not slip back below it. A go command that
+// runs with GOTOOLCHAIN=local treats the line as a suggestion and builds with
+// the Go it has.
+const minGoRelease = "1.26.11"
 
 // goVersionAtLeast reports whether the dotted release v is at or above want,
 // comparing each numeric part, so 1.26.10 is above 1.26.9.
@@ -40,30 +50,111 @@ func goVersionAtLeast(t *testing.T, v, want string) bool {
 	return true
 }
 
-// goModVersion returns the go directive of go.mod and fails the test when the
-// file carries a toolchain line: a toolchain line can silently pick a different
-// compiler than the directive, which is exactly the drift this guards against.
-func goModVersion(t *testing.T) string {
-	t.Helper()
-	version := ""
-	for _, l := range trimmedLines(t, "../../go.mod") {
-		if f := strings.Fields(l); len(f) > 0 && f[0] == "toolchain" {
-			t.Errorf("go.mod has a toolchain line %q: the go directive alone names the release", l)
+// parseGoMod reads the go and toolchain directives of a go.mod, field by field
+// the way the go command reads them: a tab instead of a space or a trailing
+// comment changes nothing. Each directive found is returned with its arguments
+// joined by a space, so a line with extra fields cannot pass for a plain one.
+func parseGoMod(lines []string) (goLines, toolchainLines []string) {
+	for _, l := range lines {
+		if i := strings.Index(l, "//"); i >= 0 {
+			l = l[:i]
 		}
-		if strings.HasPrefix(l, "go ") && version == "" {
-			version = strings.TrimSpace(strings.TrimPrefix(l, "go "))
+		f := strings.Fields(l)
+		if len(f) == 0 {
+			continue
+		}
+		switch f[0] {
+		case "go":
+			goLines = append(goLines, strings.Join(f[1:], " "))
+		case "toolchain":
+			toolchainLines = append(toolchainLines, strings.Join(f[1:], " "))
 		}
 	}
-	if version == "" {
-		t.Fatal("go.mod has no go directive")
-	}
-	return version
+	return goLines, toolchainLines
 }
 
-func TestGoModPinsAPatchedGoRelease(t *testing.T) {
-	version := goModVersion(t)
-	if !goVersionAtLeast(t, version, minGoRelease) {
-		t.Errorf("go.mod says go %s: want %s or newer, the first 1.26 release with a clean vulnerability scan", version, minGoRelease)
+var (
+	fullRelease      = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
+	toolchainRelease = regexp.MustCompile(`^go([0-9]+\.[0-9]+\.[0-9]+)$`)
+)
+
+// goModPins returns the release of the go line and the release of the
+// toolchain line (without its `go` prefix), and fails the test unless go.mod
+// carries exactly one of each and both are a full X.Y.Z release.
+func goModPins(t *testing.T) (goLine, toolchain string) {
+	t.Helper()
+	goLines, toolchainLines := parseGoMod(trimmedLines(t, "../../go.mod"))
+	if len(goLines) != 1 {
+		t.Fatalf("go.mod has %d go directives, want 1: %q", len(goLines), goLines)
+	}
+	if len(toolchainLines) != 1 {
+		t.Fatalf("go.mod has %d toolchain lines, want 1: %q", len(toolchainLines), toolchainLines)
+	}
+	if !fullRelease.MatchString(goLines[0]) {
+		t.Fatalf("go.mod says go %q: want a full release, `go X.Y.Z`", goLines[0])
+	}
+	m := toolchainRelease.FindStringSubmatch(toolchainLines[0])
+	if m == nil {
+		t.Fatalf("go.mod says toolchain %q: want `toolchain goX.Y.Z`", toolchainLines[0])
+	}
+	return goLines[0], m[1]
+}
+
+func TestGoModToolchainIsAPatchedGoRelease(t *testing.T) {
+	_, toolchain := goModPins(t)
+	if !goVersionAtLeast(t, toolchain, minGoRelease) {
+		t.Errorf("go.mod says toolchain go%s: want go%s or newer, the first 1.26 release with a clean vulnerability scan", toolchain, minGoRelease)
+	}
+}
+
+// A go line above the toolchain line contradicts it: the module would demand
+// an older Go than the one it is built with, the wrong way round.
+func TestGoModGoLineIsNotAboveTheToolchainLine(t *testing.T) {
+	goLine, toolchain := goModPins(t)
+	if !goVersionAtLeast(t, toolchain, goLine) {
+		t.Errorf("go.mod says go %s above toolchain go%s", goLine, toolchain)
+	}
+}
+
+func TestParseGoModReadsDirectivesFieldByField(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		lines         []string
+		wantGo, wantT []string
+	}{
+		{"plain", []string{"go 1.26.10", "toolchain go1.26.11"}, []string{"1.26.10"}, []string{"go1.26.11"}},
+		{"tabs and comments", []string{"go\t1.26.10 // oldest", "toolchain\tgo1.26.11\t// built with"}, []string{"1.26.10"}, []string{"go1.26.11"}},
+		{"extra fields stay visible", []string{"go 1.26.10 extra", "toolchain go1.26.11 go1.27.0"}, []string{"1.26.10 extra"}, []string{"go1.26.11 go1.27.0"}},
+		{"no toolchain", []string{"module x", "go 1.26.10"}, []string{"1.26.10"}, nil},
+		{"two of each", []string{"go 1.26.10", "go 1.26.11", "toolchain go1.26.11", "toolchain go1.26.12"}, []string{"1.26.10", "1.26.11"}, []string{"go1.26.11", "go1.26.12"}},
+		{"a commented-out toolchain is none", []string{"go 1.26.10", "// toolchain go1.26.11"}, []string{"1.26.10"}, nil},
+		{"a module path that starts with go is no directive", []string{"module goexample", "require golang.org/x/text v0.14.0"}, nil, nil},
+	} {
+		gotGo, gotT := parseGoMod(tc.lines)
+		if !slices.Equal(gotGo, tc.wantGo) || !slices.Equal(gotT, tc.wantT) {
+			t.Errorf("%s: parseGoMod = %q, %q; want %q, %q", tc.name, gotGo, gotT, tc.wantGo, tc.wantT)
+		}
+	}
+}
+
+func TestToolchainLineMustBeAFullRelease(t *testing.T) {
+	for _, tc := range []struct {
+		line string
+		ok   bool
+	}{
+		{"go1.26.11", true},
+		{"go1.26.100", true},
+		{"go1.26", false},
+		{"1.26.11", false},
+		{"go1.26.11-rc1", false},
+		{"go1.26.11 go1.27.0", false},
+		{"default", false},
+		{"local", false},
+		{"", false},
+	} {
+		if got := toolchainRelease.MatchString(tc.line); got != tc.ok {
+			t.Errorf("toolchain %q accepted = %v, want %v", tc.line, got, tc.ok)
+		}
 	}
 }
 
@@ -79,6 +170,13 @@ func TestGoVersionAtLeastComparesNumerically(t *testing.T) {
 		{"1.27.0", "1.26.10", true},
 		{"1.25.99", "1.26.10", false},
 		{"2.0.0", "1.26.10", true},
+		{"1.26.11", "1.26.11", true},
+		{"1.26.10", "1.26.11", false},
+		{"1.26.9", "1.26.11", false},
+		{"1.26.12", "1.26.11", true},
+		{"1.26.100", "1.26.11", true},
+		{"1.27.0", "1.26.11", true},
+		{"1.25.99", "1.26.11", false},
 	} {
 		if got := goVersionAtLeast(t, tc.v, tc.want); got != tc.ok {
 			t.Errorf("goVersionAtLeast(%q, %q) = %v, want %v", tc.v, tc.want, got, tc.ok)
@@ -88,12 +186,14 @@ func TestGoVersionAtLeastComparesNumerically(t *testing.T) {
 
 var buildStage = regexp.MustCompile(`^FROM golang:([0-9]+\.[0-9]+\.[0-9]+)(@sha256:[0-9a-f]{64})? AS build$`)
 
-// The image is built from the same Go release the module pins, and by digest:
-// a tag is a moving pointer, so the digest is what keeps "it built last week"
-// meaning something. A build stage on another release than go.mod would ship a
-// binary compiled by a compiler the tests never ran under.
-func TestBuildImageGoVersionMatchesGoMod(t *testing.T) {
-	want := goModVersion(t)
+// The image is built from the release of go.mod's toolchain line, the one CI
+// builds with and the vulnerability scan reads, and by digest: a tag is a
+// moving pointer, so the digest is what keeps "it built last week" meaning
+// something. A build stage on another release would ship a binary compiled by
+// a standard library the scan never looked at. It is the toolchain line that
+// it must match, not the go line, which may sit a patch release behind.
+func TestBuildImageGoVersionMatchesTheToolchainLine(t *testing.T) {
+	_, want := goModPins(t)
 	var stages []string
 	for _, l := range trimmedLines(t, "../../Dockerfile") {
 		if strings.HasPrefix(l, "FROM golang:") {
@@ -108,7 +208,7 @@ func TestBuildImageGoVersionMatchesGoMod(t *testing.T) {
 		t.Fatalf("Dockerfile build stage %q is not `FROM golang:X.Y.Z@sha256:<64 hex> AS build`", stages[0])
 	}
 	if m[1] != want {
-		t.Errorf("Dockerfile builds on golang:%s but go.mod says go %s", m[1], want)
+		t.Errorf("Dockerfile builds on golang:%s but go.mod says toolchain go%s", m[1], want)
 	}
 	if !goVersionAtLeast(t, m[1], minGoRelease) {
 		t.Errorf("Dockerfile builds on golang:%s: want %s or newer, the first 1.26 release with a clean vulnerability scan", m[1], minGoRelease)

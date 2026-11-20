@@ -2,6 +2,8 @@ module github.com/AndresThePerez/pokesearch
 
 go 1.26.10
 
+toolchain go1.26.11
+
 require (
 	github.com/elastic/go-elasticsearch/v8 v8.19.6
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3

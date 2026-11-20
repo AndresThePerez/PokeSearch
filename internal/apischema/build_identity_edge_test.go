@@ -174,33 +174,20 @@ func TestComposeMapsTheStampIntoTheAppBuild(t *testing.T) {
 }
 
 // go.mod is read field by field, the way the go command reads it, so a tab
-// instead of a space or a trailing comment cannot hide a toolchain line or
-// smuggle a second go directive past the line-prefix reader.
-func TestGoModHasOnePlainGoDirectiveAndNoToolchainInAnySpelling(t *testing.T) {
-	var directives []string
-	for _, l := range trimmedLines(t, "../../go.mod") {
-		if i := strings.Index(l, "//"); i >= 0 {
-			l = l[:i]
-		}
-		f := strings.Fields(l)
-		if len(f) == 0 {
-			continue
-		}
-		switch f[0] {
-		case "toolchain":
-			t.Errorf("go.mod has a toolchain line %q", l)
-		case "go":
-			directives = append(directives, strings.Join(f[1:], " "))
-		}
+// instead of a space or a trailing comment cannot hide a second toolchain line
+// or smuggle a second go directive past a line-prefix reader. Exactly one of
+// each, and the go line is a full release that is not above the toolchain line.
+func TestGoModHasOneGoDirectiveAndOneToolchainLineInAnySpelling(t *testing.T) {
+	goLines, toolchainLines := parseGoMod(trimmedLines(t, "../../go.mod"))
+	if len(goLines) != 1 {
+		t.Fatalf("go.mod has %d go directives, want 1: %q", len(goLines), goLines)
 	}
-	if len(directives) != 1 {
-		t.Fatalf("go.mod has %d go directives, want 1: %q", len(directives), directives)
+	if len(toolchainLines) != 1 {
+		t.Fatalf("go.mod has %d toolchain lines, want 1: %q", len(toolchainLines), toolchainLines)
 	}
-	if got := goModVersion(t); got != directives[0] {
-		t.Errorf("the go directive reads %q field by field but %q by line prefix", directives[0], got)
-	}
-	if !goVersionAtLeast(t, directives[0], minGoRelease) {
-		t.Errorf("go.mod says go %s, below %s", directives[0], minGoRelease)
+	goLine, toolchain := goModPins(t)
+	if goLine != goLines[0] || "go"+toolchain != toolchainLines[0] {
+		t.Errorf("go.mod directives read %q and %q field by field but %q and go%q through the pins", goLines[0], toolchainLines[0], goLine, toolchain)
 	}
 }
 

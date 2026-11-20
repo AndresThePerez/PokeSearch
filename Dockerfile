@@ -1,9 +1,12 @@
 # Bases are pinned by digest, not just by tag: a tag is a moving pointer, and
-# "it built last week" has to keep meaning something. Refresh deliberately with
+# "it built last week" has to keep meaning something. The build stage is the
+# release of go.mod's toolchain line, the one CI builds and scans with, so the
+# shipped binary is built with the release the vulnerability scan read. Refresh
+# deliberately with
 #   docker buildx imagetools inspect golang:1.26
 #   docker buildx imagetools inspect gcr.io/distroless/static-debian12:nonroot
 # Resolved 2026-11-20.
-FROM golang:1.26.10@sha256:cfa27959837144bf4649802ba38e59daffd0dd2a7994aa83daaf113285b0f551 AS build
+FROM golang:1.26.11@sha256:4165ee6bf3b7811fd7b40373290405c83d0167dcb87ee5f29c427cdcef45ff8f AS build
 
 WORKDIR /src
 COPY go.mod go.sum ./

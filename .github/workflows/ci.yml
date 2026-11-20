@@ -15,8 +15,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          # Read the toolchain from go.mod so CI and the workstation can never
-          # drift apart silently.
+          # Read the Go release from go.mod: its toolchain line is the release
+          # CI builds with and the vulnerability scan reads, and the image is
+          # built on the same one. The go line is only the oldest Go that may
+          # build the module, so a workstation a patch release behind still works.
           go-version-file: go.mod
       - run: go build ./...
       - run: go vet ./...

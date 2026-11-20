@@ -1760,8 +1760,8 @@ func TestSecurityCSPNamesOnlyOwnedOrigins(t *testing.T) {
 	}
 }
 
-// Every response carries X-Request-Id. An inbound id is honoured — X-Request-Id
-// first, then Cloudflare's Cf-Ray — so one trace spans edge, app log and
+// Every response carries X-Request-Id. An inbound id is honoured — Cloudflare's
+// Cf-Ray first, then X-Request-Id — so one trace spans edge, app log and
 // client. An implausible id is replaced rather than repaired: it would
 // otherwise be echoed into a response header and into every log line.
 func TestRequestIDHeader(t *testing.T) {
@@ -1773,8 +1773,8 @@ func TestRequestIDHeader(t *testing.T) {
 		{name: "generated"},
 		{name: "echoes X-Request-Id", headers: map[string]string{"X-Request-Id": "abc123"}, want: "abc123"},
 		{name: "falls back to Cf-Ray", headers: map[string]string{"Cf-Ray": "8f0a1b2c3d4e5f60-FRA"}, want: "8f0a1b2c3d4e5f60-FRA"},
-		{name: "prefers X-Request-Id over Cf-Ray",
-			headers: map[string]string{"X-Request-Id": "abc123", "Cf-Ray": "8f0a-FRA"}, want: "abc123"},
+		{name: "prefers Cf-Ray over X-Request-Id",
+			headers: map[string]string{"X-Request-Id": "abc123", "Cf-Ray": "8f0a-FRA"}, want: "8f0a-FRA"},
 		{name: "rejects a hostile id", headers: map[string]string{"X-Request-Id": "id with spaces"}},
 		{name: "rejects an oversized id", headers: map[string]string{"X-Request-Id": strings.Repeat("a", 65)}},
 	} {

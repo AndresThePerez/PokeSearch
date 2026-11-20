@@ -586,11 +586,15 @@ func gzipEligible(status int, h http.Header) bool {
 // withObservability gives every request an id (honouring the edge's, when the
 // edge sent one), echoes it back, threads it into the request context for the
 // QueryLog and the error envelope, and writes one access line per request.
+//
+// Cloudflare's Cf-Ray comes first: the edge sets it, while X-Request-Id is
+// whatever the client chose to send, so behind the edge the ray id is the one
+// that names the request in Cloudflare's logs and in this one alike.
 func (s *Server) withObservability(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		id := acceptRequestID(r.Header.Get("X-Request-Id"))
+		id := acceptRequestID(r.Header.Get("Cf-Ray"))
 		if id == "" {
-			id = acceptRequestID(r.Header.Get("Cf-Ray"))
+			id = acceptRequestID(r.Header.Get("X-Request-Id"))
 		}
 		if id == "" {
 			id = newRequestID()

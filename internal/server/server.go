@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -661,9 +662,9 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, status int, 
 	})
 }
 
-// writeES503 is the one place a failed ES call becomes a client response: the
-// error (which carries the truncated ES body) goes to the log, the client gets
-// the generic contract.
+// writeES503 is where a failed ES call becomes the outage response: the error
+// (which carries the truncated ES body) goes to the log, the client gets the
+// generic contract.
 func (s *Server) writeES503(w http.ResponseWriter, r *http.Request, entry QueryLog, cause error) {
 	entry.Status = http.StatusServiceUnavailable
 	if cause != nil {
@@ -673,6 +674,26 @@ func (s *Server) writeES503(w http.ResponseWriter, r *http.Request, entry QueryL
 	s.writeError(w, r, http.StatusServiceUnavailable, codeESUnavailable, "", "elasticsearch unavailable")
 }
 
+// esRejectedMessage is what a client is told when Elasticsearch refuses the
+// query its request produced. It is fixed text on purpose: the cluster's own
+// reason names fields, analyzers and internals, and goes to the log only.
+const esRejectedMessage = "the request could not be run as a search; change the query and try again"
+
+// writeQueryESError is writeES503 for the endpoints whose ES request is built
+// from the client's own input (search, suggest, explain, compare). There a
+// 400 from Elasticsearch means the input could not be run, which is the
+// client's 400 and not an outage; every other failure is still the 503.
+func (s *Server) writeQueryESError(w http.ResponseWriter, r *http.Request, entry QueryLog, cause error) {
+	if !errors.Is(cause, errESRejected) {
+		s.writeES503(w, r, entry, cause)
+		return
+	}
+	entry.Status = http.StatusBadRequest
+	entry.Error = cause.Error()
+	s.writeLog(entry)
+	s.writeError(w, r, http.StatusBadRequest, codeInvalidParam, "", esRejectedMessage)
+}
+
 // esErrorBodyLimit caps how much of an ES error body reaches the log. Enough
 // to identify a mapping error, not enough to flood a log on a bad day.
 const esErrorBodyLimit = 2 << 10
@@ -680,11 +701,39 @@ const esErrorBodyLimit = 2 << 10
 // esError folds the ES error body into the returned error so the log can tell
 // a mapping error from a down cluster. Callers must not surface it to clients.
 func esError(status string, body io.Reader) error {
+	return esErrorFrom(status, readESErrorBody(body))
+}
+
+// readESErrorBody reads the capped prefix of an ES error body; nil when there
+// is none or it cannot be read.
+func readESErrorBody(body io.Reader) []byte {
 	snippet, err := io.ReadAll(io.LimitReader(body, esErrorBodyLimit))
-	if err != nil || len(snippet) == 0 {
+	if err != nil {
+		return nil
+	}
+	return bytes.TrimSpace(snippet)
+}
+
+func esErrorFrom(status string, snippet []byte) error {
+	if len(snippet) == 0 {
 		return errors.New(status)
 	}
-	return fmt.Errorf("es %s: %s", status, bytes.TrimSpace(snippet))
+	return fmt.Errorf("es %s: %s", status, snippet)
+}
+
+// esFailureBody reports whether an ES reply body is an error report (an
+// "error" member, as index_not_found_exception has) rather than an answer
+// (the found:false or matched:false of a document that is not there).
+func esFailureBody(snippet []byte) bool {
+	var body struct {
+		Error json.RawMessage `json:"error"`
+	}
+	if err := json.Unmarshal(snippet, &body); err != nil {
+		// A body cut at the log cap no longer parses; the exception name is
+		// still near its start.
+		return bytes.Contains(snippet, []byte("_exception"))
+	}
+	return len(body.Error) > 0 && !bytes.Equal(body.Error, []byte("null"))
 }
 
 // handleLivez is the cheap liveness probe and the container healthcheck
@@ -699,6 +748,10 @@ func (s *Server) handleLivez(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	docs, err := s.countDocs(r)
 	if err != nil {
+		// The body stays the bare frozen shape; the cause goes to the log,
+		// tied to the request, so a failing probe can be told apart from a
+		// down cluster, a refused connection or a timeout.
+		s.log.Error("healthz check failed", "request_id", requestID(r), "err", err.Error())
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "error"})
 		return
 	}
@@ -951,7 +1004,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 	esr, err := s.searchES(r, dsl)
 	if err != nil {
-		s.writeES503(w, r, entry, err)
+		s.writeQueryESError(w, r, entry, err)
 		return
 	}
 
@@ -1289,8 +1342,15 @@ func statsBuckets(agg esAggregation) []facetBucket {
 // errESNotFound marks the one non-2xx that can be an answer rather than a
 // failure: _explain on a document that is not there. Callers that cannot get
 // one (search, suggest) treat it like any other ES error, so the 503 path is
-// unchanged; the cause still carries the ES body for the log.
+// unchanged; the cause still carries the ES body for the log. A 404 that is
+// an error report — a missing index — is a failure, not this.
 var errESNotFound = errors.New("elasticsearch: not found")
+
+// errESRejected marks a 400 from Elasticsearch: the cluster answered, and it
+// refused the request it was sent. Only the endpoints that build that request
+// from client input turn it into a client error (writeQueryESError); for
+// every other caller it is one more failed call.
+var errESRejected = errors.New("elasticsearch: request rejected")
 
 // esCall runs one Elasticsearch round trip and decodes the reply into T. The
 // caller supplies the API call, so _search and _explain share the same
@@ -1304,11 +1364,16 @@ func esCall[T any](s *Server, r *http.Request, call func(context.Context) (*esap
 		return nil, err
 	}
 	defer res.Body.Close()
-	if res.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("%w: %w", errESNotFound, esError(res.Status(), res.Body))
-	}
 	if res.IsError() {
-		return nil, esError(res.Status(), res.Body)
+		snippet := readESErrorBody(res.Body)
+		cause := esErrorFrom(res.Status(), snippet)
+		switch {
+		case res.StatusCode == http.StatusNotFound && !esFailureBody(snippet):
+			return nil, fmt.Errorf("%w: %w", errESNotFound, cause)
+		case res.StatusCode == http.StatusBadRequest:
+			return nil, fmt.Errorf("%w: %w", errESRejected, cause)
+		}
+		return nil, cause
 	}
 
 	var decoded T
@@ -1461,7 +1526,7 @@ func (s *Server) handleExplain(w http.ResponseWriter, r *http.Request) {
 			esr, err = &esExplainResponse{}, nil
 		}
 		if err != nil {
-			s.writeES503(w, r, entry, err)
+			s.writeQueryESError(w, r, entry, err)
 			return
 		}
 		resp.Branches = append(resp.Branches, explainBranch{
@@ -1503,15 +1568,21 @@ func explainComponents(details []esExplainNode) []explainComponent {
 }
 
 // explainParamError enforces the two parameters the endpoint cannot work
-// without, in a fixed order so a request missing both names id first.
+// without, in a fixed order so a request missing both names id first. id has
+// the card-id shape the v1 API accepts; q has /api/search's length cap.
 func explainParamError(id, q string) (bool, string, string) {
 	switch {
 	case id == "":
 		return true, "id", "id is required"
 	case len(id) > maxCardIDLen:
 		return true, "id", fmt.Sprintf("id must be at most %d characters", maxCardIDLen)
+	case !search.ValidCardID(id):
+		return true, "id", "id must match " + search.CardIDPattern
 	case q == "":
 		return true, "q", "q is required"
+	}
+	if fe := search.CheckQueryLength(q); fe != nil {
+		return true, fe.Field, fe.Message
 	}
 	return false, "", ""
 }
@@ -1519,13 +1590,17 @@ func explainParamError(id, q string) (bool, string, string) {
 // explainBranch scores one relevance branch against one document. Each call is
 // a single-document operation — the cost the design accepted in exchange for
 // not explaining 24 hits per keystroke.
+//
+// The client library writes the document id into the URL path as given, so
+// it is escaped here: a card id may hold a "?" (ex10-?), which unescaped would
+// end the path and start a query string.
 func (s *Server) explainBranch(r *http.Request, id string, b search.Branch) (*esExplainResponse, error) {
 	body, err := json.Marshal(map[string]any{"query": b.Query})
 	if err != nil {
 		return nil, err
 	}
 	return esCall[esExplainResponse](s, r, func(ctx context.Context) (*esapi.Response, error) {
-		return s.es.Explain(esindex.IndexName, id,
+		return s.es.Explain(esindex.IndexName, url.PathEscape(id),
 			s.es.Explain.WithContext(ctx),
 			s.es.Explain.WithBody(bytes.NewReader(body)),
 		)
@@ -1851,12 +1926,12 @@ func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request) {
 
 	esA, err := esQuery[esCompareResponse](s, r, bodyA)
 	if err != nil {
-		s.writeES503(w, r, entry, err)
+		s.writeQueryESError(w, r, entry, err)
 		return
 	}
 	esB, err := esQuery[esCompareResponse](s, r, bodyB)
 	if err != nil {
-		s.writeES503(w, r, entry, err)
+		s.writeQueryESError(w, r, entry, err)
 		return
 	}
 
@@ -1884,9 +1959,12 @@ func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request) {
 // without, in a fixed order so a request that gets two of them wrong is told
 // about the first one.
 func compareParamError(q, a, b string) (bool, string, string) {
+	qLength := search.CheckQueryLength(q)
 	switch {
 	case q == "":
 		return true, "q", "q is required"
+	case qLength != nil:
+		return true, qLength.Field, qLength.Message
 	case !hasProfile(a):
 		return true, "a", "a must be one of " + profileNames()
 	case !hasProfile(b):
@@ -2129,9 +2207,19 @@ func (s *Server) handleSuggest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dsl := search.BuildSuggestByPrintCount(p.Q)
 	entry := s.queryLog(r, "suggest")
 	entry.Params = map[string]any{"q": p.Q}
+	// q is the one parameter read here, so its length cap is the one field
+	// error this endpoint reports, before any ES round trip.
+	if fe := search.CheckQueryLength(p.Q); fe != nil {
+		entry.Status = http.StatusBadRequest
+		entry.Error = fe.Message
+		s.writeLog(entry)
+		s.writeError(w, r, http.StatusBadRequest, codeInvalidParam, fe.Field, fe.Message)
+		return
+	}
+
+	dsl := search.BuildSuggestByPrintCount(p.Q)
 	entry.DSL = dsl
 
 	// One budget for the whole handler, not one per pass: WithTimeout takes the
@@ -2158,7 +2246,7 @@ func (s *Server) handleSuggest(w http.ResponseWriter, r *http.Request) {
 		took += passTook
 	}
 	if err != nil {
-		s.writeES503(w, r, entry, err)
+		s.writeQueryESError(w, r, entry, err)
 		return
 	}
 

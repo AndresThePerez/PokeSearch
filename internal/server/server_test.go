@@ -885,10 +885,12 @@ func TestSearchESErrorBodyLogged(t *testing.T) {
 	})
 	s, logBuf := newTestServer(t, rt)
 	rec := get(t, s, "/api/search?q=x")
-	if rec.Code != 503 {
-		t.Fatalf("status %d, want 503", rec.Code)
+	// ES rejecting the query is the client's request that could not run: a
+	// 400 rather than an outage, with the same generic body rule.
+	if rec.Code != 400 {
+		t.Fatalf("status %d, want 400", rec.Code)
 	}
-	if body := decodeError(t, rec); body.Error.Code != "es_unavailable" ||
+	if body := decodeError(t, rec); body.Error.Code != "invalid_param" ||
 		strings.Contains(body.Error.Message, "mapping") {
 		t.Errorf("client body must stay generic, got %+v", body.Error)
 	}

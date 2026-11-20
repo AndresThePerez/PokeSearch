@@ -57,7 +57,10 @@ func TestRarityListStaysLinearInItsLength(t *testing.T) {
 	if len(p.Rarity) != members {
 		t.Fatalf("Rarity has %d members, want %d (unknown members are kept)", len(p.Rarity), members)
 	}
-	if elapsed > 2*time.Second {
+	// The bound is generous on purpose: the linear code needs well under a
+	// fifth of a second even with the race detector, while a quadratic dedupe
+	// needs 14 seconds and, under the race detector, over half a minute.
+	if elapsed > 5*time.Second {
 		t.Errorf("parsing %d distinct rarity members took %v; dropping repeats is quadratic in the list", members, elapsed)
 	}
 }

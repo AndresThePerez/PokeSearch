@@ -16,6 +16,7 @@ import {
   hideNotice,
   isOwnStepBack,
   noteHistoryNavigation,
+  popstateRunsSearch,
 } from "./api.js";
 import { scheduleSuggest, closeSuggestions, handleSuggestKeydown } from "./suggest.js";
 import { bindModalEvents, openDeepLink, syncDialogToAddress } from "./modal.js";
@@ -276,7 +277,7 @@ function bindCoreEvents() {
     // so it can neither open nor close the card dialog: it returns before the
     // dialog is consulted.
     if (isOwnStepBack()) return;
-    noteHistoryNavigation();
+    const cancelledSearch = noteHistoryNavigation();
     // Back off a card address closes the dialog, Forward onto one opens it.
     // The dialog's own step back on close arrives here too, finds the dialog
     // already closed, and is an ordinary Back for the typing bookkeeping
@@ -287,7 +288,10 @@ function bindCoreEvents() {
     readStateFromURL();
     syncControls();
     syncFilterControls();
-    if (buildParams().toString() !== before) runSearch({ fromHistory: true });
+    const stateChanged = buildParams().toString() !== before;
+    if (popstateRunsSearch({ ownStepBack: false, stateChanged, cancelledSearch })) {
+      runSearch({ fromHistory: true });
+    }
   });
 }
 

@@ -66,10 +66,24 @@ export function isOwnStepBack() {
 
 // noteHistoryNavigation is called on every Back or Forward the visitor makes.
 // A keystroke search or commit still waiting would write against the entry
-// they just landed on, so both are dropped, and the draft is forgotten.
+// they just landed on, so both are dropped, and the draft is forgotten. It
+// returns whether a keystroke search was dropped: the grid then still shows
+// a text the visitor had already typed past.
 export function noteHistoryNavigation() {
+  const cancelled = debounceTimer !== null;
   cancelScheduledSearch();
   historyMemo = historyStep({ trigger: "popstate", memo: historyMemo, address: "", wanted: "" }).memo;
+  return cancelled;
+}
+
+// popstateRunsSearch decides whether a Back or Forward searches. The page's
+// own step back never does: that search is already running. Otherwise it
+// searches when the entry it landed on holds a different search, or when it
+// dropped a keystroke search, because the grid then shows results for text
+// the box no longer holds even if the address and the box agree.
+export function popstateRunsSearch({ ownStepBack, stateChanged, cancelledSearch }) {
+  if (ownStepBack) return false;
+  return stateChanged || cancelledSearch;
 }
 
 // noticeView decides how the notice under the search controls looks for a
@@ -175,7 +189,10 @@ export async function runSearch({ append = false, push = false, fromHistory = fa
 export function scheduleSearch() {
   clearTimeout(debounceTimer);
   clearTimeout(idleTimer);
-  debounceTimer = setTimeout(() => runSearch({ trigger: "typing" }), 200);
+  debounceTimer = setTimeout(() => {
+    debounceTimer = null;
+    runSearch({ trigger: "typing" });
+  }, 200);
   idleTimer = setTimeout(() => commitQuery("idle"), IDLE_COMMIT_MS);
 }
 
@@ -190,6 +207,7 @@ export function commitQuery(trigger) {
     return;
   }
   clearTimeout(debounceTimer);
+  debounceTimer = null;
   runSearch({ trigger });
 }
 
@@ -198,6 +216,7 @@ export function commitQuery(trigger) {
 export function cancelScheduledSearch() {
   clearTimeout(debounceTimer);
   clearTimeout(idleTimer);
+  debounceTimer = null;
 }
 
 // fetchSuggestions is the network half of autocomplete; suggest.js owns the

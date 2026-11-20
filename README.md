@@ -124,7 +124,7 @@ The three `/api/v1/` routes are the versioned API for clients outside this repos
 
 The JSON Schemas in [docs/api/schema/](docs/api/schema/) describe the answers of search, suggest, explain, compare, stats and meta, the three v1 routes and the error envelope. The acceptance suite checks live answers against them.
 
-The embedded frontend's files carry weak `ETag`s as well: a conditional request for one is a `304`, `index.html` is served `no-cache`, and every other asset for five minutes with `must-revalidate`.
+The embedded frontend's files carry weak `ETag`s as well: a conditional request for one is a `304`, `index.html` is served `no-cache`, and every other asset for five minutes with `must-revalidate`. A stamped build's page names its stylesheet and entry script under `/assets/<commit>/`, the commit `/api/meta` reports, and the modules they import resolve under the same prefix, so a page never runs another build's CSS or scripts, whatever a cache in front still holds. Any other commit under `/assets/` is a `404` with `Cache-Control: no-store`, so a cache in front cannot keep it for the next build's URL; the unversioned paths (`/styles.css`, `/js/*.js`) still answer, and an unstamped build's page keeps naming them.
 
 Search responses carry Elasticsearch's `took_ms`, the effective `page_size`, and live `supertype`, `types`, `rarity`, `set_series`, and readable `sets` facets. The `set` parameter takes an exact set ID; combine it with `q` to search within that set. Add `debug=1` (or `debug=true`) to receive the generated DSL in the response.
 

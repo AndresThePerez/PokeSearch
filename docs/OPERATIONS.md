@@ -34,8 +34,11 @@ ssh "$DEPLOY_HOST"
 cd "$DEPLOY_DIR"
 git pull
 printf 'APP_PORT=%s\n' "$APP_PORT" > .env      # git-ignored
-docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build
+VERSION=$(git describe --tags --always) COMMIT=$(git rev-parse --short HEAD) BUILT=$(date -u +%FT%TZ) \
+  docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build
 ```
+
+Build with the stamp. The page names its stylesheet and scripts under the commit `/api/meta` reports, so a returning visitor never gets the new page with the previous build's CSS or scripts from a cache in front. An unstamped build (`commit: none`) keeps naming the unversioned paths and loses that.
 
 `docker-compose.server.yml` adds `restart: unless-stopped` and memory caps (`es` 2g, four times the 512m JVM heap, so the page cache is not starved; `app` 256m) so the stack coexists with a host's other tenants. Elasticsearch remains on the Compose-internal network with no host port in any topology.
 

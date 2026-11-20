@@ -126,6 +126,27 @@ markup declares is referenced by the script. Its failure message is the point:
 after real upstream 404s were found on the original `images.pokemontcg.io` URLs.
 That is a hard third-party dependency and is documented as one in the README.
 
+**Amended 2026-11-20.** The record above stays as written; one note on it.
+
+- *Asset URLs carry the build commit.* After a deploy, a returning visitor's
+  browser ran the new page with the old stylesheet and scripts: `index.html` is
+  `no-cache`, but the paths it named never changed, and a cache in front kept
+  the old files for hours. The server now rewrites the document once at start-up
+  so that it names `/assets/<commit>/styles.css` and
+  `/assets/<commit>/js/main.js`; the modules are imported by relative
+  specifiers and resolve under the same prefix with nothing rewritten in them.
+  This is a substitution of two exact attribute values, not a build step: the
+  files on disk are unchanged, and the server serves the document unrewritten,
+  with a warning, when either value is not there exactly once. Only the running
+  build's commit answers under `/assets/`; every other path there is a `404`
+  with `Cache-Control: no-store`, because a cache in front keeps a 404 without
+  a policy for minutes, and one request for the next build's URL before its
+  deploy would then break that build's page for everyone. An unstamped build
+  keeps the unversioned paths. The cost is the rule a bundler would have enforced: a
+  root path to a file of the tree (`import "/js/x.js"`, a `url(/…)` in the
+  stylesheet) would bypass the prefix, and `web/relative_urls_test.go` fails
+  on one.
+
 ---
 
 ## ADR 5 — Distroless, nonroot, digest-pinned runtime image

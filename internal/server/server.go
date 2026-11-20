@@ -103,17 +103,29 @@ func New(es *elasticsearch.Client, static fs.FS, logW io.Writer, now func() time
 	// a method because a bare "/api/" conflicts with "GET /" below.
 	s.mux.HandleFunc("GET /api/", s.handleUnknownAPIPath)
 
-	etags, err := staticETags(static)
+	served, commit, err := versionedStatic(static, version.Commit)
+	if err != nil {
+		// The page still works with its assets at their unversioned paths, as
+		// it did before they had versioned ones; only the protection against a
+		// stale stylesheet or script after a deploy is lost, so this is said
+		// loudly rather than refused.
+		s.log.Warn("asset URLs left unversioned", "commit", cutLogValue(version.Commit), "err", err.Error())
+	}
+	etags, err := staticETags(served)
 	if err != nil {
 		// An unreadable static FS is a build defect, not a runtime condition,
 		// and serving the assets without validators is still correct — they
 		// only lose their conditional requests. Refusing to start would trade
-		// a degraded frontend for no frontend at all.
+		// a degraded frontend for no frontend at all. A versioned asset is only
+		// served when it has a validator, so with the map incomplete the
+		// document goes back to naming the unversioned paths.
 		s.log.Warn("static asset validators unavailable", "err", err.Error())
+		served, commit = static, ""
+		etags, _ = staticETags(served)
 	}
 	s.staticETags = etags
-	staticHandler := s.withStaticCache(http.FileServerFS(static))
-	s.mux.Handle("GET /", staticHandler)
+	staticHandler := s.withStaticCache(http.FileServerFS(served))
+	s.mux.Handle("GET /", s.withVersionedAssets(commit, staticHandler))
 	// Without its own pattern the bare /api would be redirected to the "GET
 	// /api/" subtree above; it is not an API path and keeps the static answer.
 	s.mux.Handle("GET /api", staticHandler)
@@ -351,13 +363,176 @@ func staticETags(fsys fs.FS) (map[string]string, error) {
 	return etags, err
 }
 
-// staticCacheControl is what a hashed-path asset pipeline would spell
-// "immutable" and this one deliberately does not. The asset paths are unhashed
-// (/styles.css, /js/main.js), so a long max-age has no way to be busted and
-// would strand a deployed fix behind a stale browser copy. Five minutes plus
-// must-revalidate collapses a session's repeat requests into one conditional
-// round trip and still picks a fix up within the same coffee break.
+// staticCacheControl is the policy of every embedded asset but the document,
+// at its unversioned path and under the build's prefix alike.
+//
+// The document names its stylesheet and entry script under the build commit
+// (withVersionedAssets), so a new build's page never runs an older build's CSS
+// or modules, whatever lifetime a cache in front gives them. The policy still
+// stops short of a long max-age or "immutable": an unstamped build reports the
+// same commit every time, so its page keeps the unversioned paths, other
+// clients fetch those paths too, and a long lifetime on them would strand a
+// deployed fix behind a stale copy. Five minutes plus must-revalidate
+// collapses a session's repeat requests into one conditional round trip.
 const staticCacheControl = "public, max-age=300, must-revalidate"
+
+// assetsRoot is the path space of the versioned asset URLs: the stylesheet,
+// /assets/<commit>/styles.css, and the entry script, /assets/<commit>/js/main.js.
+// The modules the entry script imports by relative specifiers resolve under
+// the same prefix in the browser, with nothing rewritten in them.
+const assetsRoot = "/assets/"
+
+// unstampedCommit is what internal/version reports for a build linked without
+// the -ldflags stamp. Such a build has no identity to name its assets by.
+const unstampedCommit = "none"
+
+// maxAssetCommitLen bounds the commit an asset URL carries; a full SHA-256
+// object name is 64 hex characters.
+const maxAssetCommitLen = 64
+
+// documentAssetRefs are the two attribute values the document names its
+// entry points by, exactly as web/index.html spells them.
+var documentAssetRefs = [...]string{`href="/styles.css"`, `src="/js/main.js"`}
+
+// assetCommit is the path segment a build commit gives the asset URLs: the
+// commit itself when every character is a letter, a digit, '-' or '_' and it
+// is at most maxAssetCommitLen long, so it needs no escaping in a URL path or
+// in an HTML attribute. It is "" for an unstamped build, and an error for any
+// other value, which is never put in the page.
+func assetCommit(commit string) (string, error) {
+	if commit == unstampedCommit {
+		return "", nil
+	}
+	if commit == "" || len(commit) > maxAssetCommitLen {
+		return "", fmt.Errorf("the build commit is %d bytes, want 1 to %d", len(commit), maxAssetCommitLen)
+	}
+	for i := range len(commit) {
+		switch c := commit[i]; {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '-', c == '_':
+		default:
+			return "", fmt.Errorf("the build commit holds %q, which an asset URL cannot carry unescaped", c)
+		}
+	}
+	return commit, nil
+}
+
+// versionDocument rewrites the document's two asset references to name the
+// prefix of commit. It is a substitution of two exact attribute values, and it
+// refuses, rather than guesses, when the markup does not hold each of them
+// exactly once.
+func versionDocument(doc []byte, commit string) ([]byte, error) {
+	out := doc
+	for _, ref := range documentAssetRefs {
+		if n := bytes.Count(out, []byte(ref)); n != 1 {
+			return nil, fmt.Errorf("the document holds %s %d times, want once", ref, n)
+		}
+		attr, value, _ := strings.Cut(ref, `="`)
+		out = bytes.Replace(out, []byte(ref), []byte(attr+`="`+assetsRoot+commit+value), 1)
+	}
+	return out, nil
+}
+
+// versionedStatic is the static tree as served, with the document naming its
+// assets under the prefix of the build commit, and that commit. It is static
+// itself and "" when there is nothing to version — no tree, no document, an
+// unstamped build — or when versioning failed, which the error says.
+func versionedStatic(static fs.FS, buildCommit string) (fs.FS, string, error) {
+	if static == nil {
+		return static, "", nil
+	}
+	commit, err := assetCommit(buildCommit)
+	if err != nil || commit == "" {
+		return static, "", err
+	}
+	doc, err := fs.ReadFile(static, indexFile)
+	if errors.Is(err, fs.ErrNotExist) {
+		return static, "", nil
+	}
+	if err != nil {
+		return static, "", err
+	}
+	doc, err = versionDocument(doc, commit)
+	if err != nil {
+		return static, "", err
+	}
+	return documentOverlay{FS: static, doc: doc}, commit, nil
+}
+
+// documentOverlay is a static tree with its document replaced. Everything
+// else, directory listings included, is the tree's own.
+type documentOverlay struct {
+	fs.FS
+	doc []byte
+}
+
+func (o documentOverlay) Open(name string) (fs.File, error) {
+	if name != indexFile {
+		return o.FS.Open(name)
+	}
+	return &documentFile{Reader: bytes.NewReader(o.doc), size: int64(len(o.doc))}, nil
+}
+
+// documentFile is the replaced document, seekable as http.FileServerFS needs.
+type documentFile struct {
+	*bytes.Reader
+	size int64
+}
+
+func (f *documentFile) Stat() (fs.FileInfo, error) { return documentInfo{size: f.size}, nil }
+func (f *documentFile) Close() error               { return nil }
+
+// documentInfo has the zero ModTime every embedded file reports.
+type documentInfo struct{ size int64 }
+
+func (i documentInfo) Name() string       { return indexFile }
+func (i documentInfo) Size() int64        { return i.size }
+func (i documentInfo) Mode() fs.FileMode  { return 0o444 }
+func (i documentInfo) ModTime() time.Time { return time.Time{} }
+func (i documentInfo) IsDir() bool        { return false }
+func (i documentInfo) Sys() any           { return nil }
+
+// withVersionedAssets answers the path space under assetsRoot. Under the
+// running build's commit, an embedded asset other than the document is
+// handed to next at its unversioned path, so it gets exactly the answer that
+// path gets: validator, cache policy, conditional 304, type and encoding.
+// Everything else there is a plain 404 with Cache-Control: no-store and no
+// validator: another build's commit, past or future, a directory, the
+// document, a file the tree does not hold, and the whole prefix when the build
+// is unversioned (commit ""). A cache can therefore never hold this build's
+// bytes under another build's name. The no-store matters as much: a CDN keeps
+// a 404 that names no policy for minutes by default, so one request for the
+// next build's URL before it is deployed would otherwise leave every visitor
+// of the new page with a stylesheet and scripts that answer 404.
+//
+// The decision is made on the decoded path, so an escaped spelling of the
+// prefix or the commit answers exactly as the plain one does.
+//
+// The access line and the route label still see the path as requested, and
+// the label stays "static", so a new commit never adds a counter.
+func (s *Server) withVersionedAssets(commit string, next http.Handler) http.Handler {
+	prefix := assetsRoot + commit
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, assetsRoot) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		name, ok := strings.CutPrefix(r.URL.Path, prefix)
+		if _, known := s.staticETags[name]; commit == "" || !ok || !known || isIndexPath(name) {
+			w.Header().Set("Cache-Control", "no-store")
+			http.NotFound(w, r)
+			return
+		}
+		// The decoded path decided; the escaped form must not undo that, as
+		// http.StripPrefix would, with a 404 of its own that carries no
+		// policy. A prefix or a commit spelled with percent-escapes is the
+		// same path, and answers as it does unescaped.
+		u := *r.URL
+		u.Path, u.RawPath = name, ""
+		r2 := *r
+		r2.URL = &u
+		next.ServeHTTP(w, &r2)
+	})
+}
 
 // withStaticCache wraps the static handler alone: it is the only handler whose
 // response is a fixed sequence of bytes with a validator to offer. The JSON API

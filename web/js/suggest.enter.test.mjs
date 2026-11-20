@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { enterEffects } from "./suggest.js";
+import { enterEffects, enterFocusTarget } from "./suggest.js";
 
 // enterEffects: what Enter in the search box does
 
@@ -50,4 +50,11 @@ test("Enter that confirms an input-method composition does nothing: no commit, n
       }
     }
   }
+});
+
+test("focus is left in the box when the visitor has typed since Enter, even though the answer arrives", () => {
+  for (const outcome of ["results", "none"]) {
+    assert.equal(enterFocusTarget({ outcome, inBox: true, typedSinceEnter: true }), null, outcome);
+  }
+  assert.equal(enterFocusTarget({ outcome: "results", inBox: true, typedSinceEnter: false }), "results-grid");
 });

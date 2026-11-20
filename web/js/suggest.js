@@ -149,10 +149,13 @@ export function enterEffects({ highlighted, pending, changed, composing }) {
 // enterFocusTarget decides where focus goes once the search Enter asked for
 // has answered: the grid when it found cards, the empty-state message when it
 // found none, and nowhere (focus stays in the box, beside the notice or the
-// banner) when it could not run or a newer search replaced it. Focus the
-// visitor has already moved elsewhere is left alone.
-export function enterFocusTarget({ outcome, inBox }) {
-  if (!inBox) return null;
+// banner) when it could not run or a newer search replaced it. The move
+// belongs to that Enter and to the text the box held then, so it is dropped
+// when the visitor has typed in the box since, or pressed Enter again (the
+// later Enter makes its own move). Focus the visitor has already moved
+// elsewhere is left alone.
+export function enterFocusTarget({ outcome, inBox, typedSinceEnter = false, superseded = false }) {
+  if (!inBox || typedSinceEnter || superseded) return null;
   if (outcome === "results") return "results-grid";
   if (outcome === "none") return "empty-message";
   return null;
@@ -166,15 +169,51 @@ export function shownOutcome({ gridHidden, emptyHidden }) {
   return "failed";
 }
 
+// The Enters that asked for a focus move, and the input events the box has
+// had, counted so that an answer can tell whether its Enter is still the
+// latest and whether the visitor has typed since.
+let enters = 0;
+let inputs = 0;
+
+// noteSearchBoxInput is called on every input event in the box: a key, a
+// deletion or a paste.
+export function noteSearchBoxInput() {
+  inputs += 1;
+}
+
+// blurCloses decides whether the list's delayed close after the box loses
+// focus still runs: not when the box has focus again by then, or it would
+// cancel the suggestions the visitor's next keystroke just asked for.
+export function blurCloses({ focused }) {
+  return !focused;
+}
+
 // focusAfterEnter waits for the search Enter started, if it started one, and
 // then moves focus. The grid and the empty-state message both take focus
 // from script only (tabindex="-1"), and scroll-padding-top keeps them clear
 // of the sticky header when focus scrolls them into view.
 async function focusAfterEnter(search) {
-  const outcome = search
-    ? await search
-    : shownOutcome({ gridHidden: $("results-grid").hidden, emptyHidden: $("empty-state").hidden });
-  const target = enterFocusTarget({ outcome, inBox: document.activeElement === $("search-input") });
+  enters += 1;
+  const enter = enters;
+  const inputsAtEnter = inputs;
+  const textAtEnter = $("search-input").value;
+  let outcome;
+  if (search) {
+    try {
+      outcome = await search;
+    } catch {
+      // A search that threw before it could report has nothing to show.
+      return;
+    }
+  } else {
+    outcome = shownOutcome({ gridHidden: $("results-grid").hidden, emptyHidden: $("empty-state").hidden });
+  }
+  const target = enterFocusTarget({
+    outcome,
+    inBox: document.activeElement === $("search-input"),
+    typedSinceEnter: inputs !== inputsAtEnter || $("search-input").value !== textAtEnter,
+    superseded: enter !== enters,
+  });
   if (target) document.getElementById(target).focus();
 }
 

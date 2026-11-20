@@ -18,7 +18,7 @@ import {
   noteHistoryNavigation,
   popstateRunsSearch,
 } from "./api.js";
-import { scheduleSuggest, closeSuggestions, handleSuggestKeydown } from "./suggest.js";
+import { scheduleSuggest, closeSuggestions, handleSuggestKeydown, noteSearchBoxInput, blurCloses } from "./suggest.js";
 import { bindModalEvents, openDeepLink, syncDialogToAddress } from "./modal.js";
 import { lastResponseHadDSL, refreshRankingLab } from "./telemetry.js";
 import { showStats } from "./stats.js";
@@ -138,6 +138,7 @@ function bindCoreEvents() {
     // Typing is a search, and a search belongs on the search view.
     if (statsViewOpen()) leaveStatsRoute();
     state.q = event.target.value;
+    noteSearchBoxInput();
     // A new query invalidates an explicit sort: relevance is only meaningful
     // with a query, and the server would flip it anyway.
     state.sort = "";
@@ -151,7 +152,10 @@ function bindCoreEvents() {
   // Leaving the search box finishes the query, the same as Enter or a pause.
   $("search-input").addEventListener("blur", () => {
     commitQuery("blur");
-    setTimeout(closeSuggestions, 100);
+    // Clicking straight back into the box keeps the list it is about to get.
+    setTimeout(() => {
+      if (blurCloses({ focused: document.activeElement === $("search-input") })) closeSuggestions();
+    }, 100);
   });
 
   $("sort-select").addEventListener("change", (event) => {

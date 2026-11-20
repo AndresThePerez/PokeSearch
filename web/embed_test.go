@@ -2,6 +2,7 @@ package web
 
 import (
 	"io/fs"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -158,5 +159,37 @@ func TestEmbeddedScriptsAreTheJSFilesOnDisk(t *testing.T) {
 	got := embeddedJS(t)
 	if !slices.Equal(got, want) {
 		t.Errorf("embedded js/ files = %v, js/*.js on disk = %v", got, want)
+	}
+}
+
+// CI runs the frontend tests in a step of their own. The glob is expanded by
+// the shell, and that step must not set nullglob: with it an empty glob would
+// pass the step without running a single test.
+func TestCIRunsTheFrontendTests(t *testing.T) {
+	raw, err := os.ReadFile("../.github/workflows/ci.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(string(raw), "\n")
+	const run = "run: node --test web/js/*.test.mjs"
+	at := -1
+	for i, l := range lines {
+		if strings.TrimSpace(l) == run {
+			at = i
+			break
+		}
+	}
+	if at < 0 {
+		t.Fatalf("ci.yml has no line %q", run)
+	}
+	// Walk back to the step's own "- name:" line and check only that step.
+	start := at
+	for start > 0 && !strings.HasPrefix(strings.TrimSpace(lines[start]), "- ") {
+		start--
+	}
+	for _, l := range lines[start : at+1] {
+		if strings.Contains(l, "nullglob") {
+			t.Errorf("the node test step sets nullglob: %q", strings.TrimSpace(l))
+		}
 	}
 }

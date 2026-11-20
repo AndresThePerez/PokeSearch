@@ -54,6 +54,12 @@ jobs:
             echo "node --check $f"
             node --check "$f"
           done
+      # No nullglob here: bash passes an unmatched pattern through literally,
+      # so node fails on it. With nullglob an empty glob would run no tests
+      # and pass.
+      - name: Run the frontend tests
+        shell: bash
+        run: node --test web/js/*.test.mjs
 
   image:
     runs-on: ubuntu-latest

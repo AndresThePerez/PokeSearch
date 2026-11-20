@@ -3,7 +3,7 @@
 
 import { $, element } from "./util.js";
 import { cardsByID, displayType, imageURL, branchLabel, markWithin } from "./render.js";
-import { fetchExplain, showNotice } from "./api.js";
+import { fetchExplain, fetchLinkedCard, showNotice } from "./api.js";
 import { queryText } from "./state.js";
 import { holoTier, attachHolo, setHoloTier, setHoloArtLoaded } from "./holo.js";
 
@@ -474,16 +474,6 @@ function leaveCardAddress() {
   }
 }
 
-// fetchLinkedCard asks for one card by id and keeps the HTTP status, which
-// the deep link needs to tell a card that is not there from an archive that
-// did not answer.
-async function fetchLinkedCard(id) {
-  const res = await fetch(`/api/search?${new URLSearchParams({ id })}`);
-  if (!res.ok) return { status: res.status, card: null };
-  const data = await res.json();
-  return { status: res.status, card: data.results?.[0] ?? null };
-}
-
 // openLinkedCard opens the card a #card= address names, from the grid when it
 // is already there, from the API otherwise. A link that opens nothing says so
 // in the notice. A visitor who moved on while it loaded is left where they are.
@@ -492,17 +482,13 @@ async function openLinkedCard(id) {
   if (!entry) {
     let failure = deepLinkFailure({ id });
     if (CARD_ID.test(id)) {
-      try {
-        const { status, card } = await fetchLinkedCard(id);
-        failure = deepLinkFailure({ id, status, found: card !== null });
-        // A deep-linked card was fetched by id, with no query behind it, so
-        // it has no highlights — the modal falls back to plain text.
-        if (card) {
-          entry = { card, highlight: null };
-          cardsByID.set(card.id, entry);
-        }
-      } catch {
-        failure = deepLinkFailure({ id, networkError: true });
+      const { status, card, networkError } = await fetchLinkedCard(id);
+      failure = deepLinkFailure({ id, status, found: card !== null, networkError });
+      // A deep-linked card was fetched by id, with no query behind it, so it
+      // has no highlights — the modal falls back to plain text.
+      if (card) {
+        entry = { card, highlight: null };
+        cardsByID.set(card.id, entry);
       }
     }
     if (cardHashID(location.hash) !== id) return;

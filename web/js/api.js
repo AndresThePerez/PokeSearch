@@ -229,14 +229,27 @@ export async function fetchSuggestions(q, signal) {
   return data.suggestions ?? [];
 }
 
-// fetchCardByID backs the #card= deep link when the card is not already in the
-// grid — the id fast path returns exactly one document.
-export async function fetchCardByID(id) {
+// fetchLinkedCard backs the #card= deep link when the card is not already in
+// the grid — the id fast path returns exactly one document. It never throws:
+// it hands back the HTTP status (0 when there was no answer), the card or
+// null, and whether the request failed before an answer could be read, which
+// is what the dialog needs to tell a card that is not there from an archive
+// that did not answer.
+export async function fetchLinkedCard(id) {
   const sp = new URLSearchParams({ id });
-  const res = await fetch(`/api/search?${sp}`);
-  if (!res.ok) return null;
-  const data = await res.json();
-  return data.results[0] ?? null;
+  let res;
+  try {
+    res = await fetch(`/api/search?${sp}`);
+  } catch {
+    return { status: 0, card: null, networkError: true };
+  }
+  if (!res.ok) return { status: res.status, card: null, networkError: false };
+  try {
+    const data = await res.json();
+    return { status: res.status, card: data.results?.[0] ?? null, networkError: false };
+  } catch {
+    return { status: res.status, card: null, networkError: true };
+  }
 }
 
 // fetchExplain asks the server to score one card against the current query,

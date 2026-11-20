@@ -268,9 +268,9 @@ and additions say what the server does now.
   compare, and `q` is required on compare. `sort` and `order` are trimmed. A
   number too large for a 64-bit integer is a `400`; smaller out-of-range values
   still clamp. On search, `rarity` and `series` take at
-  most 64 values each and each value, `set` and `id` at most 128 characters, a
-  `400` naming the field over either, because a list is copied many times into
-  the query and the log.
+  most 64 values each, totalling at most 1,024 characters, and each value,
+  `set` and `id` at most 128 characters, a `400` naming the field over any of
+  these, because a list is copied many times into the query and the log.
 - *More codes.* The envelope now also carries `unauthorized` (`401`, with
   `WWW-Authenticate`, on `/api/v1/`), `not_found` (`404`) and
   `method_not_allowed` (`405`, with `Allow`). An unknown path or a wrong method

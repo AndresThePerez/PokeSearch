@@ -202,11 +202,11 @@ Parameters split into three groups:
 
 | Behaviour | Parameters | On invalid input |
 |---|---|---|
-| **Strict** | `sort`, `order`, `supertype`, `hp_min`, `hp_max`, `page`, `page_size`, and the length of `q` | `400` with the offending `field`. Rejected before Elasticsearch is called. |
+| **Strict** | `sort`, `order`, `supertype`, `hp_min`, `hp_max`, `page`, `page_size`, the length of `q`, and the size of `rarity`, `series`, `set` and `id` | `400` with the offending `field`. Rejected before Elasticsearch is called. |
 | **Lenient** | members of the `types` comma-list; unknown query keys | Dropped or ignored, `200`. |
 | **Kept as given** | members of the `rarity` and `series` comma-lists; `set` | An unknown value is kept and matches nothing, so a request that names only unknown values is a `200` with a total of `0`. It is not dropped, so a typo cannot widen the answer. |
 
-`sort` and `order` are trimmed but case-sensitive: `sort=hp` works, `sort=HP` is a `400`. `q` may be at most 256 characters and 32 terms, on `/api/search`, `/api/suggest`, `/api/explain` and `/api/compare`; over either limit is a `400` with `field` set to `q`. Both are counted after trimming. A character is a Unicode code point, not a byte, so 256 `é` pass and 257 fail, and a term is a run of non-space characters. On `/api/search`, `rarity` and `series` take at most 64 values each (counted before repeats are dropped), and each of their values, `set` and `id` at most 128 characters; over a limit is a `400` with `field` naming the parameter.
+`sort` and `order` are trimmed but case-sensitive: `sort=hp` works, `sort=HP` is a `400`. `q` may be at most 256 characters and 32 terms, on `/api/search`, `/api/suggest`, `/api/explain` and `/api/compare`; over either limit is a `400` with `field` set to `q`. Both are counted after trimming. A character is a Unicode code point, not a byte, so 256 `é` pass and 257 fail, and a term is a run of non-space characters. On `/api/search`, `rarity` and `series` take at most 64 values each, totalling at most 1,024 characters (both counted before repeats are dropped), and each of their values, `set` and `id` at most 128 characters; over a limit is a `400` with `field` naming the parameter.
 
 **A repeated parameter takes its first value:** `?page_size=1&page_size=50` is `page_size=1`.
 

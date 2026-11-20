@@ -17,6 +17,8 @@ append-only: a superseded decision keeps its entry and gains a pointer forward.
 | [9](#adr-9--how-relevance-is-evaluated) | How relevance is evaluated | Accepted |
 | [10](#adr-10--measured-branch-weights) | Measured branch weights | Accepted |
 | [11](#adr-11--a-shadow-analyzer-index-measured-not-adopted) | A shadow analyzer index, measured not adopted | Accepted |
+| [12](#adr-12--a-versioned-api-for-outside-clients) | A versioned API for outside clients | Accepted |
+| [13](#adr-13--card-images-are-hot-linked-from-scrydex) | Card images are hot-linked from Scrydex | Accepted |
 
 ---
 
@@ -242,6 +244,49 @@ Two responses sit outside the envelope by design: `/healthz` answers a failed pr
 
 Case is handled unevenly across those filters, and that is a known asymmetry rather than a design. `supertype` is lower-cased before it is matched against `pokemon|trainer|energy`, and `types` members are compared case-insensitively against the eleven canonical type names — but `rarity` and `series` members are only trimmed and then matched verbatim against bare keyword fields that carry no normalizer. So `rarity=common` answers `200` with a total of **0**, while `rarity=Common` returns **5,297**. Send those two the way the facets hand them back: title-case rarities (`Common`, `Uncommon`, `Rare Holo`) and full series names (`Sword & Shield`, `Scarlet & Violet`). Treat that as the interim contract — closing the gap either changes observable filter semantics or means a mapping change and therefore a reseed, so it is written down here rather than quietly altered.
 
+**Amended 2026-11-20.** The record above stays as written; these corrections
+and additions say what the server does now.
+
+- *Lenient members.* Only unknown members of the `types` list are dropped.
+  Unknown `rarity`, `series` and `set` values are kept, and a request that
+  names only unknown values answers `200` with a total of `0`. The lenient
+  bullet above puts `rarity` and `series` members beside `types`, as if all
+  three were dropped; that is true of `types` alone. The zero is deliberate:
+  dropping a mistyped `rarity` would widen the answer to every card.
+- *Accepted spellings.* `debug=true` is `debug=1`. `types` takes `Steel` and
+  `Normal` for `Metal` and `Colorless`, the names the page shows, in any letter
+  case. `supertype` takes `Pokémon` with its accent. A `rarity` that differs
+  from a stored value only in letter case or spacing is mapped onto it, so
+  `rarity=common` now returns the same cards as `Common`, which narrows the case
+  asymmetry described above (the 5,297 counted there is no longer the figure;
+  the corpus now answers 5,407). The pair `Rare Holo EX` and `Rare Holo ex`
+  differs only in case and stays exact. `series` and `set` still match
+  verbatim. A repeated parameter takes its first value.
+- *Input validation, not a limiter.* `q` is capped at 256 characters and 32
+  terms, counted after trimming, a character being a code point. Over either
+  limit is a `400` with `field` set to `q`, on search, suggest, explain and
+  compare, and `q` is required on compare. `sort` and `order` are trimmed. A
+  number too large for a 64-bit integer is a `400`; smaller out-of-range values
+  still clamp.
+- *More codes.* The envelope now also carries `unauthorized` (`401`, with
+  `WWW-Authenticate`, on `/api/v1/`), `not_found` (`404`) and
+  `method_not_allowed` (`405`, with `Allow`). An unknown path or a wrong method
+  under `/api/` is a JSON envelope; the plain-text answers of the static file
+  handler remain for paths outside `/api/`.
+- *Rejected queries.* When Elasticsearch itself answers `400` to the query a
+  search, suggest, explain or compare request produced, the client gets `400`
+  `invalid_param` with a fixed message and no `field`; the cluster's reason
+  goes to the log. Every other Elasticsearch failure is still the `503`
+  above, and the `/api/v1/` routes keep `503` for all of them. The log
+  paragraph above, "before the client receives its generic 503", is true only
+  for those.
+- *Request id precedence.* The paragraph above lists `X-Request-Id` before
+  `Cf-Ray`. The server takes a valid `Cf-Ray` first and a valid `X-Request-Id`
+  second, because the edge sets the first and the client chooses the second; a
+  client therefore cannot shadow the id Cloudflare logs. An invalid `Cf-Ray`
+  falls through to `X-Request-Id`, and an invalid one of those to a generated
+  id.
+
 ---
 
 ## ADR 8 — What was deliberately not built
@@ -301,6 +346,21 @@ why this stays on the stretch list rather than in the backlog.
 [Courier](https://github.com/AndresThePerez/Courier), ships. Because its
 fixtures assert exact corpus cardinalities, a reseed is a coordinated
 two-project change, not a unilateral one.
+
+**Amended 2026-11-20.** The entries above stay as written; three notes on them.
+
+- *URL versioning.* `/api/v1/` now exists for card and set reads, because a
+  second independent client, PokéPrices, appeared. The original `/api/*`
+  routes are unchanged and stay unversioned. See
+  [ADR 12](#adr-12--a-versioned-api-for-outside-clients).
+- *Reseeding.* The freeze on reseeds and mapping changes stands until
+  Courier's exact corpus-count assertions are relaxed. Courier is no longer the
+  only consumer that counts on the corpus: PokéPrices reads the same catalogue
+  through `/api/v1/`, so a reseed is a coordinated change for both projects.
+- *Rate limiting.* There is still no app-level rate limiting. The `q` length
+  cap added under [ADR 7](#adr-7--a-strictlenient-error-contract) is input
+  validation, not a limiter, and the optional API key on `/api/v1/` only
+  labels a client on the access line; nothing is throttled by it.
 
 ---
 
@@ -719,3 +779,96 @@ accented query, a suffix query, a possessive name — measured before any alias 
 moved. [ADR 9](#adr-9--how-relevance-is-evaluated) fixed the method for exactly
 this situation: the first numbers are in, and they say the question is not ready
 to be closed.
+
+---
+
+## ADR 12 — A versioned API for outside clients
+
+**Status.** Accepted 2026-11-20. It records routes that already exist and
+amends the "URL versioning" entry of [ADR 8](#adr-8--what-was-deliberately-not-built)
+for them.
+
+**Decision.** Three read-only routes live under `/api/v1/`:
+
+- `GET /api/v1/cards?ids=a,b,c` — up to 100 distinct card ids; the cards as
+  indexed under `data`, the ids no card has under `missing`. A request that is
+  valid is always a `200`, even when nothing was found.
+- `GET /api/v1/cards/{id}` — one card as indexed, or a `404`.
+- `GET /api/v1/sets` — every set with its release date, printed total and
+  `card_count`, oldest first.
+
+They exist for PokéPrices, which reads card and set data from this service.
+Every answer carries `seed`, the corpus provenance, so a client can tell which
+seeding it is looking at. Answers carry a weak `ETag` and `no-cache`, so a
+client revalidates with a `304` instead of re-reading the body. Failures use the
+envelope of [ADR 7](#adr-7--a-strictlenient-error-contract), and an
+Elasticsearch failure on these routes is always a `503`.
+
+**The original routes stay.** `/api/search`, `/api/suggest`, `/api/explain`,
+`/api/compare`, `/api/stats` and `/api/meta` keep their paths and shapes. The
+embedded UI and Courier use them, and neither moves to a versioned path.
+
+**What the version promises.** Changes under `/api/v1/` are additive: a route,
+a field or a parameter may be added; nothing is removed, renamed or given a
+different type or meaning. A change that needs any of those is a `/api/v2/`.
+The JSON Schemas in `docs/api/schema/` are checked against live answers, so the
+promise has a test behind it.
+
+**The key.** `X-Api-Key` is optional. No header is anonymous access, as on
+every other route, and the public demo is not gated. A header that names no key
+from the `POKESEARCH_API_KEYS` list is a `401` with
+`WWW-Authenticate: ApiKey realm="pokesearch", header="X-Api-Key"`, so a client
+with a stale key finds out. The key only identifies a client: the access line
+records the label `keyed`, never the key, and the server keeps only a digest.
+It exists so a future limiter could exempt keyed clients; none exists
+([ADR 8](#adr-8--what-was-deliberately-not-built)).
+
+**Cost.** Two surfaces to keep stable. A second consumer to coordinate every
+reseed with, which is the cost ADR 8 already names for Courier. And an
+authentication feature that authenticates nothing yet, kept because adding it
+after clients exist would be the breaking change.
+
+---
+
+## ADR 13 — Card images are hot-linked from Scrydex
+
+**Status.** Accepted 2026-11-20. The choice is older: ADR 4 names it a known
+dependency. This record adds what Scrydex's public pages say about it.
+
+**Decision.** The page loads card art directly from `images.scrydex.com`. The
+application neither stores nor proxies images. The frontend builds each URL from
+the card id at render time, as `https://images.scrydex.com/pokemon/{id}/{size}`,
+because the `images.pokemontcg.io` URLs in the dataset return 404s. The content
+security policy allows it as the only external image origin.
+
+**What the public pages say.** Read on 2026-11-20, with no account and no key.
+
+- <https://scrydex.com/docs/getting-started/best-practices>, section *Images*:
+  "When using the Scrydex API, you are free to include the provided card images
+  in your applications." The page recommends caching or self-hosting images, and
+  allows referencing the provided image URLs directly when that is not an
+  option, with fallback logic. It says Scrydex does not claim ownership of the
+  images, that they belong to their copyright holders, that the user is
+  responsible for copyright compliance, and that attribution is recommended.
+  Fetching images costs no API credits.
+- The same page says the URLs "generally follow a specific pattern, but that is
+  not guaranteed", and that clients should use the URLs the API returns.
+  <https://scrydex.com/docs/pokemon/cards> shows the pattern the frontend
+  builds, `https://images.scrydex.com/pokemon/base1-4/small`, as part of a card
+  object.
+- <https://scrydex.com/terms>: terms for Scrydex's services and accounts. It
+  does not mention hot-linking or the image host. It forbids reselling or
+  mirroring the services and request patterns inconsistent with normal
+  commercial use, and says Scrydex claims no ownership of third-party
+  intellectual property.
+
+**Open question.** Those pages are written for API customers. PokéSearch does
+not call the API and holds no key. It builds image URLs from the card id instead
+of reading them from an API answer, which the page tells clients not to assume.
+Nothing public that was found says whether that is covered by the sentence
+quoted above, and nothing states a hot-linking policy or a rate limit for the
+image host. The places looked at were the Terms page, the docs home, the Best
+Practices page, the Rate Limits page and the Pokémon card object page. Until
+this is answered the page does not claim permission, and the dependency stays
+as ADR 4 and the README describe it: if Scrydex changes the URLs or blocks the
+page, art fails to load and search keeps working.

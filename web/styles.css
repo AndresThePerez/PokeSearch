@@ -2123,6 +2123,19 @@ body.route-stats .app-layout { grid-template-columns: minmax(0, 1fr) minmax(340p
   .modal-details { padding: 0 .35rem 1rem; }
 }
 
+/* Below 390px the count line and the sort control do not both fit at their
+   natural widths, and a wrapped toolbar was a row taller while the first
+   search loaded than after it, so the grid jumped up when the count landed.
+   Here the toolbar stays one row whatever the line says: the count keeps its
+   full width and the sort select narrows to what is left. */
+@media (max-width: 389.98px) {
+  .results-toolbar { flex-wrap: nowrap; }
+  .results-toolbar > div:first-child { flex: none; }
+  .sort-controls { flex: 0 1 auto; min-width: 0; }
+  .sort-controls label { flex: 0 1 auto; min-width: 0; }
+  .sort-controls select { min-width: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; }
 }

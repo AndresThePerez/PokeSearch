@@ -59,6 +59,92 @@ jobs:
           echo "indexed docs: $docs"
           [ "$docs" = "20635" ]
 
+      # On loopback the matrix holds search and stats answers
+      # to a latency target, and the index above was written seconds ago. The
+      # first request of each kind meets cold Elasticsearch caches and a JVM
+      # that has not compiled its hot paths yet, and misses the target, while
+      # the same request a moment later meets it. This step sends the kinds of
+      # request the matrix times through the app a fixed number of times, so the
+      # matrix measures the service as it runs rather than its first second. It
+      # checks no timing (the targets stay the matrix's), but a request that is
+      # not answered 200 fails it, so a broken stack is not hidden here. It also
+      # builds the two test packages first: go test compiles one package while
+      # it already runs the other, and the compiler would otherwise share the
+      # runner's CPUs with the first timed requests.
+      - name: Warm up the app
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          go test -tags acceptance -count=1 -run '^$' ./internal/acceptance ./internal/apischema
+          paths=(
+            "/api/search"
+            "/api/search?q=Pikachu"
+            "/api/search?q=Pikachu&set=base1"
+            "/api/search?q=charizard"
+            "/api/search?q=abxx"
+            "/api/search?q=charizard&page_size=10"
+            "/api/search?q=charizard&sort=relevance&debug=1"
+            "/api/search?sort=relevance&debug=1"
+            "/api/search?set=base1&rarity=Promo&debug=1"
+            "/api/search?rarity=Rare"
+            "/api/search?types=Fire,Water"
+            "/api/search?types=Fire&rarity=Common"
+            "/api/search?supertype=pokemon"
+            "/api/search?series=Base"
+            "/api/search?set=base1&types=Fire&sort=newest"
+            "/api/search?sort=newest&page=2"
+            "/api/search?sort=oldest"
+            "/api/search?sort=hp&order=desc"
+            "/api/search?sort=name&order=asc"
+            "/api/search?page_size=100"
+            "/api/stats"
+            "/api/suggest?q=chari"
+            "/api/suggest?q=pikuchu"
+            "/api/compare?q=charizard"
+            "/api/explain?id=base1-4&q=charizard"
+            "/api/v1/cards/base1-4"
+            "/api/v1/cards?ids=base1-4,nope-1"
+            "/api/v1/sets"
+          )
+          # A repeat of a request that missed its target cold has met it on the
+          # next try, so two passes would do; ten leave room for the JVM to
+          # finish compiling, and on a warm stack a pass takes under a second.
+          passes=10
+          out="$(mktemp -d)"
+          for pass in $(seq 1 "$passes"); do
+            for i in "${!paths[@]}"; do
+              code="$(curl -sS --max-time 30 -o "$out/$i.json" -w '%{http_code}' "http://localhost:8080${paths[$i]}")" \
+                || { echo "warm-up pass $pass: GET ${paths[$i]} got no answer"; exit 1; }
+              if [ "$code" != 200 ]; then
+                echo "warm-up pass $pass: GET ${paths[$i]} answered $code, want 200"
+                exit 1
+              fi
+            done
+            # Report the slowest took_ms of the pass, for search and for the
+            # other routes apart, so the log shows the service going from cold
+            # to warm. Answers without a took_ms (suggest, v1) are skipped.
+            python3 - "$pass" "$passes" "$out" "${paths[@]}" <<'PY'
+          import json, os, sys
+
+          pass_no, passes, out, paths = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
+          slowest = {"search": (-1, ""), "other": (-1, "")}
+          for i, path in enumerate(paths):
+              with open(os.path.join(out, f"{i}.json")) as fh:
+                  took = json.load(fh).get("took_ms")
+              if not isinstance(took, int):
+                  continue
+              group = "search" if path.startswith("/api/search") else "other"
+              if took > slowest[group][0]:
+                  slowest[group] = (took, path)
+          print(
+              f"warm-up pass {pass_no}/{passes}:"
+              f" slowest search took_ms {slowest['search'][0]} ({slowest['search'][1]}),"
+              f" slowest other took_ms {slowest['other'][0]} ({slowest['other'][1]})"
+          )
+          PY
+          done
+
       - name: Acceptance matrix
         run: POKESEARCH_URL=http://localhost:8080 go test -tags acceptance -count=1 -v ./internal/acceptance ./internal/apischema
 

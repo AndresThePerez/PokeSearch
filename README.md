@@ -87,7 +87,7 @@ POKESEARCH_URL=http://localhost:8080 go test -tags acceptance -count=1 ./interna
 
 The suite asserts that `/api/meta` reports a stamped build, a version other than `dev` and a commit other than `none`, so the stack under test has to be built with the `-ldflags` stamp described under *Build identity* below. A binary built without it fails that check. For a server built outside Docker, pass the same three `-X` flags the `Dockerfile` does, for `Version`, `Commit` and `Built` in `internal/version`.
 
-`.github/workflows/acceptance.yml` runs that same suite end to end on demand (`workflow_dispatch`): it brings the stack up, seeds the pinned ref, asserts `/healthz` reports exactly 20,635 documents, and only then runs the tests.
+`.github/workflows/acceptance.yml` runs that same suite end to end on demand (`workflow_dispatch`): it brings the stack up, seeds the pinned ref, asserts `/healthz` reports exactly 20,635 documents, warms the app up with a fixed number of passes over the kinds of request the suite times (it checks only that each is answered 200, never how fast), and only then runs the tests.
 
 ### Build identity
 

@@ -18,7 +18,7 @@ import {
   noteHistoryNavigation,
 } from "./api.js";
 import { scheduleSuggest, closeSuggestions, handleSuggestKeydown } from "./suggest.js";
-import { bindModalEvents, openDeepLink } from "./modal.js";
+import { bindModalEvents, openDeepLink, syncDialogToAddress } from "./modal.js";
 import { lastResponseHadDSL, refreshRankingLab } from "./telemetry.js";
 import { showStats } from "./stats.js";
 
@@ -43,14 +43,17 @@ function statsViewOpen() {
 // able to overwrite them and then guess them back.
 // load is false for the very first paint: the view has to switch immediately,
 // but its fetch waits for the initial search so the two cannot race for the
-// inspector panes.
+// inspector panes. A view that is already on screen is not fetched again:
+// closing a card opened over the Stats view lands back on #stats, and
+// popstate and hashchange both arrive for that one step.
 function renderRoute({ load = true } = {}) {
   if (location.hash.startsWith("#card=")) return;
   const stats = isStatsRoute();
+  const wasStats = statsViewOpen();
   document.body.classList.toggle("route-stats", stats);
   $("stats-view").hidden = !stats;
   $("stats-link").textContent = stats ? "Back to search" : "Archive stats";
-  if (stats && load) showStats();
+  if (stats && load && !wasStats) showStats();
 }
 
 // leaveStatsRoute returns to the search view with a clean URL — a pushState so
@@ -257,16 +260,28 @@ function bindCoreEvents() {
     leaveStatsRoute();
   });
 
-  window.addEventListener("hashchange", () => renderRoute());
+  // An edited or pasted hash: a card address opens its card, any other one
+  // closes the dialog and paints its route.
+  window.addEventListener("hashchange", () => {
+    syncDialogToAddress();
+    renderRoute();
+  });
 
   // Back and Forward restore a previous search. A history entry that only
   // differs by the #card= hash is the modal's, not a search's, and re-running
   // the identical query for it would be pure waste.
   window.addEventListener("popstate", () => {
     // Typing back to the query beneath a draft entry steps back to it; that
-    // search is already running, and the entry it lands on has the same hash.
+    // search is already running, and the entry it lands on has the same hash,
+    // so it can neither open nor close the card dialog: it returns before the
+    // dialog is consulted.
     if (isOwnStepBack()) return;
     noteHistoryNavigation();
+    // Back off a card address closes the dialog, Forward onto one opens it.
+    // The dialog's own step back on close arrives here too, finds the dialog
+    // already closed, and is an ordinary Back for the typing bookkeeping
+    // above: no burst can be open while the dialog covers the search box.
+    syncDialogToAddress();
     renderRoute();
     const before = buildParams().toString();
     readStateFromURL();

@@ -66,11 +66,21 @@ export function writeStateToURL({ push = false } = {}) {
   const qs = buildParams().toString();
   const url = `${location.pathname}${qs ? `?${qs}` : ""}${location.hash}`;
   if (push && addressDiffersFromState()) {
-    history.pushState(null, "", url);
+    history.pushState(entryStateFor({ push: true, current: history.state }), "", url);
     return true;
   }
-  history.replaceState(null, "", url);
+  history.replaceState(entryStateFor({ push: false, current: history.state }), "", url);
   return false;
+}
+
+// entryStateFor decides what history.state an address rewrite leaves. A
+// replace rewrites the entry the visitor is on, so it keeps what that entry
+// already carries — the card dialog's marker among it, which is how closing
+// a card still steps back after the first search of a reload rewrote its
+// address. A push starts a new entry, which carries nothing.
+export function entryStateFor({ push, current }) {
+  if (push) return null;
+  return current ?? null;
 }
 
 // addressDiffersFromState says whether writing the state now would change the

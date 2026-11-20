@@ -1,0 +1,1 @@
+{"id": "base1 4", "q": "charizard", "found": true, "score": 15.75, "branches": [{"name": "exact", "matched": true, "score": 12.5, "description": "sum of:", "components": [{"description": "idf", "value": 1.25}]}, {"name": "text", "matched": false, "score": 0}], "took_ms": 4, "request_id": "a651a11278717a2c"}

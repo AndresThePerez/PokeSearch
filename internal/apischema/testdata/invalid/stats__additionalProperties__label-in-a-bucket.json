@@ -1,0 +1,1 @@
+{"total": 3, "max_hp": 120, "per_year": [{"year": "1999", "count": 1}], "hp": [{"from": 0, "count": 1}], "types": [{"value": "Fire", "count": 1}], "supertype": [{"value": "Pokémon", "count": 3}], "rarity": [{"value": "Rare", "count": 2, "label": "Rare"}], "series": [{"value": "Base", "count": 1}], "took_ms": 3, "request_id": "a651a11278717a2c"}

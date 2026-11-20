@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GET /api/compare 200",
+  "description": "One query ranked twice, under two named weightings of the relevance branches, with the first ten of each side and the movement between them. A pre-v1 endpoint, described here unchanged. a defaults to served and b to previous. A missing or over-long q, or a profile name outside the three, is a 400, error.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["q", "window", "a", "b", "deltas", "spearman_rho_union", "missing_rank", "took_ms", "request_id"],
+  "properties": {
+    "q": { "description": "The trimmed query, at most 256 characters.", "type": "string", "minLength": 1, "maxLength": 256 },
+    "window": { "description": "How many ranked cards each side holds at most.", "type": "integer", "minimum": 1 },
+    "a": { "$ref": "#/$defs/side" },
+    "b": { "$ref": "#/$defs/side" },
+    "deltas": {
+      "description": "The union of the two windows, largest movement first. A card only one window holds comes before every card both hold.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/delta" }
+    },
+    "spearman_rho_union": {
+      "description": "Spearman's rank correlation over the union, rounded to four decimals; 1 is the same ranking and -1 the reverse. null when it is undefined: fewer than two cards in the union, or a side that matched nothing.",
+      "type": ["number", "null"],
+      "minimum": -1,
+      "maximum": 1
+    },
+    "missing_rank": { "description": "The rank a card takes in the window that does not hold it, when the correlation is computed: window + 1.", "type": "integer", "minimum": 1 },
+    "took_ms": { "type": "integer", "minimum": 0 },
+    "request_id": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,64}$" }
+  },
+  "$defs": {
+    "side": {
+      "description": "One profile's answer: the weights it was given, and its ranked window.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "boosts", "total", "took_ms", "results"],
+      "properties": {
+        "profile": { "type": "string", "enum": ["served", "previous", "runner-up"] },
+        "boosts": {
+          "description": "The boost each relevance branch carried in the request that was sent, keyed by branch name.",
+          "type": "object",
+          "additionalProperties": { "type": "number", "minimum": 0 }
+        },
+        "total": { "description": "Cards matching the query, not only the window.", "type": "integer", "minimum": 0 },
+        "took_ms": { "type": "integer", "minimum": 0 },
+        "results": {
+          "description": "Ranked best first, ranks 1, 2, 3, ... without gaps; scores never increase down the list.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/entry" }
+        }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rank", "id", "name", "score"],
+      "properties": {
+        "rank": { "description": "1-based position in this window.", "type": "integer", "minimum": 1 },
+        "id": { "$ref": "card.json#/properties/id" },
+        "name": { "type": "string" },
+        "score": { "description": "Rounded to three decimals.", "type": "number", "minimum": 0 }
+      }
+    },
+    "delta": {
+      "description": "One card of the union. status is entered when only b holds it (rank_a and delta are null), dropped when only a holds it (rank_b and delta are null), and otherwise up, down or same by the sign of delta, with all three numbers present.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "status", "rank_a", "rank_b", "delta"],
+      "properties": {
+        "id": { "$ref": "card.json#/properties/id" },
+        "name": { "type": "string" },
+        "status": { "type": "string", "enum": ["up", "down", "same", "entered", "dropped"] },
+        "rank_a": { "type": ["integer", "null"], "minimum": 1 },
+        "rank_b": { "type": ["integer", "null"], "minimum": 1 },
+        "delta": { "description": "rank_a - rank_b: positive means the card is nearer the top under b.", "type": ["integer", "null"] }
+      }
+    }
+  }
+}

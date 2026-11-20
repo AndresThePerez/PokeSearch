@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GET /api/stats 200",
+  "description": "A description of the whole archive, not of any query: the same for every caller and computed once per process. A pre-v1 endpoint, described here unchanged. It takes no search parameters; debug is the only one read. Every list is always present, empty on an index with no cards. took_ms is the engine time of the aggregation that produced the figures, not of the request that returned them.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["total", "max_hp", "per_year", "hp", "types", "supertype", "rarity", "series", "took_ms", "request_id"],
+  "properties": {
+    "total": { "description": "Cards in the index.", "type": "integer", "minimum": 0 },
+    "max_hp": { "description": "The highest printed HP; 0 on an index with none.", "type": "integer", "minimum": 0 },
+    "per_year": {
+      "description": "Cards per release year, oldest first, with no year missing between the first and the last.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["year", "count"],
+        "properties": {
+          "year": { "type": "string", "pattern": "^[0-9]{4}$" },
+          "count": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "hp": {
+      "description": "Cards per 30-point HP band, named by the band's lower bound, from 0 up to the band holding max_hp.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["from", "count"],
+        "properties": {
+          "from": { "type": "integer", "minimum": 0 },
+          "count": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "types": { "$ref": "#/$defs/buckets" },
+    "supertype": { "$ref": "#/$defs/buckets" },
+    "rarity": { "$ref": "#/$defs/buckets" },
+    "series": { "$ref": "#/$defs/buckets" },
+    "took_ms": { "type": "integer", "minimum": 0 },
+    "request_id": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,64}$" },
+    "dsl": {
+      "description": "Present only with debug=1 or debug=true: the Elasticsearch request body behind the figures. It is Elasticsearch's query language, not part of this contract, and clients must not depend on it."
+    }
+  },
+  "$defs": {
+    "buckets": {
+      "description": "One entry per value of the field, most common first.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["value", "count"],
+        "properties": {
+          "value": { "type": "string" },
+          "count": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

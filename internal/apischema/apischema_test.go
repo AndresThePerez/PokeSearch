@@ -161,10 +161,14 @@ func fetch(t testing.TB, base, path string, header http.Header) answer {
 // unchanged; only the cluster's answers are canned.
 
 type fakeCluster struct {
-	cards     map[string]tcg.Card
-	hits      []string // ids a card _search answers with, in order
-	unstamped bool     // the mapping carries no seed provenance
-	down      bool     // every call fails
+	cards map[string]tcg.Card
+	hits  []string // ids a card _search answers with, in order
+	// previousHits, when set, are the ids a card _search answers with when its
+	// body carries the weights /api/compare's "previous" profile gives the
+	// prefix branch, so the two sides of a comparison can differ.
+	previousHits []string
+	unstamped    bool // the mapping carries no seed provenance
+	down         bool // every call fails
 }
 
 func esAnswer(status int, body string) *http.Response {
@@ -209,6 +213,10 @@ func (f *fakeCluster) RoundTrip(r *http.Request) (*http.Response, error) {
 		return esAnswer(200, f.mget(body)), nil
 	case "/cards/_search":
 		return esAnswer(200, f.search(body)), nil
+	}
+	if id, ok := strings.CutPrefix(r.URL.Path, "/cards/_explain/"); ok {
+		status, answer := f.explain(id, body)
+		return esAnswer(status, answer), nil
 	}
 	return nil, errors.New("unexpected ES call: " + r.URL.Path)
 }
@@ -281,7 +289,13 @@ func (f *fakeCluster) search(body []byte) string {
 			buckets = append(buckets, fmt.Sprintf(`{"key":%s,"doc_count":%d,"identity":{"hits":{"hits":[{"_source":%s}]}}}`, mustJSON(c.SetID), f.setCount(c.SetID), src))
 		}
 		return `{"took":2,"hits":{"hits":[]},"aggregations":{"set_catalog":{"buckets":[` + strings.Join(buckets, ",") + `]}}}`
-	case req["suggest"] != nil:
+	case hasMember(req["suggest"], "card"):
+		return f.completion(req)
+	case hasMember(req["aggs"], "names"):
+		return f.rankedNames(req)
+	case hasMember(req["aggs"], "per_year"):
+		return f.stats()
+	case hasMember(req["suggest"], "dym"):
 		var dym struct {
 			Suggest struct {
 				DYM struct {
@@ -296,8 +310,12 @@ func (f *fakeCluster) search(body []byte) string {
 
 	_, highlighted := req["highlight"]
 	branch := search.Branches("charizard")[0].Name
-	hits := make([]string, 0, len(f.hits))
-	for _, id := range f.hits {
+	ranked := f.hits
+	if f.previousHits != nil && prefixBoost(req) == 4 {
+		ranked = f.previousHits
+	}
+	hits := make([]string, 0, len(ranked))
+	for _, id := range ranked {
 		c := f.cards[id]
 		hit := fmt.Sprintf(`{"_index":"cards","_id":%s,"_score":1.5,"_source":%s,"matched_queries":[%s]`, mustJSON(id), mustJSON(c), mustJSON(branch))
 		if highlighted {
@@ -450,6 +468,53 @@ var liveCases = []liveCase{
 		cluster: func() *fakeCluster { f := goldenCluster(); f.hits = nil; return f }, contains: `"did_you_mean":"charizard"`},
 	{name: "search with debug", path: "/api/search?q=charizard&debug=1", status: 200, schema: "search.json", contains: `"dsl":{`},
 	{name: "search with a bad parameter", path: "/api/search?sort=bogus", status: 400, schema: "error.json", contains: `"field":"sort"`},
+
+	{name: "suggest a prefix", path: "/api/suggest?q=chari", status: 200, schema: "suggest.json", contains: `"suggestions":["Charizard"]`},
+	{name: "suggest a typo", path: "/api/suggest?q=charzard", status: 200, schema: "suggest.json", contains: `"suggestions":["Charizard"]`},
+	{name: "suggest with no match", path: "/api/suggest?q=zzz", status: 200, schema: "suggest.json", contains: `"suggestions":[]`},
+	{name: "suggest with an empty q", path: "/api/suggest?q=", status: 200, schema: "suggest.json", contains: `"suggestions":[]`},
+	{name: "suggest with a q over the cap", path: "/api/suggest?q=" + strings.Repeat("a", 257), status: 400, schema: "error.json", contains: `"field":"q"`},
+	{name: "suggest with Elasticsearch down", path: "/api/suggest?q=chari", status: 503, schema: "error.json",
+		cluster: func() *fakeCluster { f := goldenCluster(); f.down = true; return f }, contains: `"code":"es_unavailable"`},
+
+	{name: "explain a card", path: "/api/explain?id=base1-4&q=charizard", status: 200, schema: "explain.json", contains: `"components":[{"description":"idf"`},
+	{name: "explain ex10-?", path: "/api/explain?id=ex10-%3F&q=unown", status: 200, schema: "explain.json", contains: `"id":"ex10-?"`},
+	{name: "explain a card that is not indexed", path: "/api/explain?id=nope-999&q=x", status: 200, schema: "explain.json", contains: `"found":false`},
+	{name: "explain with an id failing the pattern", path: "/api/explain?id=a%20b&q=x", status: 400, schema: "error.json", contains: `"field":"id"`},
+	{name: "explain without q", path: "/api/explain?id=base1-4", status: 400, schema: "error.json", contains: `"field":"q"`},
+	{name: "explain with Elasticsearch down", path: "/api/explain?id=base1-4&q=charizard", status: 503, schema: "error.json",
+		cluster: func() *fakeCluster { f := goldenCluster(); f.down = true; return f }, contains: `"code":"es_unavailable"`},
+
+	{name: "compare", path: "/api/compare?q=charizard", status: 200, schema: "compare.json", contains: `"profile":"served"`},
+	{name: "compare with a card only the second profile ranks", path: "/api/compare?q=charizard", status: 200, schema: "compare.json",
+		cluster: func() *fakeCluster {
+			f := goldenCluster()
+			f.hits, f.previousHits = []string{"base1-4", "ex10-?"}, []string{"ex10-?", "base1-4", "ex10-!"}
+			return f
+		}, contains: `"status":"entered"`},
+	{name: "compare with a card only the first profile ranks", path: "/api/compare?q=charizard", status: 200, schema: "compare.json",
+		cluster: func() *fakeCluster {
+			f := goldenCluster()
+			f.previousHits = []string{"ex10-?", "base1-4"}
+			return f
+		}, contains: `"status":"dropped"`},
+	{name: "compare with named profiles", path: "/api/compare?q=charizard&a=served&b=runner-up", status: 200, schema: "compare.json", contains: `"profile":"runner-up"`},
+	{name: "compare with no hits", path: "/api/compare?q=zzz", status: 200, schema: "compare.json",
+		cluster: func() *fakeCluster { f := goldenCluster(); f.hits = nil; return f }, contains: `"spearman_rho_union":null`},
+	{name: "compare without q", path: "/api/compare", status: 400, schema: "error.json", contains: `"field":"q"`},
+	{name: "compare with an unknown profile", path: "/api/compare?q=charizard&a=bogus", status: 400, schema: "error.json", contains: `"field":"a"`},
+	{name: "compare with Elasticsearch down", path: "/api/compare?q=charizard", status: 503, schema: "error.json",
+		cluster: func() *fakeCluster { f := goldenCluster(); f.down = true; return f }, contains: `"code":"es_unavailable"`},
+
+	{name: "stats", path: "/api/stats", status: 200, schema: "stats.json", contains: `"max_hp":120`},
+	{name: "stats with debug", path: "/api/stats?debug=1", status: 200, schema: "stats.json", contains: `"dsl":{`},
+	{name: "stats with debug=true", path: "/api/stats?debug=true", status: 200, schema: "stats.json", contains: `"dsl":{`},
+	{name: "stats on an empty index", path: "/api/stats", status: 200, schema: "stats.json",
+		cluster: func() *fakeCluster { return &fakeCluster{cards: map[string]tcg.Card{}} }, contains: `"per_year":[]`},
+	{name: "stats with Elasticsearch down", path: "/api/stats", status: 503, schema: "error.json",
+		cluster: func() *fakeCluster { f := goldenCluster(); f.down = true; return f }, contains: `"code":"es_unavailable"`},
+
+	{name: "unknown api path", path: "/api/nope", status: 404, schema: "error.json", contains: `"code":"not_found"`},
 }
 
 func TestHandlerOutputMatchesSchemas(t *testing.T) {
@@ -564,11 +629,21 @@ var v1Routes = map[string]string{
 	"GET /api/v1/sets":       "sets-response.json",
 }
 
-// legacyRoutes are the two pre-v1 endpoints PokéPrices reads; they are
-// described, not changed.
+// legacyRoutes are the pre-v1 endpoints: meta and search, which PokéPrices
+// reads, and the four the page's panels read. They are described, not changed.
 var legacyRoutes = map[string]string{
-	"GET /api/meta":   "meta.json",
-	"GET /api/search": "search.json",
+	"GET /api/meta":    "meta.json",
+	"GET /api/search":  "search.json",
+	"GET /api/suggest": "suggest.json",
+	"GET /api/explain": "explain.json",
+	"GET /api/compare": "compare.json",
+	"GET /api/stats":   "stats.json",
+}
+
+// errorOnlyRoutes are /api/ routes whose every answer is an error: the
+// catch-all that gives an unknown path the JSON 404.
+var errorOnlyRoutes = map[string]string{
+	"GET /api/": "error.json",
 }
 
 // muxPatterns parses the server package and returns every pattern passed to
@@ -618,6 +693,26 @@ func muxPatterns(t *testing.T) []string {
 	return out
 }
 
+// routesWithoutSchema returns every mux pattern under /api/ that no route map
+// names, pre-v1 ones included: a route added without a schema is reported here
+// instead of shipping undescribed. "GET /api" (no trailing slash) is the static
+// file handler and answers HTML, so it is not under /api/.
+func routesWithoutSchema(patterns []string) []string {
+	var out []string
+	for _, p := range patterns {
+		if !strings.Contains(p, "/api/") {
+			continue
+		}
+		_, v1 := v1Routes[p]
+		_, legacy := legacyRoutes[p]
+		_, errorOnly := errorOnlyRoutes[p]
+		if !v1 && !legacy && !errorOnly {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 func TestEveryV1RouteHasASchema(t *testing.T) {
 	patterns := muxPatterns(t)
 	for want := range legacyRoutes {
@@ -646,6 +741,10 @@ func TestEveryV1RouteHasASchema(t *testing.T) {
 		}
 	}
 
+	for _, p := range routesWithoutSchema(patterns) {
+		t.Errorf("route %q has no schema: add it to legacyRoutes and docs/api/schema", p)
+	}
+
 	files := schemaFiles(t)
 	// Every mapped route is exercised by a case validating against its schema:
 	// a registry mux resolves each case's path the way the server's does.
@@ -658,6 +757,9 @@ func TestEveryV1RouteHasASchema(t *testing.T) {
 		routes[p] = s
 	}
 	for p, s := range legacyRoutes {
+		routes[p] = s
+	}
+	for p, s := range errorOnlyRoutes {
 		routes[p] = s
 	}
 	for p, schema := range routes {
@@ -715,6 +817,18 @@ var opaque = map[string]string{
 	// language, not this contract's. Closing it would make every query tweak
 	// a contract change; PokéPrices never sends debug=1.
 	"search.json#/properties/dsl": "Elasticsearch DSL echo",
+	// The same echo, on the corpus statistics under debug=1 or debug=true.
+	"stats.json#/properties/dsl": "Elasticsearch DSL echo",
+}
+
+// dataKeyedMaps lists the objects whose member names are data, not part of the
+// contract: they are described as a map from any name to a value schema, which
+// is the one kind of object allowed not to be closed with additionalProperties:
+// false.
+var dataKeyedMaps = map[string]string{
+	// One weight per relevance branch (exact, prefix, fuzzy-name, text, ...),
+	// named by the branch. A new branch is a new key, not a new contract.
+	"compare.json#/$defs/side/properties/boosts": "branch name to boost",
 }
 
 // walkSchema visits every subschema reachable through the structural
@@ -764,7 +878,8 @@ func declaresObject(node map[string]any) bool {
 
 func TestSchemasAreClosedDraft2020(t *testing.T) {
 	files := schemaFiles(t)
-	want := []string{"card.json", "card-response.json", "cards-batch-response.json", "sets-response.json", "error.json", "meta.json", "search.json"}
+	want := []string{"card.json", "card-response.json", "cards-batch-response.json", "sets-response.json", "error.json", "meta.json", "search.json",
+		"suggest.json", "explain.json", "compare.json", "stats.json"}
 	for _, f := range want {
 		if !slices.Contains(files, f) {
 			t.Errorf("%s missing from %s", f, schemaDir)
@@ -781,7 +896,9 @@ func TestSchemasAreClosedDraft2020(t *testing.T) {
 			if declaresObject(node) {
 				objects++
 				if node["additionalProperties"] != false {
-					t.Errorf("%s: an object without additionalProperties: false", at)
+					if _, sub := node["additionalProperties"].(map[string]any); !sub || dataKeyedMaps[at] == "" {
+						t.Errorf("%s: an object without additionalProperties: false", at)
+					}
 				}
 			}
 			for _, kw := range []string{"type", "$ref", "const", "enum", "oneOf", "anyOf", "allOf"} {

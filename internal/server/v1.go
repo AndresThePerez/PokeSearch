@@ -72,6 +72,7 @@ func (s *Server) handleV1Card(w http.ResponseWriter, r *http.Request) {
 	entry.Params = map[string]any{"id": id}
 
 	if !search.ValidCardID(id) {
+		entry.Params = cutLogParams(entry.Params)
 		s.v1BadRequest(w, r, entry, "id", "id must match "+search.CardIDPattern)
 		return
 	}

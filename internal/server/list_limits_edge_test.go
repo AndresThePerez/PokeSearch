@@ -193,3 +193,35 @@ func TestRefusedV1CardsLogsIDsCut(t *testing.T) {
 		})
 	}
 }
+
+// A refused /api/v1/cards/{id} logs its id cut like the list route does, so
+// its line stays small however long the path was; the lookup is never made.
+func TestRefusedV1CardLogsIDCut(t *testing.T) {
+	for name, id := range map[string]string{
+		"20 KB malformed id":   strings.Repeat("<", 20000),
+		"129 valid characters": strings.Repeat("a", 129),
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, logBuf := newTestServer(t, neverCalled(t))
+			rec := get(t, s, "/api/v1/cards/"+url.PathEscape(id))
+			if rec.Code != 400 {
+				t.Fatalf("status %d, want 400: %.300s", rec.Code, rec.Body.String())
+			}
+			if body := decodeError(t, rec); body.Error.Code != "invalid_param" || body.Error.Field != "id" {
+				t.Errorf("400 body = %+v, want invalid_param on id", body.Error)
+			}
+			if line := rawQueryLine(t, logBuf); len(line) > maxRefusedLogLine {
+				t.Errorf("query-log line is %d bytes for an id of %d bytes, want at most %d", len(line), len(id), maxRefusedLogLine)
+			}
+			lg := queryLine(t, logBuf)
+			p, _ := lg["params"].(map[string]any)
+			if got, _ := p["id"].(string); !strings.HasSuffix(got, cutLogMarker) ||
+				!strings.HasPrefix(id, strings.TrimSuffix(got, cutLogMarker)) {
+				t.Errorf("logged id = %.100q, want a prefix of the value with the cut marker", got)
+			}
+			if lg["status"] != float64(400) || lg["dsl"] != nil {
+				t.Errorf("line status %v dsl %v", lg["status"], lg["dsl"] != nil)
+			}
+		})
+	}
+}

@@ -6,8 +6,8 @@
 // injected by main.js through setFilterChangeHandler.
 
 import { $, element } from "./util.js";
-import { state, queryText, effectiveSort, effectiveOrder } from "./state.js";
-import { renderStats } from "./telemetry.js";
+import { state, queryText, effectiveSort, effectiveOrder, acceptedFilters, rewriteFilterAddress } from "./state.js";
+import { renderStats, noteArchiveSets, BRANCHES, isCount } from "./telemetry.js";
 
 // The rendered cards, keyed by id, so the modal and the #card= deep link can
 // open one without a second request.
@@ -26,64 +26,226 @@ export function setFilterChangeHandler(fn) {
 }
 
 
-// renderDidYouMean offers the server's spelling correction on the empty state.
-// It only ever appears on a zero-result search, so it cannot compete with the
-// autocomplete list the user was being offered while typing.
-//
-// Unlike the filter chips, this button is static markup that is never
-// replaced, so main.js binds its click once at startup and this only has to
-// paint it — no injected handler needed.
-function renderDidYouMean(suggestion) {
+const CORRECTION_BEFORE = "Did you mean ";
+const CORRECTION_AFTER = "?";
+
+// correctionView decides what the page does with the spelling correction a
+// response carries: whether it is offered, where, what the button says and
+// the query pressing it runs. It goes with the empty-state message when the
+// search found nothing and above the results when it found some. A response
+// with no correction, or one that names the query already searched, offers
+// none. A page that Load more appends answers the same search, so it returns
+// null: the correction stays as it is.
+export function correctionView({ suggestion, total, q = "", append = false }) {
+  if (append) return null;
+  const query = typeof suggestion === "string" ? suggestion.trim() : "";
+  if (!query || query.toLowerCase() === String(q).trim().toLowerCase()) return { shown: false };
+  return {
+    shown: true,
+    place: total === 0 ? "empty" : "results",
+    query,
+    text: `${CORRECTION_BEFORE}${query}${CORRECTION_AFTER}`,
+  };
+}
+
+// renderDidYouMean paints the correction. It is one button that moves: right
+// after the empty-state message on a search that found nothing, so it is the
+// next thing read after the message that takes focus, and above the badge
+// legend and the grid on a search that found cards. Its accessible name is its
+// own text. The button is static markup, so main.js binds its click once at
+// startup and this only has to paint and place it.
+function renderDidYouMean(view) {
+  if (!view) return;
   const button = $("did-you-mean");
-  button.hidden = !suggestion;
-  if (!suggestion) return;
+  button.hidden = !view.shown;
+  if (!view.shown) return;
+  if (view.place === "empty") $("empty-message").after(button);
+  else $("badge-legend").before(button);
   button.replaceChildren(
-    document.createTextNode("Did you mean "),
-    element("strong", "", suggestion),
-    document.createTextNode("?"),
+    document.createTextNode(CORRECTION_BEFORE),
+    element("strong", "", view.query),
+    document.createTextNode(CORRECTION_AFTER),
   );
-  button.setAttribute("aria-label", `Search for ${suggestion} instead`);
-  button.dataset.suggestion = suggestion;
+  button.dataset.q = view.query;
 }
 
 export function renderResults(data, { append = false, roundTripMs = 0 } = {}) {
   state.page = data.page;
-  renderGrid(data.results, { append, matched: data.matched, highlights: data.highlights });
+  // The filters the address asked for are not always the ones the search
+  // used: the server drops an unknown type and maps another spelling of a
+  // rarity onto the stored one. A first page brings the state, and with it the
+  // chips, the controls and the address, in line with what was used.
+  if (!append) {
+    const { types, rarity, set, series, changed } = acceptedFilters({ state, total: data.total, facets: data.facets });
+    if (changed) {
+      Object.assign(state, { types, rarity, set, series });
+      rewriteFilterAddress();
+    }
+  }
+  renderGrid(data.results, { append, page: data.page, matched: data.matched, highlights: data.highlights });
   renderFacets(data.facets);
-  $("total-count").textContent = `${Number(data.total).toLocaleString()} ${data.total === 1 ? "card" : "cards"}`;
+  $("total-count").textContent = countLineText({ phase: "done", total: data.total });
+  noteArchiveSets(data.facets?.sets?.length);
   $("load-more").hidden = data.pages === 0 || data.page >= data.pages;
+  $("results-end").textContent = endOfResultsLine({
+    shown: (data.page - 1) * data.page_size + data.results.length,
+    total: data.total,
+    window: data.pages * data.page_size,
+  });
   $("empty-state").hidden = data.total !== 0;
-  renderDidYouMean(data.did_you_mean);
+  if (data.total === 0) $("empty-message").textContent = emptyStateMessage(state);
+  renderDidYouMean(correctionView({ suggestion: data.did_you_mean, total: data.total, q: state.q, append }));
   $("results-grid").hidden = data.total === 0;
+  renderGuide({ total: data.total, matched: data.matched });
   renderStats(data, roundTripMs);
   syncControls();
 }
 
-// The four relevance branches, in the order the server reports them, mapped to
-// what fits on a badge. Keys are search.Branches' names — they arrive from the
-// API, so a new branch shows up under its raw name rather than vanishing.
-const BRANCH_LABELS = {
-  exact: "exact",
-  prefix: "prefix",
-  "fuzzy-name": "fuzzy",
-  text: "text",
-};
+// endOfResultsLine is the line under the last page the archive will serve
+// when the result runs past it. window is how many cards the pages reach
+// (pages times page size), so a result that fits ends with no line at all.
+export function endOfResultsLine({ shown, total, window }) {
+  if (!(window > 0) || shown < window || total <= shown) return "";
+  return `Showing the first ${Number(shown).toLocaleString()} of ${Number(total).toLocaleString()} cards. Narrow the search or add filters to see the rest.`;
+}
 
+// A query quoted back in the empty state is cut short: the box takes up to
+// 256 characters, and the sentence has to stay one.
+const EMPTY_QUERY_LIMIT = 40;
+
+function hasFilters(from) {
+  return Boolean(from.supertype || from.types?.length || from.set || from.rarity || from.series);
+}
+
+// emptyStateMessage is the sentence a search that found nothing shows, built
+// from what the search asked for: the query it names, the filters that may be
+// excluding results, or, for a browse with neither, a plain line.
+export function emptyStateMessage(from) {
+  const chars = Array.from(String(from.q ?? "").trim());
+  const q = chars.length > EMPTY_QUERY_LIMIT ? `${chars.slice(0, EMPTY_QUERY_LIMIT).join("")}…` : chars.join("");
+  if (hasFilters(from)) {
+    return q
+      ? `No cards match "${q}" with these filters, which may be excluding results.`
+      : "No cards match these filters, which may be excluding results.";
+  }
+  return q ? `No cards match "${q}".` : "No cards to show.";
+}
+
+// The word each branch's badge shows, read off BRANCHES. Lookups go through
+// Object.hasOwn, so a branch named like an object key ("constructor") is shown
+// under its own name rather than as whatever the prototype holds.
+const BRANCH_LABELS = Object.fromEntries(Object.entries(BRANCHES).map(([name, { label }]) => [name, label]));
+
+// branchLabel is the word a branch's badge shows, or, for a branch the server
+// added after this page was written, its raw name, so it shows up rather than
+// vanishing.
 export function branchLabel(name) {
-  return BRANCH_LABELS[name] ?? name;
+  return Object.hasOwn(BRANCH_LABELS, name) ? BRANCH_LABELS[name] : name;
+}
+
+function branchMeaning(name) {
+  return Object.hasOwn(BRANCHES, name) ? BRANCHES[name].meaning : `the ${name} part of the search`;
+}
+
+// badgeTitle is a badge's tooltip and accessible name: its word and what it
+// means, in the words the legend uses.
+export function badgeTitle(name) {
+  return `${branchLabel(name)}: ${branchMeaning(name)}`;
+}
+
+// cardBranches reads one card's matched branches from a response. matched
+// comes from the server: a shape it should not have means no badges, and only
+// non-empty strings count as branch names.
+export function cardBranches(matched, index) {
+  const row = Array.isArray(matched) ? matched[index] : undefined;
+  return Array.isArray(row) ? row.filter((name) => typeof name === "string" && name !== "") : [];
+}
+
+// badgeLegend is the legend for a page of results, given each card's matched
+// branches. Results with no badge get none. Otherwise it names every branch
+// the page knows, in badge order, whether or not this page shows it, so the
+// line reads the same on every search; a branch the page has no words for is
+// added after them, in the order it first appears.
+export function badgeLegend(matched) {
+  const seen = (Array.isArray(matched) ? matched : []).flatMap((_, index) => cardBranches(matched, index));
+  if (seen.length === 0) return [];
+  const names = [...Object.keys(BRANCHES)];
+  for (const name of seen) if (!names.includes(name)) names.push(name);
+  return names.map((name) => ({ name, label: branchLabel(name), meaning: branchMeaning(name) }));
 }
 
 // badgeStrip renders which relevance clauses ES says matched this card. It is
 // aria-hidden because the same information goes into the button's accessible
 // name as a sentence — four loose words read out per card is not an
-// improvement over one.
+// improvement over one. Each badge still carries its meaning as a tooltip.
 function badgeStrip(names) {
   const strip = element("span", "match-badges");
   strip.setAttribute("aria-hidden", "true");
   for (const name of names) {
-    strip.append(element("i", `match-badge match-${name}`, branchLabel(name)));
+    const badge = element("i", `match-badge match-${name}`, branchLabel(name));
+    badge.title = badgeTitle(name);
+    strip.append(badge);
   }
   return strip;
+}
+
+// The searches the landing offers, and the empty state after a search that
+// found nothing: one per part of the ranking, each with what it shows.
+export const EXAMPLE_QUERIES = Object.freeze([
+  Object.freeze({ q: "charizard", shows: "exact name" }),
+  Object.freeze({ q: "pika", shows: "start of a name" }),
+  Object.freeze({ q: "pikuchu", shows: "a typo" }),
+  Object.freeze({ q: "flip a coin", shows: "card text" }),
+  Object.freeze({ q: "Mitsuhiro Arita", shows: "artist" }),
+]);
+
+// examplePlacement decides where the example searches go: under the intro on
+// a page with no query and no filters (from the first paint, before its
+// results land), under the message of a search that found nothing, and
+// nowhere on a page whose search has, or is waiting on, results.
+export function examplePlacement({ state: from, total }) {
+  if (total === 0) return "empty";
+  if (!String(from.q ?? "").trim() && !hasFilters(from)) return "landing";
+  return "none";
+}
+
+function exampleButton({ q, shows }) {
+  const button = element("button", "example-query");
+  button.type = "button";
+  button.dataset.q = q;
+  button.append(element("span", "example-q", q), document.createTextNode(" "), element("span", "example-shows", shows));
+  return button;
+}
+
+// renderExamples fills both places the examples can appear, once, at start.
+export function renderExamples() {
+  for (const group of [$("landing-examples"), $("empty-examples")]) {
+    group.replaceChildren(...EXAMPLE_QUERIES.map(exampleButton));
+  }
+}
+
+function renderBadgeLegend(entries) {
+  const legend = $("badge-legend");
+  legend.hidden = entries.length === 0;
+  const list = element("ul");
+  for (const { name, label, meaning } of entries) {
+    const item = element("li");
+    item.append(element("i", `match-badge match-${name}`, label), document.createTextNode(` ${meaning}`));
+    list.append(item);
+  }
+  legend.replaceChildren(element("span", "badge-legend-title", "Matched:"), list);
+}
+
+// renderGuide shows or hides what explains the page around the grid: the
+// intro, the examples and the badge legend. total is undefined while the
+// first search is on its way; a page with a query then keeps the legend's
+// line, so the grid does not move down when the badges land.
+export function renderGuide({ total, matched } = {}) {
+  const placement = examplePlacement({ state, total });
+  $("landing").hidden = placement !== "landing";
+  $("empty-guide").hidden = placement !== "empty";
+  const pending = total === undefined && queryText() ? [Object.keys(BRANCHES)] : [];
+  renderBadgeLegend(badgeLegend(total === undefined ? pending : total > 0 ? matched : []));
 }
 
 // markNodes is the ONLY place a <mark> marker is ever interpreted, and it does
@@ -201,14 +363,33 @@ function cardSnippet(highlight) {
 
 // matched and highlights are aligned index-for-index with the results and only
 // present for a text query, so browse renders no strips and no snippets.
-function renderGrid(cards, { append = false, matched, highlights } = {}) {
+// The first row of a wide grid: its art loads first, the rest as it scrolls in.
+const EAGER_IMAGES = 6;
+
+// imageIsEager says whether the card art at index of a page loads eagerly.
+// Only the first page's first row does: a page that "Load more" appends lands
+// below the fold.
+export function imageIsEager(index, page) {
+  return page === 1 && index < EAGER_IMAGES;
+}
+
+// cardButtonLabel is a card button's accessible name. It starts with the
+// card's name, the text the button shows when the art is missing, followed by
+// the matched branches in the order their badges show them, so the visible
+// text is always a run of words inside the name.
+export function cardButtonLabel(card, branches = []) {
+  const matched = branches.length ? ` ${branches.map(branchLabel).join(" ")} match` : "";
+  return `${card.name}${matched}, from ${card.set_name}`;
+}
+
+function renderGrid(cards, { append = false, page = 1, matched, highlights } = {}) {
   const grid = $("results-grid");
   const items = cards.map((card, index) => {
     const highlight = highlights?.[index] ?? null;
     // The map stores the pair, not the card: the modal needs both, and two
     // parallel maps keyed by id are two things that can disagree.
     cardsByID.set(card.id, { card, highlight });
-    const branches = matched?.[index] ?? [];
+    const branches = cardBranches(matched, index);
     const item = document.createElement("li");
     item.className = "card-cell";
 
@@ -216,15 +397,18 @@ function renderGrid(cards, { append = false, matched, highlights } = {}) {
     button.type = "button";
     button.className = "card-open";
     button.dataset.id = card.id;
-    const label = `Open ${card.name} from ${card.set_name}`;
-    button.setAttribute("aria-label", branches.length
-      ? `${label}. Matched ${branches.map(branchLabel).join(", ")}`
-      : label);
+    button.setAttribute("aria-label", cardButtonLabel(card, branches));
 
     const image = document.createElement("img");
+    // Set before src, so the browser reads the priority before it fetches.
+    if (!append && imageIsEager(index, page)) {
+      image.loading = "eager";
+      image.setAttribute("fetchpriority", "high");
+    } else {
+      image.loading = "lazy";
+    }
     image.src = imageURL(card, "small");
     image.alt = card.name;
-    image.loading = "lazy";
     image.decoding = "async";
     image.addEventListener("load", () => button.classList.add("is-loaded"), { once: true });
     // Card art is third-party and occasionally missing. Without this the cell
@@ -262,7 +446,8 @@ function bucketMap(buckets = []) {
 
 // Facet counts are disjunctive (scoped by the query plus every other active
 // filter), so renderers only paint what the API returned — they never mutate
-// state. Only explicit user actions may change a filter.
+// state. Only explicit user actions may change a filter; the one exception is
+// renderResults bringing the filters in line with what a search used.
 function renderFacets(facets = {}) {
   const supertypeCounts = bucketMap(facets.supertype);
   const supertypeAll = (facets.supertype ?? []).reduce((sum, bucket) => sum + bucket.count, 0);
@@ -287,7 +472,7 @@ function renderFacets(facets = {}) {
   });
 
   populateSetSelect(facets.sets, state.set);
-  populateFacetSelect($("rarity-select"), "All rarities", facets.rarity, state.rarity);
+  populateFacetSelect($("rarity-select"), "All rarities", facets.rarity, state.rarity, rarityLabel);
   populateFacetSelect($("series-select"), "All series", facets.set_series, state.series);
   syncFilterControls();
 }
@@ -310,15 +495,24 @@ function populateSetSelect(buckets = [], selected) {
   $("set-select").value = selected;
 }
 
-function populateFacetSelect(select, emptyLabel, buckets = [], selected) {
+// facetOption is one option of a filter select: it reads the value's label
+// and its count, and its value is the bucket's own, so the filter always
+// sends what the index stores whatever the option says.
+export function facetOption(bucket, label = (value) => value) {
+  return { text: `${label(bucket.value)} (${Number(bucket.count).toLocaleString()})`, value: bucket.value };
+}
+
+function populateFacetSelect(select, emptyLabel, buckets = [], selected, label) {
   const options = [new Option(emptyLabel, "")];
   for (const bucket of buckets) {
-    options.push(new Option(`${bucket.value} (${Number(bucket.count).toLocaleString()})`, bucket.value));
+    const { text, value } = facetOption(bucket, label);
+    options.push(new Option(text, value));
   }
   // A selected value can drop to zero matches under the current query and
   // other filters; keep it selectable at (0) instead of silently clearing it.
   if (selected && !buckets.some((bucket) => bucket.value === selected)) {
-    options.push(new Option(`${selected} (0)`, selected));
+    const { text, value } = facetOption({ value: selected, count: 0 }, label);
+    options.push(new Option(text, value));
   }
   select.replaceChildren(...options);
   select.value = selected;
@@ -337,14 +531,27 @@ export function syncFilterControls() {
   renderActiveFilters();
 }
 
+// activeFilters lists the chips a state shows, in the rail's order: each
+// one's field, the value it removes and the name it shows. setLabel names a
+// set id; a set it cannot name is shown by its id.
+export function activeFilters(from, setLabel = (id) => id) {
+  const chips = [];
+  if (from.supertype) chips.push({ field: "supertype", value: from.supertype, label: from.supertype === "pokemon" ? "Pokémon" : titleCase(from.supertype) });
+  for (const type of from.types) chips.push({ field: "types", value: type, label: displayType(type) });
+  if (from.set) chips.push({ field: "set", value: from.set, label: setLabel(from.set) ?? from.set });
+  if (from.rarity) chips.push({ field: "rarity", value: from.rarity, label: rarityLabel(from.rarity) });
+  if (from.series) chips.push({ field: "series", value: from.series, label: from.series });
+  return chips;
+}
+
+function removeFilter({ field, value }) {
+  if (field === "types") state.types = state.types.filter((item) => item !== value);
+  else state[field] = "";
+}
+
 function renderActiveFilters() {
   const container = $("active-filters");
-  const active = [];
-  if (state.supertype) active.push({ label: state.supertype === "pokemon" ? "Pokémon" : titleCase(state.supertype), remove: () => { state.supertype = ""; } });
-  for (const type of state.types) active.push({ label: displayType(type), remove: () => { state.types = state.types.filter((item) => item !== type); } });
-  if (state.set) active.push({ label: setLabels.get(state.set) ?? state.set, remove: () => { state.set = ""; } });
-  if (state.rarity) active.push({ label: state.rarity, remove: () => { state.rarity = ""; } });
-  if (state.series) active.push({ label: state.series, remove: () => { state.series = ""; } });
+  const active = activeFilters(state, (id) => setLabels.get(id)).map((chip) => ({ label: chip.label, remove: () => removeFilter(chip) }));
 
   const chips = active.map(({ label, remove }) => {
     const button = document.createElement("button");
@@ -394,6 +601,25 @@ export function displayType(value) {
   return value;
 }
 
+// The rarity values that read badly as the index stores them. Everything else
+// already reads as players write it (ACE SPEC, BREAK and LV.X are how the
+// cards print those names) and is shown as it is. A label is only ever shown:
+// the filter, the address and the request carry the stored value.
+export const RARITY_LABELS = Object.freeze({
+  // An identifier, underscores and all, among names written in words.
+  MEGA_ATTACK_RARE: "Mega Attack Rare",
+  // The only rarity that is one word in capitals, which reads as shouting in
+  // a list of names in title case.
+  LEGEND: "Legend",
+});
+
+// rarityLabel is how the page shows a rarity value: its label, or the value
+// itself. The lookup goes through Object.hasOwn, so a rarity named like an
+// object key ("constructor") is shown as it is.
+export function rarityLabel(value) {
+  return Object.hasOwn(RARITY_LABELS, value) ? RARITY_LABELS[value] : value;
+}
+
 export function syncControls() {
   $("search-input").value = state.q;
   $("sort-select").querySelector('option[value="relevance"]').disabled = !queryText();
@@ -421,10 +647,53 @@ function makeSkeleton() {
 export function setStale(isStale) {
   const grid = $("results-grid");
   grid.classList.toggle("is-stale", isStale);
+  if (isStale) {
+    $("total-count").textContent = countLineText({
+      phase: "ended",
+      cardsShown: grid.querySelectorAll(".card-open").length,
+      current: $("total-count").textContent,
+    });
+  }
+  if (legendHiddenWhenStale({ stale: isStale, badgedCards: grid.querySelectorAll(".match-badges").length })) {
+    $("badge-legend").hidden = true;
+  }
   grid.setAttribute("aria-busy", String(isStale || grid.classList.contains("is-loading")));
 }
 
-export function setLoading(loading, { append = false } = {}) {
+// countLineText decides what the count line above the grid says. While a
+// search is on its way it keeps what it says (the markup's "Loading…"
+// before the first answer, the last count after that). A search that answered
+// writes its total when the total is a count (zero written "0"); a total that
+// is not one is never formatted, and the line keeps what it said, or shows a
+// dash. A search that ended without an answer to count leaves a dash when no
+// card is on screen. Over cards still on screen, a refused search keeps their
+// count; a failed one shows a dash there too, because the outage handling
+// blanks the line on purpose before this is asked.
+export function countLineText({ phase, total, cardsShown = 0, current = "" }) {
+  if (phase === "done") {
+    if (!isCount(total)) return current || "—";
+    const count = total === 0 ? 0 : total;
+    return `${count.toLocaleString()} ${count === 1 ? "card" : "cards"}`;
+  }
+  if (phase === "ended" && !(cardsShown > 0)) return "—";
+  return current;
+}
+
+// legendHiddenWhenStale decides whether the badge legend goes after a search
+// that failed or was refused: it does when no card left on screen carries a
+// badge (the line was only held for results that never came), and stays over
+// the previous search's badged cards.
+export function legendHiddenWhenStale({ stale, badgedCards }) {
+  return Boolean(stale) && !(badgedCards > 0);
+}
+
+// skeletonCount is how many placeholder cards a loading first page draws: one
+// per card the request asks for, so the grid keeps its height when they land.
+export function skeletonCount(pageSize) {
+  return Number.isInteger(pageSize) && pageSize > 0 ? pageSize : 0;
+}
+
+export function setLoading(loading, { append = false, pageSize = 0 } = {}) {
   const grid = $("results-grid");
   // Clearing the loading flag must not clear staleness with it: the request
   // that finished is the one that failed, and the cards under it are still the
@@ -434,7 +703,7 @@ export function setLoading(loading, { append = false } = {}) {
     $("load-more").disabled = true;
     if (!append && !grid.querySelector(".card-open")) {
       grid.hidden = false;
-      grid.replaceChildren(...Array.from({ length: 10 }, makeSkeleton));
+      grid.replaceChildren(...Array.from({ length: skeletonCount(pageSize) }, makeSkeleton));
     }
     grid.classList.add("is-loading");
     return;

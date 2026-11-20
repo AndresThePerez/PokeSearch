@@ -20,7 +20,7 @@
 <body>
   <a class="skip-link" href="#results-grid">Skip to results</a>
   <header class="site-header">
-    <a class="brand" href="/" aria-label="PokéSearch home">
+    <a class="brand" href="/" aria-label="PokéSearch TCG archive, home">
       <span class="brand-mark" aria-hidden="true"><span></span></span>
       <span>
         <strong>PokéSearch</strong>
@@ -30,7 +30,7 @@
 
     <div class="search-combobox" role="combobox" aria-expanded="false" aria-haspopup="listbox">
       <span class="search-icon" aria-hidden="true"></span>
-      <input id="search-input" type="search" placeholder="Search 20,635 cards…"
+      <input id="search-input" type="search" placeholder="Search cards…"
              aria-label="Search cards" aria-autocomplete="list" aria-controls="suggest-list"
              autocomplete="off">
       <span class="search-key" aria-hidden="true">/</span>
@@ -38,7 +38,7 @@
     </div>
 
     <div class="header-aside">
-      <p class="archive-note">20,635 English cards<br><span>176 sets · 1999—today</span></p>
+      <p class="archive-note"><b id="archive-cards">English cards</b><br><span id="archive-sets">1999—today</span></p>
       <a class="stats-link" id="stats-link" href="#stats">Archive stats</a>
     </div>
   </header>
@@ -96,7 +96,7 @@
           </label>
         </div>
 
-        <div id="active-filters" aria-label="Active filters"></div>
+        <div id="active-filters" role="group" aria-label="Active filters"></div>
         <button id="clear-filters" type="button" hidden>Clear all filters</button>
         <button id="filter-done" type="button">Close filters</button>
       </div>
@@ -104,10 +104,16 @@
 
     <main>
       <h1 class="sr-only">PokéSearch — Pokémon TCG card search</h1>
+      <section id="landing" class="landing" aria-label="About PokéSearch">
+        <p class="landing-intro">PokéSearch is a search engine over every English Pokémon trading card, built to show how relevance ranking works: badges say what each card matched, and “Why this card?” on an open card breaks its score down.</p>
+        <p class="examples-heading">Try a search:</p>
+        <div id="landing-examples" class="example-queries" role="group" aria-label="Example searches"></div>
+        <p class="guide-links"><a href="https://github.com/AndresThePerez/pokesearch/blob/master/docs/RELEVANCE.md" target="_blank" rel="noopener noreferrer">How this works<span class="sr-only"> (opens in a new tab)</span></a><a href="https://github.com/AndresThePerez/pokesearch" target="_blank" rel="noopener noreferrer">Source code<span class="sr-only"> (opens in a new tab)</span></a></p>
+      </section>
       <div class="results-toolbar">
         <div>
           <p class="eyebrow">Card archive</p>
-          <p id="total-count" aria-live="polite">Full-text search over 20,635 Pokémon TCG cards</p>
+          <p id="total-count" aria-live="polite">Loading…</p>
         </div>
         <div class="sort-controls">
           <label>Sort
@@ -138,24 +144,45 @@
         <button id="retry-search" type="button">Try again</button>
       </div>
 
+      <div id="search-notice">
+        <p id="search-notice-text" role="status"></p>
+        <button id="search-notice-dismiss" type="button" aria-label="Dismiss this notice" hidden>Dismiss</button>
+      </div>
+
+      <div id="search-strip" class="search-strip" role="group" aria-label="Last search" aria-busy="false">
+        <div class="strip-item"><span class="strip-label" aria-hidden="true">ES</span><span id="strip-es" class="strip-value" aria-hidden="true">—</span><span id="strip-es-name" class="sr-only">Elasticsearch time: no search yet</span></div>
+        <div class="strip-item"><span class="strip-label" aria-hidden="true">Trip</span><span id="strip-roundtrip" class="strip-value" aria-hidden="true">—</span><span id="strip-roundtrip-name" class="sr-only">Round trip: no search yet</span></div>
+        <div class="strip-item"><span id="strip-count" class="strip-value strip-count" aria-hidden="true">—</span><span id="strip-count-name" class="sr-only">Result count: no search yet</span></div>
+        <button id="view-query" class="strip-action" type="button" aria-label="View query, the Elasticsearch query panel below the results">View query</button>
+      </div>
+
+      <div id="badge-legend" class="badge-legend" hidden></div>
+
       <ul id="results-grid" tabindex="-1" aria-label="Card search results" aria-busy="true"></ul>
 
       <div id="empty-state" hidden>
-        <p id="empty-message">No cards match your search and filters.</p>
+        <p id="empty-message" tabindex="-1">No cards match your search and filters.</p>
         <button id="did-you-mean" type="button" hidden></button>
         <button id="empty-clear" type="button" hidden>Clear all filters</button>
         <button id="empty-browse" type="button" hidden>Browse the archive</button>
+        <div id="empty-guide" hidden>
+          <p class="examples-heading">Or try one of these:</p>
+          <div id="empty-examples" class="example-queries" role="group" aria-label="Example searches"></div>
+          <p class="guide-links"><a href="https://github.com/AndresThePerez/pokesearch/blob/master/docs/RELEVANCE.md" target="_blank" rel="noopener noreferrer">How this works<span class="sr-only"> (opens in a new tab)</span></a></p>
+        </div>
       </div>
       <button id="load-more" type="button" hidden>Load more cards</button>
+      <p id="results-end" aria-live="polite"></p>
 
     </main>
 
     <aside class="observability-rail" aria-label="Search observability">
+      <button id="rail-back" class="rail-back" type="button">← Back to results</button>
       <section class="telemetry-panel" aria-labelledby="telemetry-heading">
         <div class="panel-heading">
           <div>
             <p class="eyebrow">Live telemetry</p>
-            <h2 id="telemetry-heading">Search health</h2>
+            <h2 id="telemetry-heading" tabindex="-1">Search health</h2>
           </div>
           <p id="service-status" class="service-status" aria-live="polite"><span></span>Connecting</p>
         </div>
@@ -221,7 +248,6 @@
         <div class="sla-block">
           <p class="panel-label">SLA targets</p>
           <ul>
-            <li><span>Availability</span><strong>99.9%</strong><small>monthly target</small></li>
             <li><span>ES query</span><strong>&lt; 100 ms</strong><small id="sla-engine-state">awaiting query</small></li>
             <li><span>UI response</span><strong>&lt; 250 ms</strong><small id="sla-roundtrip-state">awaiting query</small></li>
           </ul>
@@ -229,6 +255,11 @@
       </section>
     </aside>
   </div>
+
+  <footer class="site-footer">
+    <p>PokéSearch is an unofficial fan project, not affiliated with or endorsed by Nintendo, The Pokémon Company, Game Freak or Creatures. Pokémon, card names and card images are trademarks and copyright of their owners.</p>
+    <p>Card data comes from the pokemon-tcg-data dataset, and card images are served by Scrydex. <a href="https://github.com/AndresThePerez/pokesearch" target="_blank" rel="noopener noreferrer">Source code on GitHub<span class="sr-only"> (opens in a new tab)</span></a></p>
+  </footer>
 
   <dialog id="card-modal" aria-labelledby="modal-card-name">
     <div class="modal-shell">

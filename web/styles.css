@@ -15,13 +15,19 @@
   --danger-soft: rgba(230, 57, 76, .12);
   --radius: 16px;
   --shadow: 0 24px 64px rgba(0, 0, 0, 0.34);
+  /* The sticky header's height, which focus scrolling keeps clear of. Its
+     content measures 103.5px at every width the header is sticky. */
+  --header-height: 104px;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
 }
 
 * { box-sizing: border-box; }
 
-html { background: var(--bg); }
+html {
+  background: var(--bg);
+  scroll-padding-top: var(--header-height);
+}
 
 body {
   min-width: 320px;
@@ -96,7 +102,7 @@ a:focus-visible {
   grid-template-columns: minmax(180px, .8fr) minmax(320px, 2fr) minmax(180px, .8fr);
   align-items: center;
   gap: clamp(1rem, 3vw, 3.5rem);
-  min-height: 92px;
+  min-height: var(--header-height);
   padding: 1rem clamp(1rem, 3.5vw, 4.5rem);
   border-bottom: 1px solid rgba(230, 57, 76, .38);
   color: white;
@@ -282,6 +288,7 @@ a:focus-visible {
 }
 
 .archive-note span { color: #9297a3; font-weight: 500; }
+.archive-note b { font-weight: inherit; }
 
 .app-layout {
   display: grid;
@@ -524,13 +531,166 @@ main { min-width: 0; }
 
 .eyebrow { margin: 0 0 .4rem; color: var(--accent-strong); }
 
+/* One line, whatever it says: loading, a count, or a dash after a failure.
+   A line that wrapped while loading and not after moved the grid under it. */
 #total-count {
   margin: 0;
   font-family: Georgia, "Times New Roman", serif;
   font-size: clamp(1.7rem, 3vw, 2.55rem);
   line-height: 1;
   letter-spacing: -.03em;
+  white-space: nowrap;
 }
+
+/* The landing: what the page is, five searches to start from, and where the
+   ranking is written up. The empty state offers the same searches. */
+.landing {
+  margin: 0 0 1.75rem;
+  padding: 1.25rem 1.35rem;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.landing-intro {
+  max-width: 62ch;
+  margin: 0 0 1rem;
+  color: var(--ink);
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
+.examples-heading {
+  margin: 0 0 .55rem;
+  color: var(--muted);
+  font-size: .8rem;
+}
+
+#empty-guide { margin-top: 1.75rem; }
+#empty-guide .example-queries { justify-content: center; }
+
+.example-queries {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+}
+
+.example-query {
+  display: inline-flex;
+  align-items: baseline;
+  gap: .45rem;
+  min-height: 40px;
+  padding: .45rem .85rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  background: var(--surface-raised);
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.example-query:hover { border-color: var(--accent-strong); background: var(--accent-soft); }
+.example-q { font-weight: 600; }
+.example-shows { color: var(--muted); font-size: .78rem; }
+
+.guide-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem 1.25rem;
+  margin: 1rem 0 0;
+  font-size: .85rem;
+}
+
+#empty-guide .guide-links { justify-content: center; }
+
+.guide-links a,
+.site-footer a { color: var(--accent-strong); }
+
+/* What each match badge means, on one line above the grid of a text search.
+   The badges are drawn as the cards draw them. */
+.badge-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .35rem .6rem;
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: .72rem;
+}
+
+.badge-legend ul {
+  display: contents;
+  list-style: none;
+}
+
+.badge-legend li { display: inline-flex; align-items: center; gap: .3rem; }
+.badge-legend-title { color: var(--ink); font-weight: 600; }
+
+/* The strip above the grid: the rail's headline numbers, for the widths where
+   the rail has dropped below the results and would otherwise be a long scroll
+   away. It is a single line that cannot wrap, so it has one height before the
+   first search, while one is running and after it answers or fails: every
+   piece of text in it is one line, and the grid under it does not move. Shown
+   only at 1050px and below, where the rail's own breakpoint puts it under the
+   grid. */
+.search-strip,
+.rail-back { display: none; }
+
+.search-strip {
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  min-height: 56px;
+  margin: 0 0 1rem;
+  padding: .4rem .5rem .4rem .75rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.strip-item { display: flex; flex-direction: column; gap: .2rem; min-width: 0; }
+
+.strip-label {
+  color: var(--muted);
+  font-size: .6rem;
+  font-weight: 750;
+  letter-spacing: .06em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+/* A figure too long for its room is cut inside its own box with an ellipsis,
+   so it can never run under its neighbour or the button; the full figure is in
+   the item's accessible name. */
+.strip-value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--accent-strong);
+  font: 1rem/1.2 Georgia, serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.strip-count { color: var(--ink); font-size: .95rem; white-space: nowrap; }
+
+/* Numbers still on show while the next search runs are the last answer's. */
+.search-strip[aria-busy="true"] .strip-value { opacity: .55; }
+
+.strip-action,
+.rail-back {
+  min-height: 44px;
+  padding: 0 .85rem;
+  border: 1px solid rgba(200, 31, 50, .4);
+  border-radius: 9px;
+  color: var(--accent-strong);
+  font-size: .8rem;
+  font-weight: 650;
+  white-space: nowrap;
+  background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--surface);
+  cursor: pointer;
+}
+
+.strip-action { flex: none; }
 
 .sort-controls { display: flex; align-items: end; gap: .5rem; }
 .sort-controls label { color: var(--muted); font-size: .68rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
@@ -558,6 +718,43 @@ main { min-width: 0; }
 #degraded-banner span { display: block; }
 #degraded-banner span { margin-top: .25rem; color: #d8a2a8; }
 
+/* A parameter the page dropped, or a search too long to run: the visitor's
+   input, not an outage, so it reads as a note rather than an alarm. */
+#search-notice {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: 1rem 0;
+  padding: .75rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  background: var(--surface);
+}
+
+/* The status line inside stays rendered so screen readers hear it change;
+   with nothing to say, the box around it gives up its space and its frame. */
+#search-notice:not(.is-shown) {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+#search-notice-dismiss[hidden] { display: none; }
+#search-notice-text { flex: 1; margin: 0; overflow-wrap: anywhere; }
+
+#search-notice-dismiss {
+  padding: .35rem .8rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  background: transparent;
+  cursor: pointer;
+}
+
+#search-notice-dismiss:hover { border-color: var(--accent-strong); }
+
 #empty-state {
   padding: 4rem 1rem;
   border-color: var(--line);
@@ -568,11 +765,11 @@ main { min-width: 0; }
 
 #empty-message { margin: 0; }
 
-/* The did-you-mean button only exists on a zero-result search (D8), so it can
-   afford to be the most prominent thing on an otherwise empty screen. The
-   banner's retry and the empty card's two ways out are the same kind of offer
-   after a different kind of dead end, so they wear the same pill rather than
-   introducing a second one. */
+/* The did-you-mean button is a correction to take, offered under the message
+   of a search that found nothing and, when a correction comes with cards,
+   above them. The banner's retry and the empty card's two ways out are the
+   same kind of offer after a different kind of dead end, so they wear the same
+   pill rather than introducing a second one. */
 #did-you-mean,
 #retry-search,
 #empty-clear,
@@ -593,6 +790,8 @@ main { min-width: 0; }
 #empty-clear:hover,
 #empty-browse:hover { border-color: var(--accent-strong); background: rgba(230, 57, 76, .22); }
 #did-you-mean strong { color: var(--accent-strong); font-weight: 600; }
+/* Above the results it sits on the page rather than in the empty card. */
+main > #did-you-mean { margin: 0 0 1rem; }
 /* A correction to take and a way out of the state can be offered together, so
    the card's action keeps a gap rather than touching the pill beside it. */
 #empty-clear,
@@ -623,8 +822,11 @@ main { min-width: 0; }
   border-radius: clamp(8px, 1vw, 13px);
 }
 
+/* Focus scrolling stops a card at the header's bottom plus this margin, so
+   its focus ring (3px wide, 3px out) is not drawn under the sticky header. */
 .card-open {
   position: relative;
+  scroll-margin-top: 8px;
   padding: 0;
   border: 1px solid var(--line-soft);
   background: var(--surface-raised);
@@ -745,7 +947,10 @@ mark {
   pointer-events: none;
 }
 
+/* A badge on a card takes the pointer back from its strip, so its tooltip
+   shows; the click still lands on the card button it sits inside. */
 .match-badge {
+  pointer-events: auto;
   padding: 1px 3px;
   border: 1px solid currentColor;
   border-radius: 4px;
@@ -812,6 +1017,17 @@ mark {
   background: var(--accent-deep);
   cursor: pointer;
 }
+
+/* Said once, under the last page the archive serves. With nothing to say the
+   line stays rendered, so a screen reader hears it when it fills, but takes
+   no room. */
+#results-end {
+  margin: 2.25rem 0;
+  color: var(--muted);
+  text-align: center;
+}
+
+#results-end:empty { margin: 0; }
 
 #query-inspector,
 #response-inspector,
@@ -923,7 +1139,8 @@ mark {
   white-space: nowrap;
 }
 
-/* The three weights the profile carries, in the order ADR 10 reports them. */
+/* The three weights the profile carries, in the order ADR 10 reports them,
+   each named by the badge word of the branch it boosts. */
 .lab-col-weights {
   margin: .12rem 0 .5rem;
   color: var(--muted);
@@ -953,8 +1170,26 @@ mark {
   text-align: right;
 }
 
+/* A name too long for the column wraps rather than losing its end: the end
+   is often the part that tells two cards apart ("ex", "VMAX"). */
 .lab-name {
+  overflow-wrap: anywhere;
+  line-height: 1.3;
+}
+
+/* The name and, on a smaller line under it, the set code and number, so two
+   cards with one name can be told apart without taking width from the name. */
+.lab-card {
+  display: grid;
+  min-width: 0;
+}
+
+.lab-code {
   overflow: hidden;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9.5px;
+  line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1346,8 +1581,15 @@ mark {
 body.route-stats .results-toolbar,
 body.route-stats #results-grid,
 body.route-stats #load-more,
+body.route-stats #results-end,
 body.route-stats #empty-state,
+body.route-stats #did-you-mean,
 body.route-stats #degraded-banner,
+body.route-stats #search-notice,
+body.route-stats #landing,
+body.route-stats #badge-legend,
+body.route-stats .search-strip,
+body.route-stats .rail-back,
 body.route-stats #filter-rail { display: none; }
 
 /* Two columns instead of three: the charts take the filter rail's space, and
@@ -1684,6 +1926,18 @@ body.route-stats .app-layout { grid-template-columns: minmax(0, 1fr) minmax(340p
 .sla-block strong { color: var(--accent-strong); }
 .sla-block small { grid-column: 1 / -1; color: var(--muted); font-size: .62rem; }
 
+.site-footer {
+  width: min(1760px, 100%);
+  margin: 0 auto;
+  padding: 1.5rem clamp(1rem, 3.5vw, 4.5rem) 2.5rem;
+  border-top: 1px solid var(--line-soft);
+  color: var(--muted);
+  font-size: .75rem;
+  line-height: 1.6;
+}
+
+.site-footer p { max-width: 90ch; margin: 0 0 .4rem; }
+
 @media (max-width: 1399px) {
   .app-layout {
     grid-template-columns: 205px minmax(0, 1fr) minmax(340px, 380px);
@@ -1692,6 +1946,22 @@ body.route-stats .app-layout { grid-template-columns: minmax(0, 1fr) minmax(340p
     padding-left: 2rem;
   }
   #results-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+}
+
+/* Where the rail drops below the grid (this width and below, through the two
+   blocks that follow), the strip above the grid stands in for its top line and
+   the rail gets a way back. */
+@media (max-width: 1050px) {
+  .search-strip {
+    display: flex;
+    flex-wrap: nowrap;
+    min-width: 0;
+  }
+  .rail-back {
+    display: inline-flex;
+    align-items: center;
+    justify-self: start;
+  }
 }
 
 @media (max-width: 1050px) and (min-width: 769px) {
@@ -1710,6 +1980,9 @@ body.route-stats .app-layout { grid-template-columns: minmax(0, 1fr) minmax(340p
 }
 
 @media (max-width: 768px) {
+  /* The header scrolls away at this width, so there is nothing to clear. */
+  html { scroll-padding-top: 0; }
+  .card-open { scroll-margin-top: 0; }
   .site-header {
     position: relative;
     grid-template-columns: 1fr;
@@ -1812,6 +2085,23 @@ body.route-stats .app-layout { grid-template-columns: minmax(0, 1fr) minmax(340p
   .modal-details { align-self: start; }
 }
 
+/* A phone has about 270px for three figures and the button. The count drops
+   its noun at this width (main.js asks the same query) and the spacing tightens
+   so that a twelve-second time and a seven-digit count still fit whole. */
+@media (max-width: 430px) {
+  .search-strip { gap: .4rem; padding: .4rem .4rem .4rem .6rem; }
+  .strip-value { font-size: .9rem; }
+  .strip-action { padding: 0 .65rem; font-size: .76rem; }
+}
+
+/* The narrowest phones: 272px less the button leaves room for 12345 ms twice
+   and a seven-digit count only at a smaller size. */
+@media (max-width: 340px) {
+  .search-strip { gap: .25rem; padding: .4rem .25rem .4rem .4rem; }
+  .strip-value { font-size: .78rem; }
+  .strip-action { padding: 0 .4rem; font-size: .7rem; }
+}
+
 @media (max-width: 500px) {
   .site-header { align-items: stretch; }
   .brand { justify-self: start; }
@@ -1834,6 +2124,19 @@ body.route-stats .app-layout { grid-template-columns: minmax(0, 1fr) minmax(340p
   .modal-shell { display: block; overflow-y: auto; max-height: calc(100dvh - 2rem); padding: 1rem; }
   .modal-art { width: min(70%, 270px); margin: 0 auto 1.5rem; }
   .modal-details { padding: 0 .35rem 1rem; }
+}
+
+/* Below 390px the count line and the sort control do not both fit at their
+   natural widths, and a wrapped toolbar was a row taller while the first
+   search loaded than after it, so the grid jumped up when the count landed.
+   Here the toolbar stays one row whatever the line says: the count keeps its
+   full width and the sort select narrows to what is left. */
+@media (max-width: 389.98px) {
+  .results-toolbar { flex-wrap: nowrap; }
+  .results-toolbar > div:first-child { flex: none; }
+  .sort-controls { flex: 0 1 auto; min-width: 0; }
+  .sort-controls label { flex: 0 1 auto; min-width: 0; }
+  .sort-controls select { min-width: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {

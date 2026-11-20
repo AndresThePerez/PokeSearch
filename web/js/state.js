@@ -60,14 +60,130 @@ export function buildParams({ page = false, debug = false } = {}) {
 // programmatic one replaces, so the history does not fill with steps nobody
 // took. Push is downgraded to replace when the querystring did not actually
 // change, or Back would step through a run of identical entries.
+// It returns whether a new entry was pushed, so the caller can tell a typing
+// burst's first entry from one it only rewrote.
 export function writeStateToURL({ push = false } = {}) {
   const qs = buildParams().toString();
   const url = `${location.pathname}${qs ? `?${qs}` : ""}${location.hash}`;
-  if (push && qs !== new URLSearchParams(location.search).toString()) {
-    history.pushState(null, "", url);
-    return;
+  if (push && addressDiffersFromState()) {
+    history.pushState(entryStateFor({ push: true, current: history.state }), "", url);
+    return true;
   }
-  history.replaceState(null, "", url);
+  history.replaceState(entryStateFor({ push: false, current: history.state }), "", url);
+  return false;
+}
+
+// entryStateFor decides what history.state an address rewrite leaves. A
+// replace rewrites the entry the visitor is on, so it keeps what that entry
+// already carries — the card dialog's marker among it, which is how closing
+// a card still steps back after the first search of a reload rewrote its
+// address. A push starts a new entry, which carries nothing.
+export function entryStateFor({ push, current }) {
+  if (push) return null;
+  return current ?? null;
+}
+
+// addressDiffersFromState says whether writing the state now would change the
+// querystring in the address bar.
+export function addressDiffersFromState() {
+  return buildParams().toString() !== new URLSearchParams(location.search).toString();
+}
+
+// The fields the address carries. A 400 that names one of them is the
+// visitor's input, and the page can drop it and search again.
+const ADDRESS_FIELDS = ["q", "supertype", "types", "set", "rarity", "series", "sort", "order"];
+
+// withoutField returns a copy of a state with one field back at its default.
+// The input is left alone, and the copy never shares a list with it.
+export function withoutField(from, field) {
+  const next = { ...from, types: [...from.types] };
+  if (Object.hasOwn(defaults, field)) {
+    next[field] = Array.isArray(defaults[field]) ? [] : defaults[field];
+  }
+  return next;
+}
+
+// A value quoted back to the visitor is cut short: a pasted address can hold
+// a parameter thousands of characters long. The limit counts characters, not
+// UTF-16 units, so a cut never splits an emoji in half.
+const NOTICE_VALUE_LIMIT = 40;
+
+function quoteParam({ field, value }) {
+  const chars = Array.from(value);
+  const shown = chars.length > NOTICE_VALUE_LIMIT ? `${chars.slice(0, NOTICE_VALUE_LIMIT).join("")}…` : value;
+  return `"${field}=${shown}"`;
+}
+
+// ignoredNotice is the sentence shown after the page dropped parameters the
+// server refused and searched without them.
+export function ignoredNotice(dropped) {
+  if (!dropped.length) return "";
+  const quoted = dropped.map(quoteParam);
+  if (quoted.length === 1) return `Ignored ${quoted[0]}: not a valid value.`;
+  const list = `${quoted.slice(0, -1).join(", ")} and ${quoted[quoted.length - 1]}`;
+  return `Ignored ${list}: not valid values.`;
+}
+
+const TOO_LONG = "That search is too long to run. Try a shorter one.";
+
+function paramValue(from, field) {
+  return field === "types" ? from.types.join(",") : String(from[field] ?? "");
+}
+
+function withIgnored(dropped, sentence) {
+  const ignored = ignoredNotice(dropped);
+  return ignored ? `${ignored} ${sentence}` : sentence;
+}
+
+// failureAction decides what a failed search means. A network failure or a
+// 5xx is an outage: the banner and its retry. Anything else is an answer
+// about the request itself, so it never raises the banner. A 400 that names a
+// field the page holds drops that field and searches again — each field at
+// most once per search, so the retries end. The query text is never dropped:
+// a query the server finds too long stays in the box for the visitor to
+// shorten.
+export function failureAction({ status, body, state: from, dropped = [] }) {
+  if (!status || status >= 500) return { action: "outage" };
+  const error = body && typeof body === "object" && body.error && typeof body.error === "object" ? body.error : null;
+  const field = typeof error?.field === "string" ? error.field : "";
+  if (status === 400 && field === "q") {
+    return { action: "notice", notice: withIgnored(dropped, TOO_LONG) };
+  }
+  if (status === 400 && ADDRESS_FIELDS.includes(field)
+    && !dropped.some((entry) => entry.field === field)) {
+    const value = paramValue(from, field);
+    if (value) return { action: "retry", field, value };
+  }
+  const message = typeof error?.message === "string" ? error.message.trim().replace(/\.+$/, "") : "";
+  const sentence = `PokéSearch could not run that search${message ? `: ${message}` : ""}.`;
+  return { action: "notice", notice: withIgnored(dropped, sentence) };
+}
+
+// historyAction decides what a search writes to the address bar. Typing
+// pushes once, when a burst starts on an entry the visitor already finished
+// with, and only rewrites that entry afterwards; a draft entry is the one a
+// burst created and has not finished. Enter, blur and a second of idle
+// finish the query: they keep a draft in place, push a query the address
+// does not hold yet, and do nothing when it already does. Suggestions and
+// filters push as they always have, Back and Forward write nothing, and
+// anything else (a retry, a refresh) only rewrites.
+export function historyAction(trigger, { draft, changed }) {
+  switch (trigger) {
+    case "typing":
+      return changed && !draft ? "push" : "replace";
+    case "enter":
+    case "blur":
+    case "idle":
+      if (!changed) return "none";
+      return draft ? "replace" : "push";
+    case "suggestion":
+    case "filter":
+      return "push";
+    case "popstate":
+      return "none";
+    default:
+      return "replace";
+  }
 }
 
 // The server applies the same two defaults; the UI has to know them to render
@@ -82,4 +198,187 @@ export function effectiveOrder() {
   if (effectiveSort() === "hp") return "desc";
   if (effectiveSort() === "name") return "asc";
   return "";
+}
+
+// freshHistoryMemo is what the page remembers about history when no typing
+// burst is open: no draft entry, and so no address beneath one.
+export function freshHistoryMemo() {
+  return { draft: false, below: null };
+}
+
+// historyStep is the whole history decision for one search. Given what
+// started it, what the page remembers (memo), the querystring the address
+// holds and the one the state wants, it returns what to do — "push",
+// "replace", "back" or "none" — and the memo to keep.
+//
+// A typing burst pushes one draft entry and remembers the address beneath it.
+// Typing back to that address steps back to it instead of leaving two equal
+// entries side by side. Everything that finishes a query (Enter, blur, idle,
+// a suggestion, a filter) closes the draft, whatever it writes, so the next
+// burst cannot rewrite the finished entry. Back and Forward write nothing
+// and forget the draft.
+export function historyStep({ trigger, memo, address, wanted }) {
+  if (trigger === "popstate") return { action: "none", memo: freshHistoryMemo() };
+  if (memo.draft && wanted === memo.below && wanted !== address) {
+    return { action: "back", memo: freshHistoryMemo() };
+  }
+  const changed = wanted !== address;
+  switch (trigger) {
+    case "typing": {
+      const action = historyAction("typing", { draft: memo.draft, changed });
+      if (action === "push") return { action, memo: { draft: true, below: address } };
+      return { action, memo: { ...memo } };
+    }
+    case "enter":
+    case "blur":
+    case "idle":
+      return { action: historyAction(trigger, { draft: memo.draft, changed }), memo: freshHistoryMemo() };
+    case "suggestion":
+    case "filter":
+      return { action: changed ? "push" : "replace", memo: freshHistoryMemo() };
+    default:
+      return { action: "replace", memo: { ...memo } };
+  }
+}
+
+// The eleven energy types the server filters on. It takes a types member that
+// matches one of these in any letter case, takes Steel and Normal (the names
+// the page shows) for Metal and Colorless, and drops every other member.
+export const ENERGY_TYPES = Object.freeze([
+  "Colorless", "Darkness", "Dragon", "Fairy", "Fighting",
+  "Fire", "Grass", "Lightning", "Metal", "Psychic", "Water",
+]);
+
+export const TYPE_ALIASES = Object.freeze({ steel: "Metal", normal: "Colorless" });
+
+// The characters the server takes for white space when it trims a member or
+// splits a rarity into words: Go's unicode.IsSpace, which strings.TrimSpace
+// and strings.Fields use. It holds U+0085 and not U+FEFF, unlike the white
+// space of JavaScript's trim() and \s, so a member the server would read
+// differently is never trimmed into another one here.
+const GO_SPACE = "\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000";
+const GO_TRIM = new RegExp(`^[${GO_SPACE}]+|[${GO_SPACE}]+$`, "gu");
+const GO_FIELDS = new RegExp(`[${GO_SPACE}]+`, "u");
+
+// goTrim is strings.TrimSpace.
+function goTrim(value) {
+  return value.replace(GO_TRIM, "");
+}
+
+// goFields is strings.Fields: the words between runs of white space.
+function goFields(value) {
+  return value.split(GO_FIELDS).filter(Boolean);
+}
+
+// goLower is strings.ToLower where it differs from toLowerCase on a letter
+// that lowers onto an ASCII one: Go makes the dotted capital I a plain i.
+function goLower(value) {
+  return value.replaceAll("\u0130", "i").toLowerCase();
+}
+
+// asciiFold is how strings.EqualFold compares a letter with an ASCII one:
+// letter case does not count, the long s is an s and the Kelvin sign a k.
+// The types are ASCII, so no other letter can match one.
+function asciiFold(value) {
+  return value.replace(/[A-Z]/g, (letter) => letter.toLowerCase()).replaceAll("\u017f", "s").replaceAll("\u212a", "k");
+}
+
+// listMembers is how the server reads a list parameter: split on commas,
+// each member trimmed, empty members dropped.
+function listMembers(value) {
+  return value.split(",").map(goTrim).filter(Boolean);
+}
+
+// acceptedType is the server's reading of one types member: trimmed, an
+// alias looked up in lower case, then compared with each type the way
+// strings.EqualFold compares.
+function acceptedType(member) {
+  const trimmed = goTrim(member);
+  const lower = goLower(trimmed);
+  const name = Object.hasOwn(TYPE_ALIASES, lower) ? TYPE_ALIASES[lower] : trimmed;
+  const folded = asciiFold(name);
+  return ENERGY_TYPES.find((type) => asciiFold(type) === folded) ?? null;
+}
+
+// foldRarity is the server's comparison of rarity spellings: letter case and
+// runs of spaces do not count, nor do spaces at either end.
+function foldRarity(value) {
+  return goLower(goFields(value).join(" "));
+}
+
+function rarityValues(facets) {
+  const buckets = facets && typeof facets === "object" && Array.isArray(facets.rarity) ? facets.rarity : [];
+  return buckets
+    .filter((bucket) => bucket && typeof bucket === "object" && typeof bucket.value === "string" && bucket.count > 0)
+    .map((bucket) => bucket.value);
+}
+
+// The rarity a search used. The answer names the stored values with cards
+// under the search's other filters (the rarity facet). A value given exactly
+// as one of them is kept. Another spelling is read as the one listed value it
+// folds to, but only when the search found cards: the server maps a spelling
+// onto a value only when exactly one of all 44 folds the same, and a mapped
+// rarity with cards listed would have found them. A spelling that folds to no
+// listed value, or to two, or one on a search that found nothing, is left as
+// given, trimmed: it is still what the search asked for. A list with no
+// member was no filter; a list of several is left as given.
+function acceptedRarity(given, { total, facets }) {
+  const members = listMembers(given);
+  if (members.length === 0) return "";
+  const trimmed = goTrim(given);
+  if (given.includes(",")) return trimmed;
+  const values = rarityValues(facets);
+  if (values.includes(trimmed)) return trimmed;
+  if (!(total > 0)) return trimmed;
+  const folded = foldRarity(trimmed);
+  const matches = values.filter((value) => foldRarity(value) === folded);
+  return matches.length === 1 ? matches[0] : trimmed;
+}
+
+// acceptedFilters reads the filters a search actually used off its answer, for
+// the chips, the filter controls and the address. types loses the members the
+// server dropped and takes each kept one's own spelling, once. rarity becomes
+// the stored value the server mapped another spelling onto (acceptedRarity).
+// set and series are matched exactly by the server, so they stay as given,
+// trimmed as the server trims them: one that matches nothing found nothing,
+// and its chip stays so it can be removed. A value that is only spaces, or a
+// rarity or series list with no member, was no filter at all. changed says
+// whether any of the four differs from the state given, which is left as it
+// was. Every reading is the server's own, so an address rewritten from these
+// gives the same cards on a reload.
+export function acceptedFilters({ state: from, total, facets }) {
+  const types = [];
+  for (const member of from.types) {
+    const type = acceptedType(String(member));
+    if (type && !types.includes(type)) types.push(type);
+  }
+  const rarity = acceptedRarity(String(from.rarity ?? ""), { total, facets });
+  const set = goTrim(String(from.set ?? ""));
+  const givenSeries = String(from.series ?? "");
+  const series = listMembers(givenSeries).length ? goTrim(givenSeries) : "";
+  const changed = types.join(",") !== from.types.join(",")
+    || rarity !== from.rarity || set !== from.set || series !== from.series;
+  return { types, rarity, set, series, changed };
+}
+
+// addressWithFilters is the querystring of an address with the four filter
+// fields rewritten and everything else (the query among it) as it was.
+export function addressWithFilters(search, { types, rarity, set, series }) {
+  const sp = new URLSearchParams(search);
+  for (const [field, value] of [["types", types.join(",")], ["set", set], ["rarity", rarity], ["series", series]]) {
+    if (value) sp.set(field, value);
+    else sp.delete(field);
+  }
+  return sp.toString();
+}
+
+// rewriteFilterAddress writes the state's filters into the address the
+// visitor is on. It replaces the entry and keeps its history.state, so it
+// adds no step to Back and leaves the card dialog's marker in place. Only the
+// filter fields change: the query the address holds stays, even when the box
+// already holds more, so the typing history still sees its own entry.
+export function rewriteFilterAddress() {
+  const qs = addressWithFilters(location.search, state);
+  if (qs === new URLSearchParams(location.search).toString()) return;
+  history.replaceState(entryStateFor({ push: false, current: history.state }), "", `${location.pathname}${qs ? `?${qs}` : ""}${location.hash}`);
 }

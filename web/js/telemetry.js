@@ -1,6 +1,9 @@
 // The observability rail: the stats grid, the SLA readouts, the service-status
 // pill, the two inspector panes that show the generated DSL and the raw
-// response, and the Ranking lab below them. Imports util and state — state
+// response, and the Ranking lab below them; also the archive's counts in the
+// header, read from the server, and the compact strip above the grid that
+// carries the rail's headline numbers where the rail has dropped below the
+// results. Imports util and state — state
 // imports nothing app-level, so the graph stays acyclic.
 
 import { $, element } from "./util.js";
@@ -56,9 +59,80 @@ export function renderInspector(dsl, response) {
 // The placeholder the markup ships with: a readout with nothing to say.
 const BLANK = "—";
 
+// The four relevance branches, in the order the server reports them: the word
+// a card's badge shows for each, and what that badge means. Keys are
+// search.Branches' names, and each meaning completes "Matched:", the
+// legend's heading. The card badges, their legend and the Ranking lab's
+// weights all read this one table; it lives here rather than in render.js
+// because render.js imports this module and not the other way round.
+export const BRANCHES = Object.freeze({
+  exact: Object.freeze({ label: "exact", meaning: "whole name" }),
+  prefix: Object.freeze({ label: "prefix", meaning: "start of a name" }),
+  "fuzzy-name": Object.freeze({ label: "fuzzy", meaning: "name, allowing a typo" }),
+  text: Object.freeze({ label: "text", meaning: "card text, set or artist" }),
+});
+
+// isCount accepts what a server count can honestly be: a whole number, zero
+// or more. Anything else is shown as no number at all. The header's counts
+// and the count line above the grid both ask it.
+export function isCount(value) {
+  return Number.isInteger(value) && value >= 0;
+}
+
+// Zero is written "0": JSON can carry -0, which toLocaleString keeps signed.
+function plural(count, one, many) {
+  return `${(count === 0 ? 0 : count).toLocaleString()} ${count === 1 ? one : many}`;
+}
+
+// archiveCountLine is what the header and the search box say about the
+// archive's size: the card count from /api/meta and the set count from the
+// search response's facets. Until a count arrives, or when its request
+// failed, its part of the line simply leaves the number out.
+export function archiveCountLine({ cards, sets } = {}) {
+  return {
+    cards: isCount(cards) ? plural(cards, "English card", "English cards") : "English cards",
+    sets: isCount(sets) ? `${plural(sets, "set", "sets")} · 1999—today` : "1999—today",
+    placeholder: isCount(cards) ? `Search ${plural(cards, "card", "cards")}…` : "Search cards…",
+  };
+}
+
+// What the archive has reported so far: undefined until it answers, null
+// when the request failed.
+const archiveCounts = { cards: undefined, sets: undefined };
+
+function paintArchiveCounts() {
+  const line = archiveCountLine(archiveCounts);
+  $("archive-cards").textContent = line.cards;
+  $("archive-sets").textContent = line.sets;
+  $("search-input").placeholder = line.placeholder;
+}
+
+// noteArchiveSets takes the set count from a search response. The facet lists
+// every set in the catalog, with a zero count for those the search excludes,
+// so its length is the same whatever was searched.
+export function noteArchiveSets(sets) {
+  if (!isCount(sets) || sets === archiveCounts.sets) return;
+  archiveCounts.sets = sets;
+  paintArchiveCounts();
+}
+
+// loadArchiveCounts asks the server how many cards it holds, once, at start.
+export async function loadArchiveCounts() {
+  paintArchiveCounts();
+  try {
+    const res = await fetch("/api/meta");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    archiveCounts.cards = isCount(data?.docs) ? data.docs : null;
+  } catch {
+    archiveCounts.cards = null;
+  }
+  paintArchiveCounts();
+}
+
 export function setDegraded(isDegraded) {
   $("degraded-banner").hidden = !isDegraded;
-  setServiceStatus(isDegraded ? "Degraded" : "Online", isDegraded);
+  recordSearchOutcome(!isDegraded);
   // A failed search leaves the previous query's totals on screen, where they
   // read as a count of what is showing now. Blank them to a dash — the
   // elements and their live regions stay put, so the next success has
@@ -67,7 +141,135 @@ export function setDegraded(isDegraded) {
     $("total-count").textContent = BLANK;
     $("stat-results").textContent = BLANK;
     $("stat-roundtrip").textContent = BLANK;
+    noteStripOutcome({ failed: true });
   }
+}
+
+// The strip above the grid, shown where the rail sits below the results: the
+// last search's Elasticsearch time, round trip and result count, and the
+// control that takes the visitor to the rail. The rail's own readouts are the
+// source; this only repeats three of them, formatted the way the rail
+// formats them.
+
+// searchStripView is what the strip says. state is "none" (no search has
+// answered yet), "loading" (one is on its way), "done" or "failed"; the three
+// numbers are the last answer's Elasticsearch time and round trip in
+// milliseconds and its total. Each text is the short form the strip shows,
+// each name the full form a screen reader gets. A number that is not what its
+// readout needs is a dash, never a word like NaN; a failed search shows no
+// numbers at all, since the last ones belong to a search that is gone. While a
+// search is on its way the last numbers stay, as the count line keeps its own,
+// and busy says so. compact is for a screen too narrow for the whole line: the
+// count then shows its number alone, the name still says "cards", and nothing
+// else changes — a time is never shortened, it is the rail's own figure.
+export function searchStripView({ state = "none", esMs, roundTripMs, total, compact = false } = {}) {
+  const phase = ["loading", "done", "failed"].includes(state) ? state : "none";
+  const shown = phase === "done" || phase === "loading";
+  const whyNot = { none: "no search yet", loading: "searching", failed: "unavailable, the last search failed" }[phase];
+  const isTime = (value) => Number.isFinite(value) && value >= 0;
+  const millis = (value) => (value === 1 ? "1 millisecond" : `${value} milliseconds`);
+
+  // A reading is its short text and its full name, or a dash and the reason
+  // there is no number: the state's, or, for an answer, the value's own.
+  const reading = (label, value, text, name) => (shown && value !== null
+    ? { text: text(value), name: `${label}: ${name(value)}` }
+    : { text: BLANK, name: `${label}: ${phase === "done" ? "not available" : whyNot}` });
+
+  const es = isTime(esMs) ? esMs || 0 : null;
+  const trip = isTime(roundTripMs) ? Math.round(roundTripMs) || 0 : null;
+  const cards = isCount(total) ? plural(total, "card", "cards") : null;
+  return {
+    es: reading("Elasticsearch time", es, (v) => `${v} ms`, millis),
+    roundTrip: reading("Round trip", trip, (v) => `${v} ms`, millis),
+    count: reading("Result count", cards, (v) => (compact === true ? v.replace(/ cards?$/, "") : v), (v) => v),
+    action: { text: "View query", name: "View query, the Elasticsearch query panel below the results" },
+    busy: phase === "loading",
+  };
+}
+
+// What the strip last heard from the search: how it ended and, when it
+// answered, the numbers; and whether another search is on its way.
+const stripLast = { outcome: "none", esMs: undefined, roundTripMs: undefined, total: undefined };
+let stripLoading = false;
+let stripCompact = false;
+
+function paintStrip() {
+  const view = searchStripView({ state: stripLoading ? "loading" : stripLast.outcome, ...stripLast, compact: stripCompact });
+  $("strip-es").textContent = view.es.text;
+  $("strip-es-name").textContent = view.es.name;
+  $("strip-roundtrip").textContent = view.roundTrip.text;
+  $("strip-roundtrip-name").textContent = view.roundTrip.name;
+  $("strip-count").textContent = view.count.text;
+  $("strip-count-name").textContent = view.count.name;
+  $("view-query").setAttribute("aria-label", view.action.name);
+  $("search-strip").setAttribute("aria-busy", String(view.busy));
+}
+
+// noteStripOutcome records how a search ended. An answer brings its numbers;
+// a failure drops them. A refused search is neither: the page keeps what it
+// had, as the rail does, so it never calls this.
+function noteStripOutcome({ failed = false, esMs, roundTripMs, total } = {}) {
+  Object.assign(stripLast, failed
+    ? { outcome: "failed", esMs: undefined, roundTripMs: undefined, total: undefined }
+    : { outcome: "done", esMs, roundTripMs, total });
+  paintStrip();
+}
+
+// noteSearchLoading tells the strip a search has started or finished. main.js
+// calls it from the grid's loading flag, which is where every search, whatever
+// its outcome, raises and lowers it.
+export function noteSearchLoading(loading) {
+  stripLoading = Boolean(loading);
+  paintStrip();
+}
+
+// setStripCompact tells the strip whether the screen is narrow enough for the
+// short count. main.js calls it from the width the styles also call narrow.
+export function setStripCompact(compact) {
+  stripCompact = compact === true;
+  paintStrip();
+}
+
+// pillStatus decides the service-status pill from the two things that can
+// set it: the newest search's outcome (taken when it finished) and the newest
+// health check (taken when it started). Whichever was taken later wins, so a
+// health check already in flight when a search finished cannot overwrite it.
+// A search that ended in an outage keeps the pill Degraded whatever the
+// health check says, because the banner is up and the two must agree.
+export function pillStatus({ search, health }) {
+  if (search && !search.ok) return { label: "Degraded", degraded: true };
+  if (health && (!search || health.at > search.at)) {
+    return health.ok ? { label: "Online", degraded: false } : { label: "Degraded", degraded: true };
+  }
+  if (search) return { label: "Online", degraded: false };
+  return { label: "Connecting", degraded: false };
+}
+
+// The two outcomes the pill is built from, and the clock that orders them.
+let pillClock = 0;
+let lastSearch = null;
+let lastHealth = null;
+
+function paintPill() {
+  const { label, degraded } = pillStatus({ search: lastSearch, health: lastHealth });
+  setServiceStatus(label, degraded);
+}
+
+// startHealthCheck marks the moment a health check is sent; the returned
+// function records its result against that moment.
+export function startHealthCheck() {
+  const at = ++pillClock;
+  return (ok) => {
+    if (!lastHealth || at > lastHealth.at) lastHealth = { at, ok };
+    paintPill();
+  };
+}
+
+// recordSearchOutcome records a finished search: ok is false only for an
+// outage, since any answer from the server means the service is up.
+export function recordSearchOutcome(ok) {
+  lastSearch = { at: ++pillClock, ok };
+  paintPill();
 }
 
 export function setServiceStatus(label, degraded = false) {
@@ -119,7 +321,7 @@ function renderWaterfall(es, total) {
 
 // quantile picks the nearest-rank value: with 20 samples p95 is the highest,
 // which is the honest reading of a sample this small.
-function quantile(sorted, p) {
+export function quantile(sorted, p) {
   return sorted.length ? sorted[Math.min(sorted.length - 1, Math.ceil(p * sorted.length) - 1)] : 0;
 }
 
@@ -156,6 +358,7 @@ export function renderStats(data, roundTripMs) {
   $("stat-page").textContent = data.pages ? `${data.page} / ${data.pages}` : BLANK;
   $("sla-engine-state").textContent = data.took_ms < 100 ? "within target" : "above target";
   $("sla-roundtrip-state").textContent = roundTripMs < 250 ? "within target" : "above target";
+  noteStripOutcome({ esMs: data.took_ms, roundTripMs, total: data.total });
   // A search landed, so the lab is stale if the query moved. It is the rail's
   // own panel, and this is the moment the rail learns a search completed —
   // which is why the refresh hangs here rather than off every call site that
@@ -244,19 +447,51 @@ function formatRho(rho) {
   return typeof rho === "number" ? rho.toFixed(2) : BLANK;
 }
 
+// setCodeAndNumber reads a card id as its set code and its number in that
+// set. Ids are "<set>-<number>", and set codes can hold a dash of their own,
+// so the split is on the last one; an id with no dash is all set code.
+export function setCodeAndNumber(id) {
+  const value = typeof id === "string" ? id : "";
+  const at = value.lastIndexOf("-");
+  if (at === -1) return { set: value, number: "" };
+  return { set: value.slice(0, at), number: value.slice(at + 1) };
+}
+
+// labCardCode is the line under a lab row's name: the set code and the number,
+// each left out when the id has none, so the line never starts with a space or
+// ends on a lone "#".
+export function labCardCode(id) {
+  const { set, number } = setCodeAndNumber(id);
+  return [set.trim(), number.trim() ? `#${number.trim()}` : ""].filter(Boolean).join(" ");
+}
+
+// labWeights labels each weight a profile carries with the badge word of the
+// branch it boosts, so "8" reads as "exact ×8".
+export function labWeights(boosts) {
+  return LAB_WEIGHTED_BRANCHES.map((name) => {
+    const value = boosts?.[name];
+    return `${BRANCHES[name].label} ${value === undefined || value === null ? BLANK : `×${value}`}`;
+  });
+}
+
 function labColumn(side, deltas) {
   const column = element("div", "lab-col");
-  column.append(
-    element("p", "lab-col-name", side.profile),
-    element("p", "lab-col-weights", LAB_WEIGHTED_BRANCHES.map((name) => side.boosts?.[name] ?? BLANK).join(" / ")),
-  );
+  const weights = element("p", "lab-col-weights", labWeights(side.boosts).join(" · "));
+  weights.title = "How much each kind of name match weighs; a text match counts ×1";
+  column.append(element("p", "lab-col-name", side.profile), weights);
   const list = element("ul", "lab-list");
   for (const row of side.results ?? []) {
     const item = element("li", "lab-row");
     item.title = `${row.id} · score ${row.score}`;
+    // The name keeps the cell's whole width; the set code and number sit on a
+    // smaller line under it, so two cards with one name can be told apart.
+    const card = element("span", "lab-card");
+    card.append(element("span", "lab-name", row.name || row.id));
+    const code = labCardCode(row.id);
+    if (code) card.append(element("span", "lab-code", code));
     item.append(
       element("span", "lab-rank", String(row.rank)),
-      element("span", "lab-name", row.name || row.id),
+      card,
       labDelta(deltas.get(row.id)),
     );
     list.append(item);

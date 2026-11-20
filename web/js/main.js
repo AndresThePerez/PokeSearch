@@ -7,11 +7,32 @@ import {
   syncControls,
   syncFilterControls,
   setFilterChangeHandler,
+  renderExamples,
+  renderGuide,
 } from "./render.js";
-import { runSearch, scheduleSearch, refreshHealth } from "./api.js";
-import { scheduleSuggest, closeSuggestions, handleSuggestKeydown } from "./suggest.js";
-import { bindModalEvents, openDeepLink } from "./modal.js";
-import { lastResponseHadDSL, refreshRankingLab } from "./telemetry.js";
+import {
+  runSearch,
+  scheduleSearch,
+  refreshHealth,
+  commitQuery,
+  hideNotice,
+  isOwnStepBack,
+  noteHistoryNavigation,
+  popstateRunsSearch,
+  queryPanelRequest,
+  refreshQuery,
+} from "./api.js";
+import {
+  scheduleSuggest,
+  closeSuggestions,
+  handleSuggestKeydown,
+  noteSearchBoxInput,
+  blurCloses,
+  enterFocusTarget,
+  shownOutcome,
+} from "./suggest.js";
+import { bindModalEvents, openDeepLink, syncDialogToAddress } from "./modal.js";
+import { lastResponseHadDSL, refreshRankingLab, loadArchiveCounts, noteSearchLoading, setStripCompact } from "./telemetry.js";
 import { showStats } from "./stats.js";
 
 // The app has two views and one hash router. #stats is a route; #card= is not
@@ -35,14 +56,17 @@ function statsViewOpen() {
 // able to overwrite them and then guess them back.
 // load is false for the very first paint: the view has to switch immediately,
 // but its fetch waits for the initial search so the two cannot race for the
-// inspector panes.
+// inspector panes. A view that is already on screen is not fetched again:
+// closing a card opened over the Stats view lands back on #stats, and
+// popstate and hashchange both arrive for that one step.
 function renderRoute({ load = true } = {}) {
   if (location.hash.startsWith("#card=")) return;
   const stats = isStatsRoute();
+  const wasStats = statsViewOpen();
   document.body.classList.toggle("route-stats", stats);
   $("stats-view").hidden = !stats;
   $("stats-link").textContent = stats ? "Back to search" : "Archive stats";
-  if (stats && load) showStats();
+  if (stats && load && !wasStats) showStats();
 }
 
 // leaveStatsRoute returns to the search view with a clean URL — a pushState so
@@ -88,11 +112,14 @@ function releasePageScroll() {
 // drawer and the toggle that owns it live there, and they have to stay
 // reachable. The skip link is its own entry because it is a direct child of
 // body rather than part of any of the three regions, so nothing else can take
-// it out of the tab order — and it jumps to a grid the sheet covers. Between
-// them these four are every focusable thing outside the rail: the dialog is
-// the only other child of body, and it is inert to the page in the other
-// direction, by showModal.
-const BEHIND_DRAWER = [".skip-link", ".site-header", "main", ".observability-rail"];
+// it out of the tab order — and it jumps to a grid the sheet covers; the
+// footer is the other direct child of body with a link in it. Between them
+// these are every focusable thing outside the rail: the dialog is the
+// only other child of body, and it is inert to the page in the other
+// direction, by showModal. The strip above the grid lives inside main, so
+// main already covers it; it is named anyway, so that moving it out of main
+// could not leave its button reachable behind the sheet.
+const BEHIND_DRAWER = [".skip-link", ".site-header", "main", ".search-strip", ".observability-rail", ".site-footer"];
 
 // Covering the page is not the same as taking it out of the tab order, so Tab
 // past the close button used to land on the search box behind the sheet, with
@@ -121,11 +148,86 @@ function filterDrawerOpen() {
   return $("filter-toggle").getAttribute("aria-expanded") === "true";
 }
 
+// "View query" on the strip above the grid: the rail is below every card at
+// these widths, so this takes the visitor to it. The query panel opens first
+// (it starts closed on a phone), focus goes to the rail's heading so a
+// keyboard or screen-reader visitor arrives there too, and the rail scrolls
+// to the top of the page's view, below the header where the header is sticky:
+// the page's scroll-padding does that, and its reduced-motion rule is the
+// reason the scroll takes no behavior of its own.
+function showQueryRail() {
+  $("query-inspector").open = true;
+  $("telemetry-heading").focus({ preventScroll: true });
+  document.querySelector(".observability-rail").scrollIntoView({ block: "start" });
+}
+
+// The way back: to the strip, and its button, which is where the visitor
+// pressed.
+function backToResults() {
+  $("search-strip").scrollIntoView({ block: "start" });
+  $("view-query").focus({ preventScroll: true });
+}
+
+// The strip learns that a search has started or ended from the grid, which is
+// where every search, whatever its outcome, raises and lowers its loading
+// flag; render.js and api.js are not asked to know about the strip.
+function watchSearchLoading() {
+  const grid = $("results-grid");
+  let loading = null;
+  const notify = () => {
+    const now = grid.classList.contains("is-loading");
+    if (now === loading) return;
+    loading = now;
+    noteSearchLoading(now);
+  };
+  new MutationObserver(notify).observe(grid, { attributes: true, attributeFilter: ["class"] });
+  notify();
+}
+
+// The example searches, on the landing and in the empty state, and the
+// spelling correction. Pressing one is the same as typing its query and
+// pressing Enter: the box holds it, the filters stay, the search is committed
+// (one history entry, or none when the address already holds it), and focus
+// then moves to what it found, as after Enter. The button pressed usually
+// disappears with the state it sat in, which leaves focus on the body; focus
+// the visitor has moved elsewhere by then is left alone.
+let queryPresses = 0;
+
+async function runPressedQuery(q, pressed) {
+  const press = ++queryPresses;
+  closeSuggestions();
+  state.q = q;
+  state.sort = "";
+  state.order = "";
+  syncControls();
+  const search = commitQuery("enter");
+  const outcome = search
+    ? await search
+    : shownOutcome({ gridHidden: $("results-grid").hidden, emptyHidden: $("empty-state").hidden });
+  const active = document.activeElement;
+  const target = enterFocusTarget({
+    outcome,
+    inBox: active === pressed || active === document.body || active === null,
+    superseded: press !== queryPresses,
+  });
+  if (target) document.getElementById(target).focus();
+}
+
+function bindExampleEvents() {
+  for (const group of [$("landing-examples"), $("empty-examples")]) {
+    group.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-q]");
+      if (button) runPressedQuery(button.dataset.q, button);
+    });
+  }
+}
+
 function bindCoreEvents() {
   $("search-input").addEventListener("input", (event) => {
     // Typing is a search, and a search belongs on the search view.
     if (statsViewOpen()) leaveStatsRoute();
     state.q = event.target.value;
+    noteSearchBoxInput();
     // A new query invalidates an explicit sort: relevance is only meaningful
     // with a query, and the server would flip it anyway.
     state.sort = "";
@@ -136,7 +238,14 @@ function bindCoreEvents() {
   });
 
   $("search-input").addEventListener("keydown", handleSuggestKeydown);
-  $("search-input").addEventListener("blur", () => setTimeout(closeSuggestions, 100));
+  // Leaving the search box finishes the query, the same as Enter or a pause.
+  $("search-input").addEventListener("blur", () => {
+    commitQuery("blur");
+    // Clicking straight back into the box keeps the list it is about to get.
+    setTimeout(() => {
+      if (blurCloses({ focused: document.activeElement === $("search-input") })) closeSuggestions();
+    }, 100);
+  });
 
   $("sort-select").addEventListener("change", (event) => {
     state.sort = event.target.value;
@@ -162,6 +271,14 @@ function bindCoreEvents() {
   $("retry-search").addEventListener("click", () => {
     runSearch();
   });
+
+  $("search-notice-dismiss").addEventListener("click", () => {
+    hideNotice();
+    $("search-input").focus({ preventScroll: true });
+  });
+
+  $("view-query").addEventListener("click", showQueryRail);
+  $("rail-back").addEventListener("click", backToResults);
 
   $("copy-dsl").addEventListener("click", async () => {
     await navigator.clipboard.writeText($("dsl-json").textContent);
@@ -189,19 +306,12 @@ function bindCoreEvents() {
     }
   });
 
-  // The DSL only comes back when the panel is open, so opening it after a
-  // search has to fetch once to fill it. Closing fires this too — hence the
-  // open check, which also stops the re-fetch looping.
-  // Taking a correction is a search the user asked for, so it earns a history
-  // entry — Back returns to what they actually typed.
+  // Taking a correction is a search the visitor asked for, committed as an
+  // Enter would commit it: one history entry, so Back returns to what they
+  // actually typed, and the filters kept.
   $("did-you-mean").addEventListener("click", (event) => {
-    const suggestion = event.currentTarget.dataset.suggestion;
-    if (!suggestion) return;
-    state.q = suggestion;
-    state.sort = "";
-    state.order = "";
-    syncControls();
-    runSearch({ push: true });
+    const button = event.currentTarget;
+    if (button.dataset.q) runPressedQuery(button.dataset.q, button);
   });
 
   // The empty card's two ways out. Both are searches the reader asked for, so
@@ -219,10 +329,15 @@ function bindCoreEvents() {
     runSearch({ push: true });
   });
 
+  // The DSL only comes back when the panel is open, so opening it after a
+  // search has to fetch once to fill it. Closing fires this too — hence the
+  // open check, which also stops the re-fetch looping.
   $("query-inspector").addEventListener("toggle", () => {
-    if (!$("query-inspector").open || lastResponseHadDSL()) return;
+    const action = queryPanelRequest($("query-inspector").open, lastResponseHadDSL());
+    if (action === "none") return;
     // Whichever view is open owes the inspector its own DSL.
     if (statsViewOpen()) showStats();
+    else if (action === "query-only") refreshQuery();
     else runSearch();
   });
 
@@ -240,18 +355,37 @@ function bindCoreEvents() {
     leaveStatsRoute();
   });
 
-  window.addEventListener("hashchange", () => renderRoute());
+  // An edited or pasted hash: a card address opens its card, any other one
+  // closes the dialog and paints its route.
+  window.addEventListener("hashchange", () => {
+    syncDialogToAddress();
+    renderRoute();
+  });
 
   // Back and Forward restore a previous search. A history entry that only
   // differs by the #card= hash is the modal's, not a search's, and re-running
   // the identical query for it would be pure waste.
   window.addEventListener("popstate", () => {
+    // Typing back to the query beneath a draft entry steps back to it; that
+    // search is already running, and the entry it lands on has the same hash,
+    // so it can neither open nor close the card dialog: it returns before the
+    // dialog is consulted.
+    if (isOwnStepBack()) return;
+    const cancelledSearch = noteHistoryNavigation();
+    // Back off a card address closes the dialog, Forward onto one opens it.
+    // The dialog's own step back on close arrives here too, finds the dialog
+    // already closed, and is an ordinary Back for the typing bookkeeping
+    // above: no burst can be open while the dialog covers the search box.
+    syncDialogToAddress();
     renderRoute();
     const before = buildParams().toString();
     readStateFromURL();
     syncControls();
     syncFilterControls();
-    if (buildParams().toString() !== before) runSearch({ fromHistory: true });
+    const stateChanged = buildParams().toString() !== before;
+    if (popstateRunsSearch({ ownStepBack: false, stateChanged, cancelledSearch })) {
+      runSearch({ fromHistory: true });
+    }
   });
 }
 
@@ -330,8 +464,18 @@ function init() {
   setFilterChangeHandler(() => runSearch({ push: true }));
   syncControls();
   syncFilterControls();
+  renderExamples();
+  renderGuide();
+  loadArchiveCounts();
+  watchSearchLoading();
+  // The strip drops the noun from its count at the width the styles squeeze it
+  // for (max-width: 430px in styles.css).
+  const narrowScreen = window.matchMedia("(max-width: 430px)");
+  setStripCompact(narrowScreen.matches);
+  narrowScreen.addEventListener("change", (event) => setStripCompact(event.matches));
   bindCoreEvents();
   bindFilterEvents();
+  bindExampleEvents();
   bindModalEvents();
   renderRoute({ load: false });
   refreshHealth();

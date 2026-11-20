@@ -41,6 +41,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The scripts are ES modules with no package.json, which needs Node
+      # 20.19 or 22.7 and later; the suites were verified on 24.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
       - name: Syntax-check every shipped JS file
         shell: bash
         run: |
@@ -54,6 +59,20 @@ jobs:
             echo "node --check $f"
             node --check "$f"
           done
+      # Node expands the pattern itself and, when nothing matches, runs no
+      # test and exits 0. This step fails first, so deleting or renaming every
+      # test file turns the job red instead of leaving it green.
+      - name: Fail if there are no frontend test files
+        shell: bash
+        run: |
+          files=(web/js/*.test.mjs)
+          if [ ! -e "${files[0]}" ]; then
+            echo "no web/js/*.test.mjs files found: the glob is wrong, not the code"
+            exit 1
+          fi
+      - name: Run the frontend tests
+        shell: bash
+        run: node --test web/js/*.test.mjs
 
   image:
     runs-on: ubuntu-latest

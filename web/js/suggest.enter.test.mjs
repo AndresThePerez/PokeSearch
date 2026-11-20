@@ -41,3 +41,13 @@ test("Enter without a highlighted option always closes the list first and ends o
     }
   }
 });
+
+test("Enter that confirms an input-method composition does nothing: no commit, no focus move", () => {
+  for (const pending of [false, true]) {
+    for (const changed of [false, true]) {
+      for (const highlighted of [false, true]) {
+        assert.deepEqual(enterEffects({ highlighted, pending, changed, composing: true }), [], `${highlighted} ${pending} ${changed}`);
+      }
+    }
+  }
+});

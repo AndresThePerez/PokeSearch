@@ -153,6 +153,9 @@ async function readErrorBody(res) {
 // trigger names a search that came from the search box ("typing", "enter",
 // "blur", "idle"); dropped lists the parameters this search already dropped
 // after the server refused them.
+// It resolves to how the search ended: "results", "none" (it found nothing),
+// "refused" (the archive answered that it would not run it), "failed" (no
+// answer) or "aborted" (a newer search replaced it).
 export async function runSearch({ append = false, push = false, fromHistory = false, trigger = "", dropped = [] } = {}) {
   if (!append) state.page = 1;
   if (!fromHistory) writeHistory(trigger || (push ? "filter" : "refresh"));
@@ -167,7 +170,7 @@ export async function runSearch({ append = false, push = false, fromHistory = fa
     const res = await fetch(`/api/search?${searchRequestParams({ debug: debugEnabled() })}`, { signal: controller.signal });
     if (!res.ok) {
       const body = await readErrorBody(res);
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) return "aborted";
       const decision = failureAction({ status: res.status, body, state, dropped });
       if (decision.action === "retry") {
         // The server named a parameter it will not take. Drop it, rewrite the
@@ -184,7 +187,7 @@ export async function runSearch({ append = false, push = false, fromHistory = fa
         setDegraded(false);
         setStale(true);
         showNotice(decision.notice);
-        return;
+        return "refused";
       }
       throw new Error(`HTTP ${res.status}`);
     }
@@ -199,14 +202,16 @@ export async function runSearch({ append = false, push = false, fromHistory = fa
     setStale(false);
     if (dropped.length) showNotice(ignoredNotice(dropped));
     else hideNotice();
+    return data.total === 0 ? "none" : "results";
   } catch (err) {
-    if (err.name === "AbortError") return;
+    if (err.name === "AbortError") return "aborted";
     hideNotice();
     setDegraded(true);
     // The grid still holds the last successful search's cards. Mark them as
     // what they are rather than let the banner and the results contradict
     // each other.
     setStale(true);
+    return "failed";
   } finally {
     if (searchController === controller) {
       setLoading(false, { append });
@@ -229,18 +234,20 @@ export function scheduleSearch() {
 
 // commitQuery finishes the query in the search box: Enter, leaving the box,
 // or the idle timer. A keystroke search still waiting on the debounce runs
-// now instead; a query the address already holds writes nothing.
+// now instead; a query the address already holds writes nothing. It returns
+// the search it started, which resolves to how that search ended, or null
+// when it started none.
 export function commitQuery(trigger) {
   clearTimeout(idleTimer);
-  if (stepBackHolds({ stepBackTo, wanted: buildParams().toString() })) return;
+  if (stepBackHolds({ stepBackTo, wanted: buildParams().toString() })) return null;
   const { action, memo } = planHistory(trigger);
   if (action === "none") {
     historyMemo = memo;
-    return;
+    return null;
   }
   clearTimeout(debounceTimer);
   debounceTimer = null;
-  runSearch({ trigger });
+  return runSearch({ trigger });
 }
 
 // cancelScheduledSearch drops a pending debounce. Picking a suggestion runs a

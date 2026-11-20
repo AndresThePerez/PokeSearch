@@ -661,7 +661,7 @@ export function setStale(isStale) {
 }
 
 // countLineText decides what the count line above the grid says. While a
-// search is on its way it keeps what it says (the markup's "Loading cards…"
+// search is on its way it keeps what it says (the markup's "Loading…"
 // before the first answer, the last count after that). A search that answered
 // writes its total when the total is a count (zero written "0"); a total that
 // is not one is never formatted, and the line keeps what it said, or shows a

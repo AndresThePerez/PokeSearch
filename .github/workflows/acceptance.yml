@@ -24,7 +24,14 @@ jobs:
           go-version-file: go.mod
 
       - name: Start the stack
-        run: docker compose up -d --build
+        shell: bash
+        # docker-compose.yml maps these into the image's build arguments, so
+        # the stack under test reports a real build identity from /api/meta.
+        run: |
+          VERSION="${GITHUB_REF_NAME}" \
+          COMMIT="${GITHUB_SHA:0:7}" \
+          BUILT="$(date -u +%FT%TZ)" \
+          docker compose up -d --build
 
       - name: Wait for the app to report healthy
         shell: bash

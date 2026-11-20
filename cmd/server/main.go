@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -23,9 +24,10 @@ import (
 // config is everything run() needs; main owns the environment, run owns the
 // lifecycle. Keeping them apart is what makes the shutdown path testable.
 type config struct {
-	port    string
-	esURL   string
-	metrics bool
+	port        string
+	esURL       string
+	metrics     bool
+	maxInFlight int
 }
 
 func main() {
@@ -51,10 +53,16 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	maxInFlight, err := maxInFlightSetting(os.Getenv("MAX_IN_FLIGHT"))
+	if err != nil {
+		slog.Error("PokéSearch cannot start", "err", err)
+		os.Exit(1)
+	}
 	cfg := config{
-		port:    port,
-		esURL:   envOr("ES_URL", "http://127.0.0.1:9200"),
-		metrics: os.Getenv("METRICS") == "1",
+		port:        port,
+		esURL:       envOr("ES_URL", "http://127.0.0.1:9200"),
+		metrics:     os.Getenv("METRICS") == "1",
+		maxInFlight: maxInFlight,
 	}
 	if err := run(ctx, cfg); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		slog.Error("PokéSearch stopped", "err", err)
@@ -71,6 +79,15 @@ func run(ctx context.Context, cfg config) error {
 	}
 
 	s := server.New(es, web.Files, os.Stdout, time.Now)
+	// Zero is the field's unset value and leaves the server's default; the
+	// environment never yields it, and a negative is refused here.
+	maxInFlight := server.DefaultMaxInFlight
+	if cfg.maxInFlight != 0 {
+		if err := s.SetMaxInFlight(cfg.maxInFlight); err != nil {
+			return err
+		}
+		maxInFlight = cfg.maxInFlight
+	}
 	if cfg.metrics {
 		// Opt-in only: the production reverse proxy forwards whatever path it
 		// is handed, so METRICS=1 belongs to local and CI runs, never the
@@ -82,7 +99,7 @@ func run(ctx context.Context, cfg config) error {
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()
-	slog.Info("PokéSearch listening", "port", cfg.port, "es", cfg.esURL)
+	slog.Info("PokéSearch listening", "port", cfg.port, "es", cfg.esURL, "max_in_flight", maxInFlight)
 
 	select {
 	case err := <-errCh:
@@ -163,4 +180,21 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// maxInFlightSetting reads MAX_IN_FLIGHT: unset is the server's default, a
+// positive whole number is taken as it is, and anything else (zero, a
+// negative, a fraction, a number too large to hold, stray spaces) is an error
+// that stops the server from starting. Falling back with a warning instead
+// would let a typo in the compose file ship a cap nobody chose, and zero must
+// never be read as "no cap".
+func maxInFlightSetting(raw string) (int, error) {
+	if raw == "" {
+		return server.DefaultMaxInFlight, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("MAX_IN_FLIGHT must be a whole number of at least 1, got %q", raw)
+	}
+	return n, nil
 }

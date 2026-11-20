@@ -12,9 +12,9 @@
       "required": ["code", "message"],
       "properties": {
         "code": {
-          "description": "invalid_param (400): a parameter is malformed, field names it. not_found (404): no card has the id, or no endpoint has the /api/ path. method_not_allowed (405): the /api/ endpoint exists but not for that method; the Allow header lists the methods it answers. unauthorized (401): an X-Api-Key header names no configured key. es_unavailable (503): Elasticsearch did not answer.",
+          "description": "invalid_param (400): a parameter is malformed, field names it. not_found (404): no card has the id, or no endpoint has the /api/ path. method_not_allowed (405): the /api/ endpoint exists but not for that method; the Allow header lists the methods it answers. unauthorized (401): an X-Api-Key header names no configured key. es_unavailable (503): Elasticsearch did not answer. overloaded (503): the server already handles as many requests as it admits at once; the Retry-After header says when to try again.",
           "type": "string",
-          "enum": ["es_unavailable", "invalid_param", "method_not_allowed", "not_found", "unauthorized"]
+          "enum": ["es_unavailable", "invalid_param", "method_not_allowed", "not_found", "overloaded", "unauthorized"]
         },
         "field": { "description": "The parameter at fault; absent when no single parameter is.", "type": "string", "minLength": 1 },
         "message": { "type": "string", "minLength": 1 }

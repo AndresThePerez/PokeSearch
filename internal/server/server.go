@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v8"
@@ -56,6 +57,9 @@ type Server struct {
 	seedMeta     *seedMeta
 	statsMu      sync.RWMutex
 	stats        *statsPayload
+	// inFlight is the cap on requests handled at once (withInFlightCap). A
+	// pointer swapped whole, so SetMaxInFlight is safe while serving.
+	inFlight atomic.Pointer[inFlightSlots]
 }
 
 func New(es *elasticsearch.Client, static fs.FS, logW io.Writer, now func() time.Time) *Server {
@@ -78,6 +82,7 @@ func New(es *elasticsearch.Client, static fs.FS, logW io.Writer, now func() time
 		now:       now,
 		esTimeout: esRequestTimeout,
 	}
+	s.inFlight.Store(&inFlightSlots{slots: make(chan struct{}, DefaultMaxInFlight)})
 	s.mux.HandleFunc("GET /livez", s.handleLivez)
 	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
 	s.mux.HandleFunc("GET /api/search", s.handleSearch)
@@ -118,7 +123,10 @@ func New(es *elasticsearch.Client, static fs.FS, logW io.Writer, now func() time
 	// Compression sits between them: outside the mux, so it can never see the
 	// 304 withStaticCache returns from inside it, and inside observability, so
 	// the access line's byte count reports what actually went on the wire.
-	s.handler = s.withObservability(s.withGzip(s.withSecurityHeaders(s.withAPIKey(s.withAPIMethodCheck(s.mux)))))
+	// The cap on requests in flight sits just inside the security headers, so
+	// a refused request is identified, logged and hardened like any other and
+	// reaches nothing behind it.
+	s.handler = s.withObservability(s.withGzip(s.withSecurityHeaders(s.withInFlightCap(s.withAPIKey(s.withAPIMethodCheck(s.mux))))))
 	return s
 }
 
@@ -705,11 +713,14 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 // Error codes in the M3 contract. invalid_param is the client's fault (400);
 // es_unavailable is ours (503); method_not_allowed is a known /api/ path asked
-// for with a method it does not answer (405).
+// for with a method it does not answer (405); overloaded is a request refused
+// because the server already handles as many as it admits at once (503, with
+// Retry-After).
 const (
 	codeInvalidParam     = "invalid_param"
 	codeESUnavailable    = "es_unavailable"
 	codeMethodNotAllowed = "method_not_allowed"
+	codeOverloaded       = "overloaded"
 )
 
 type errorDetail struct {

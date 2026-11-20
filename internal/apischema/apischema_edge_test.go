@@ -187,7 +187,7 @@ func TestErrorSchemaCodeAndRequestIDBoundaries(t *testing.T) {
 			"request_id": requestID,
 		}
 	}
-	for _, code := range []string{"invalid_param", "not_found", "unauthorized", "es_unavailable"} {
+	for _, code := range []string{"invalid_param", "not_found", "unauthorized", "es_unavailable", "method_not_allowed", "overloaded"} {
 		if bad := mustViolations(t, schemas, "error.json", envelope(code, "abc")); len(bad) > 0 {
 			t.Errorf("code %q is one the server emits, but the schema rejects it: %v", code, bad)
 		}

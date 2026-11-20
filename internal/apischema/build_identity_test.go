@@ -150,11 +150,13 @@ func startStackStep(t *testing.T) []string {
 }
 
 // beforeYAMLComment cuts a YAML scalar at its trailing comment: a `#` that
-// follows whitespace starts one, while a `#` glued to the text (as in
-// "${GITHUB_SHA:0:7}") is part of the value.
+// follows whitespace starts one, while a `#` glued to the text (as in "v1#rc")
+// is part of the value. v is what follows `NAME: `, so the space the caller
+// stripped counts as the whitespace before a `#` at index 0: `NAME: # note`
+// is an empty value, which compose treats as unset.
 func beforeYAMLComment(v string) string {
-	for i := 1; i < len(v); i++ {
-		if v[i] == '#' && (v[i-1] == ' ' || v[i-1] == '\t') {
+	for i := 0; i < len(v); i++ {
+		if v[i] == '#' && (i == 0 || v[i-1] == ' ' || v[i-1] == '\t') {
 			return v[:i]
 		}
 	}
@@ -232,6 +234,24 @@ func TestStampValueReadsBothSpellings(t *testing.T) {
 		if got, ok := stampValue(shell, name); !ok || got != want {
 			t.Errorf("stampValue(%s) = %q, %v; want %q, true", name, got, ok, want)
 		}
+	}
+	// YAML values end at a comment that follows whitespace, and a value that
+	// starts with one is empty.
+	for _, tc := range []struct{ line, want string }{
+		{"V: # c", ""},
+		{"V: #", ""},
+		{"V: ''  # c", ""},
+		{"V: v1#rc", "v1#rc"},
+		{"V: v1 # c", "v1"},
+		{"V: v1\t# c", "v1"},
+	} {
+		if got, ok := stampValue([]string{tc.line}, "V"); !ok || got != tc.want {
+			t.Errorf("stampValue(%q) = %q, %v; want %q, true", tc.line, got, ok, tc.want)
+		}
+	}
+	// A tab straight after the colon is not the `NAME: value` form: no entry.
+	if got, ok := stampValue([]string{"V:\t# c"}, "V"); ok && got != "" {
+		t.Errorf("stampValue of a tab-only entry = %q, %v; want no entry or empty", got, ok)
 	}
 	if _, ok := stampValue(step, "MISSING"); ok {
 		t.Error("stampValue found a name the step does not set")

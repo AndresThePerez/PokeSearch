@@ -246,3 +246,22 @@ func TestGoSumCoversEveryRequiredModule(t *testing.T) {
 		t.Fatal("found no requirements in go.mod")
 	}
 }
+
+// A YAML value that is only a comment is null: `VERSION: # set later` leaves
+// VERSION empty, docker-compose.yml falls back to "dev", and the image is built
+// unstamped. The stamp reader must see an empty value there, while a `#` inside
+// a quoted or glued value is no comment and an empty quoted value stays empty.
+func TestStampValueTreatsACommentOnlyYAMLValueAsEmpty(t *testing.T) {
+	for _, tc := range []struct{ line, name, want string }{
+		{"VERSION: # set by the release job", "VERSION", ""},
+		{"COMMIT: #", "COMMIT", ""},
+		{"BUILT:\t# later", "BUILT", ""},
+		{"BUILT: ''  # empty on purpose", "BUILT", ""},
+		{"VERSION: v1#rc", "VERSION", "v1#rc"},
+	} {
+		got, ok := stampValue([]string{tc.line}, tc.name)
+		if ok && got != tc.want {
+			t.Errorf("stampValue(%q, %s) = %q; want %q", tc.line, tc.name, got, tc.want)
+		}
+	}
+}

@@ -765,11 +765,11 @@ main { min-width: 0; }
 
 #empty-message { margin: 0; }
 
-/* The did-you-mean button only exists on a zero-result search (D8), so it can
-   afford to be the most prominent thing on an otherwise empty screen. The
-   banner's retry and the empty card's two ways out are the same kind of offer
-   after a different kind of dead end, so they wear the same pill rather than
-   introducing a second one. */
+/* The did-you-mean button is a correction to take, offered under the message
+   of a search that found nothing and, when a correction comes with cards,
+   above them. The banner's retry and the empty card's two ways out are the
+   same kind of offer after a different kind of dead end, so they wear the same
+   pill rather than introducing a second one. */
 #did-you-mean,
 #retry-search,
 #empty-clear,
@@ -790,6 +790,8 @@ main { min-width: 0; }
 #empty-clear:hover,
 #empty-browse:hover { border-color: var(--accent-strong); background: rgba(230, 57, 76, .22); }
 #did-you-mean strong { color: var(--accent-strong); font-weight: 600; }
+/* Above the results it sits on the page rather than in the empty card. */
+main > #did-you-mean { margin: 0 0 1rem; }
 /* A correction to take and a way out of the state can be offered together, so
    the card's action keeps a gap rather than touching the pill beside it. */
 #empty-clear,
@@ -1581,6 +1583,7 @@ body.route-stats #results-grid,
 body.route-stats #load-more,
 body.route-stats #results-end,
 body.route-stats #empty-state,
+body.route-stats #did-you-mean,
 body.route-stats #degraded-banner,
 body.route-stats #search-notice,
 body.route-stats #landing,

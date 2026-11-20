@@ -184,18 +184,19 @@ function watchSearchLoading() {
   notify();
 }
 
-// The example searches, on the landing and in the empty state. Pressing one is
-// the same as typing it and pressing Enter: the box holds it, the search is
-// committed (one history entry, or none when the address already holds it),
-// and focus then moves to what it found, as after Enter. The button pressed
-// usually disappears with the state it sat in, which leaves focus on the
-// body; focus the visitor has moved elsewhere by then is left alone.
-let examplePresses = 0;
+// The example searches, on the landing and in the empty state, and the
+// spelling correction. Pressing one is the same as typing its query and
+// pressing Enter: the box holds it, the filters stay, the search is committed
+// (one history entry, or none when the address already holds it), and focus
+// then moves to what it found, as after Enter. The button pressed usually
+// disappears with the state it sat in, which leaves focus on the body; focus
+// the visitor has moved elsewhere by then is left alone.
+let queryPresses = 0;
 
-async function runExample(button) {
-  const press = ++examplePresses;
+async function runPressedQuery(q, pressed) {
+  const press = ++queryPresses;
   closeSuggestions();
-  state.q = button.dataset.q;
+  state.q = q;
   state.sort = "";
   state.order = "";
   syncControls();
@@ -206,8 +207,8 @@ async function runExample(button) {
   const active = document.activeElement;
   const target = enterFocusTarget({
     outcome,
-    inBox: active === button || active === document.body || active === null,
-    superseded: press !== examplePresses,
+    inBox: active === pressed || active === document.body || active === null,
+    superseded: press !== queryPresses,
   });
   if (target) document.getElementById(target).focus();
 }
@@ -216,7 +217,7 @@ function bindExampleEvents() {
   for (const group of [$("landing-examples"), $("empty-examples")]) {
     group.addEventListener("click", (event) => {
       const button = event.target.closest("button[data-q]");
-      if (button) runExample(button);
+      if (button) runPressedQuery(button.dataset.q, button);
     });
   }
 }
@@ -305,19 +306,12 @@ function bindCoreEvents() {
     }
   });
 
-  // The DSL only comes back when the panel is open, so opening it after a
-  // search has to fetch once to fill it. Closing fires this too — hence the
-  // open check, which also stops the re-fetch looping.
-  // Taking a correction is a search the user asked for, so it earns a history
-  // entry — Back returns to what they actually typed.
+  // Taking a correction is a search the visitor asked for, committed as an
+  // Enter would commit it: one history entry, so Back returns to what they
+  // actually typed, and the filters kept.
   $("did-you-mean").addEventListener("click", (event) => {
-    const suggestion = event.currentTarget.dataset.suggestion;
-    if (!suggestion) return;
-    state.q = suggestion;
-    state.sort = "";
-    state.order = "";
-    syncControls();
-    runSearch({ push: true });
+    const button = event.currentTarget;
+    if (button.dataset.q) runPressedQuery(button.dataset.q, button);
   });
 
   // The empty card's two ways out. Both are searches the reader asked for, so
@@ -335,6 +329,9 @@ function bindCoreEvents() {
     runSearch({ push: true });
   });
 
+  // The DSL only comes back when the panel is open, so opening it after a
+  // search has to fetch once to fill it. Closing fires this too — hence the
+  // open check, which also stops the re-fetch looping.
   $("query-inspector").addEventListener("toggle", () => {
     const action = queryPanelRequest($("query-inspector").open, lastResponseHadDSL());
     if (action === "none") return;

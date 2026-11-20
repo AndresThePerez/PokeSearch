@@ -26,24 +26,47 @@ export function setFilterChangeHandler(fn) {
 }
 
 
-// renderDidYouMean offers the server's spelling correction on the empty state.
-// It only ever appears on a zero-result search, so it cannot compete with the
-// autocomplete list the user was being offered while typing.
-//
-// Unlike the filter chips, this button is static markup that is never
-// replaced, so main.js binds its click once at startup and this only has to
-// paint it — no injected handler needed.
-function renderDidYouMean(suggestion) {
+const CORRECTION_BEFORE = "Did you mean ";
+const CORRECTION_AFTER = "?";
+
+// correctionView decides what the page does with the spelling correction a
+// response carries: whether it is offered, where, what the button says and
+// the query pressing it runs. It goes with the empty-state message when the
+// search found nothing and above the results when it found some. A response
+// with no correction, or one that names the query already searched, offers
+// none. A page that Load more appends answers the same search, so it returns
+// null: the correction stays as it is.
+export function correctionView({ suggestion, total, q = "", append = false }) {
+  if (append) return null;
+  const query = typeof suggestion === "string" ? suggestion.trim() : "";
+  if (!query || query.toLowerCase() === String(q).trim().toLowerCase()) return { shown: false };
+  return {
+    shown: true,
+    place: total === 0 ? "empty" : "results",
+    query,
+    text: `${CORRECTION_BEFORE}${query}${CORRECTION_AFTER}`,
+  };
+}
+
+// renderDidYouMean paints the correction. It is one button that moves: right
+// after the empty-state message on a search that found nothing, so it is the
+// next thing read after the message that takes focus, and above the badge
+// legend and the grid on a search that found cards. Its accessible name is its
+// own text. The button is static markup, so main.js binds its click once at
+// startup and this only has to paint and place it.
+function renderDidYouMean(view) {
+  if (!view) return;
   const button = $("did-you-mean");
-  button.hidden = !suggestion;
-  if (!suggestion) return;
+  button.hidden = !view.shown;
+  if (!view.shown) return;
+  if (view.place === "empty") $("empty-message").after(button);
+  else $("badge-legend").before(button);
   button.replaceChildren(
-    document.createTextNode("Did you mean "),
-    element("strong", "", suggestion),
-    document.createTextNode("?"),
+    document.createTextNode(CORRECTION_BEFORE),
+    element("strong", "", view.query),
+    document.createTextNode(CORRECTION_AFTER),
   );
-  button.setAttribute("aria-label", `Search for ${suggestion} instead`);
-  button.dataset.suggestion = suggestion;
+  button.dataset.q = view.query;
 }
 
 export function renderResults(data, { append = false, roundTripMs = 0 } = {}) {
@@ -60,7 +83,7 @@ export function renderResults(data, { append = false, roundTripMs = 0 } = {}) {
   });
   $("empty-state").hidden = data.total !== 0;
   if (data.total === 0) $("empty-message").textContent = emptyStateMessage(state);
-  renderDidYouMean(data.did_you_mean);
+  renderDidYouMean(correctionView({ suggestion: data.did_you_mean, total: data.total, q: state.q, append }));
   $("results-grid").hidden = data.total === 0;
   renderGuide({ total: data.total, matched: data.matched });
   renderStats(data, roundTripMs);

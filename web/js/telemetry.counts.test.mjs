@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { archiveCountLine, setCodeAndNumber, labWeights } from "./telemetry.js";
+import { archiveCountLine, setCodeAndNumber, labWeights, labCardCode, BRANCHES } from "./telemetry.js";
 
 const n = (value) => value.toLocaleString();
 
@@ -79,4 +79,33 @@ test("each weight is labelled with the branch it boosts", () => {
 test("a weight the profile does not carry shows a dash, not a number", () => {
   assert.deepStrictEqual(labWeights({ exact: 8 }), ["exact ×8", "prefix —", "fuzzy —"]);
   assert.deepStrictEqual(labWeights(undefined), ["exact —", "prefix —", "fuzzy —"]);
+});
+
+// labCardCode: the set code and number line under a lab row's name
+
+test("a lab row's code line is the set code and the number", () => {
+  assert.equal(labCardCode("cel25c-17_A"), "cel25c #17_A");
+  assert.equal(labCardCode("ex10-?"), "ex10 #?");
+});
+
+test("a lab row's code line never starts with a space or ends on a lone mark", () => {
+  assert.equal(labCardCode("-17"), "#17", "no set code");
+  assert.equal(labCardCode("promo"), "promo", "no dash");
+  assert.equal(labCardCode("abc-"), "abc", "no number");
+  assert.equal(labCardCode("-"), "");
+  assert.equal(labCardCode(""), "");
+  assert.equal(labCardCode(undefined), "");
+  for (const id of ["-17", "promo", "abc-", "-", "a-b", " x-1"]) {
+    const line = labCardCode(id);
+    assert.doesNotMatch(line, /^\s|\s$|^#$|\s#$/, JSON.stringify(id));
+  }
+});
+
+// The fuzzy branch matches correctly spelled names as well, so its words must
+// not say the name was misspelled.
+
+test("the fuzzy badge says what the branch allows, not that a typo was made", () => {
+  const { meaning } = BRANCHES["fuzzy-name"];
+  assert.doesNotMatch(meaning, /with a typo/);
+  assert.match(meaning, /allowing/);
 });

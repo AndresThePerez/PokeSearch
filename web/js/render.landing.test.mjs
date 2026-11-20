@@ -6,6 +6,8 @@ import {
   badgeLegend,
   badgeTitle,
   branchLabel,
+  legendHiddenWhenStale,
+  cardBranches,
 } from "./render.js";
 import { defaults } from "./state.js";
 
@@ -90,4 +92,31 @@ test("a badge's tooltip says the same words as its legend entry", () => {
 test("each known branch means something different", () => {
   const meanings = badgeLegend([["exact"]]).map((entry) => entry.meaning);
   assert.equal(new Set(meanings).size, 4);
+});
+
+// legendHiddenWhenStale: the legend after a search that failed or was refused
+
+test("after a failed or refused search the legend goes when no card on screen carries a badge", () => {
+  assert.equal(legendHiddenWhenStale({ stale: true, badgedCards: 0 }), true);
+});
+
+test("the legend stays while badged cards from the last search are still on screen, and on any search that worked", () => {
+  assert.equal(legendHiddenWhenStale({ stale: true, badgedCards: 12 }), false);
+  assert.equal(legendHiddenWhenStale({ stale: false, badgedCards: 0 }), false);
+  assert.equal(legendHiddenWhenStale({ stale: false, badgedCards: 24 }), false);
+});
+
+// cardBranches: one card's badges, read from a response's matched field
+
+test("a card's branches are its entry in matched, in order", () => {
+  assert.deepStrictEqual(cardBranches([["exact", "text"], ["prefix"]], 0), ["exact", "text"]);
+  assert.deepStrictEqual(cardBranches([["exact", "text"], ["prefix"]], 1), ["prefix"]);
+  assert.deepStrictEqual(cardBranches([["exact"]], 5), [], "a card past the end has none");
+});
+
+test("a matched field of the wrong shape gives a card no badges, and only non-empty strings are badges", () => {
+  for (const matched of [undefined, null, "exact", 5, { 0: ["exact"] }, [null], ["exact"], [{}]]) {
+    assert.deepStrictEqual(cardBranches(matched, 0), [], JSON.stringify(matched));
+  }
+  assert.deepStrictEqual(cardBranches([["exact", "", null, 42, "text"]], 0), ["exact", "text"]);
 });

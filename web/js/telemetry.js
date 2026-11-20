@@ -66,7 +66,7 @@ const BLANK = "—";
 export const BRANCHES = Object.freeze({
   exact: Object.freeze({ label: "exact", meaning: "whole name" }),
   prefix: Object.freeze({ label: "prefix", meaning: "start of a name" }),
-  "fuzzy-name": Object.freeze({ label: "fuzzy", meaning: "name with a typo" }),
+  "fuzzy-name": Object.freeze({ label: "fuzzy", meaning: "name, allowing a typo" }),
   text: Object.freeze({ label: "text", meaning: "card text, set or artist" }),
 });
 
@@ -76,8 +76,9 @@ function isCount(value) {
   return Number.isInteger(value) && value >= 0;
 }
 
+// Zero is written "0": JSON can carry -0, which toLocaleString keeps signed.
 function plural(count, one, many) {
-  return `${count.toLocaleString()} ${count === 1 ? one : many}`;
+  return `${(count === 0 ? 0 : count).toLocaleString()} ${count === 1 ? one : many}`;
 }
 
 // archiveCountLine is what the header and the search box say about the
@@ -366,6 +367,14 @@ export function setCodeAndNumber(id) {
   return { set: value.slice(0, at), number: value.slice(at + 1) };
 }
 
+// labCardCode is the line under a lab row's name: the set code and the number,
+// each left out when the id has none, so the line never starts with a space or
+// ends on a lone "#".
+export function labCardCode(id) {
+  const { set, number } = setCodeAndNumber(id);
+  return [set.trim(), number.trim() ? `#${number.trim()}` : ""].filter(Boolean).join(" ");
+}
+
 // labWeights labels each weight a profile carries with the badge word of the
 // branch it boosts, so "8" reads as "exact ×8".
 export function labWeights(boosts) {
@@ -384,11 +393,15 @@ function labColumn(side, deltas) {
   for (const row of side.results ?? []) {
     const item = element("li", "lab-row");
     item.title = `${row.id} · score ${row.score}`;
-    const { set, number } = setCodeAndNumber(row.id);
+    // The name keeps the cell's whole width; the set code and number sit on a
+    // smaller line under it, so two cards with one name can be told apart.
+    const card = element("span", "lab-card");
+    card.append(element("span", "lab-name", row.name || row.id));
+    const code = labCardCode(row.id);
+    if (code) card.append(element("span", "lab-code", code));
     item.append(
       element("span", "lab-rank", String(row.rank)),
-      element("span", "lab-name", row.name || row.id),
-      element("span", "lab-code", number ? `${set} #${number}` : set),
+      card,
       labDelta(deltas.get(row.id)),
     );
     list.append(item);

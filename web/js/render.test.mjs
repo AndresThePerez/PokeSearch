@@ -69,8 +69,7 @@ test("branchLabel shortens the fuzzy name branch and keeps the others", () => {
 test("branchLabel shows an unknown branch under its raw name, and reads inherited names as they are", () => {
   assert.equal(branchLabel("phonetic"), "phonetic");
   assert.equal(branchLabel(""), "");
-  // The lookup reads inherited names too, so today this returns the
-  // Object constructor rather than the string. Pinned as it behaves; the
-  // server only ever sends the four known branch names.
-  assert.equal(branchLabel("constructor"), Object.prototype.constructor);
+  // A branch named like an object key is still a name the page does not
+  // know, so it is shown as it is, never as what the prototype holds.
+  assert.equal(branchLabel("constructor"), "constructor");
 });

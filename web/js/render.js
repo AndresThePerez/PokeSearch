@@ -97,14 +97,16 @@ export function emptyStateMessage(from) {
   return q ? `No cards match "${q}".` : "No cards to show.";
 }
 
-// The word each branch's badge shows, read off BRANCHES.
+// The word each branch's badge shows, read off BRANCHES. Lookups go through
+// Object.hasOwn, so a branch named like an object key ("constructor") is shown
+// under its own name rather than as whatever the prototype holds.
 const BRANCH_LABELS = Object.fromEntries(Object.entries(BRANCHES).map(([name, { label }]) => [name, label]));
 
 // branchLabel is the word a branch's badge shows, or, for a branch the server
 // added after this page was written, its raw name, so it shows up rather than
 // vanishing.
 export function branchLabel(name) {
-  return BRANCH_LABELS[name] ?? name;
+  return Object.hasOwn(BRANCH_LABELS, name) ? BRANCH_LABELS[name] : name;
 }
 
 function branchMeaning(name) {
@@ -117,13 +119,21 @@ export function badgeTitle(name) {
   return `${branchLabel(name)}: ${branchMeaning(name)}`;
 }
 
+// cardBranches reads one card's matched branches from a response. matched
+// comes from the server: a shape it should not have means no badges, and only
+// non-empty strings count as branch names.
+export function cardBranches(matched, index) {
+  const row = Array.isArray(matched) ? matched[index] : undefined;
+  return Array.isArray(row) ? row.filter((name) => typeof name === "string" && name !== "") : [];
+}
+
 // badgeLegend is the legend for a page of results, given each card's matched
 // branches. Results with no badge get none. Otherwise it names every branch
 // the page knows, in badge order, whether or not this page shows it, so the
 // line reads the same on every search; a branch the page has no words for is
 // added after them, in the order it first appears.
 export function badgeLegend(matched) {
-  const seen = (matched ?? []).flat();
+  const seen = (Array.isArray(matched) ? matched : []).flatMap((_, index) => cardBranches(matched, index));
   if (seen.length === 0) return [];
   const names = [...Object.keys(BRANCHES)];
   for (const name of seen) if (!names.includes(name)) names.push(name);
@@ -140,8 +150,6 @@ function badgeStrip(names) {
   for (const name of names) {
     const badge = element("i", `match-badge match-${name}`, branchLabel(name));
     badge.title = badgeTitle(name);
-    badge.setAttribute("role", "img");
-    badge.setAttribute("aria-label", badgeTitle(name));
     strip.append(badge);
   }
   return strip;
@@ -347,7 +355,7 @@ function renderGrid(cards, { append = false, page = 1, matched, highlights } = {
     // The map stores the pair, not the card: the modal needs both, and two
     // parallel maps keyed by id are two things that can disagree.
     cardsByID.set(card.id, { card, highlight });
-    const branches = matched?.[index] ?? [];
+    const branches = cardBranches(matched, index);
     const item = document.createElement("li");
     item.className = "card-cell";
 
@@ -563,7 +571,18 @@ function makeSkeleton() {
 export function setStale(isStale) {
   const grid = $("results-grid");
   grid.classList.toggle("is-stale", isStale);
+  if (legendHiddenWhenStale({ stale: isStale, badgedCards: grid.querySelectorAll(".match-badges").length })) {
+    $("badge-legend").hidden = true;
+  }
   grid.setAttribute("aria-busy", String(isStale || grid.classList.contains("is-loading")));
+}
+
+// legendHiddenWhenStale decides whether the badge legend goes after a search
+// that failed or was refused: it does when no card left on screen carries a
+// badge (the line was only held for results that never came), and stays over
+// the previous search's badged cards.
+export function legendHiddenWhenStale({ stale, badgedCards }) {
+  return Boolean(stale) && !(badgedCards > 0);
 }
 
 // skeletonCount is how many placeholder cards a loading first page draws: one
